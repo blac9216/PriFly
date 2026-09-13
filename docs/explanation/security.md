@@ -22,7 +22,9 @@ v1 does **not** promise survival of permanent R2 account loss, permanent Git hos
 
 ## Worker execution boundary
 
-PriFly v1 uses ephemeral Worker identities, dedicated worktrees, root-owned Factory state, Factory-owned provider credentials, and a Worker-only Docker daemon to prevent ordinary workflow mistakes from becoming control-plane mutations. The shared Worker Docker daemon is not an adversarial security boundary. Stronger hostile-code containment is intentionally deferred behind `SandboxProvider`.
+PriFly v1 uses ephemeral attempt-scoped Worker identities, dedicated worktrees, root-owned Factory state, Factory-owned provider credentials, and a Worker-only Docker daemon to prevent ordinary workflow mistakes from becoming control-plane mutations. The shared Worker Docker daemon is not an adversarial security boundary. Stronger hostile-code containment is intentionally deferred behind `SandboxProvider`.
+
+Attempt identity retirement is part of that accidental-isolation guarantee: after an attempt ends, its OS identity/UID cannot be reused for a later attempt while surviving resources from the earlier attempt could become accessible through that reuse. Uncertain cleanup quarantines the identity until resources are removed/safely isolated or the disposable execution environment is reset. The concrete UID allocation mechanism is an implementation detail; safe non-inheritance is not.
 
 ## Privileged operations
 
