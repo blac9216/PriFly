@@ -1,6 +1,6 @@
 # ADR-0007: Treat external providers as projections with durable obligations
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-13
 
 ## Context
