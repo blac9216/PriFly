@@ -1,6 +1,6 @@
 # ADR-0018: Use structured canonical contracts with deterministic rendering
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-13
 
 ## Context
@@ -61,10 +61,12 @@ The following are part of that decision:
 5. **Separate structural and semantic validation.** JSON Schema validates structure. Go/domain policy validates authority, state, graphs, freshness, reconstructibility, and other cross-object invariants.
 6. **Keep transport and persistence replaceable.** HTTP paths/verbs, IPC path names, cursor encoding, Go structs/packages, SQLite table layout, and schema-file directory layout are not architectural contracts unless a later decision proves that their exact form affects a durable guarantee.
 7. **Treat executable JSON Schemas as implementation artifacts conforming to the canonical reference.** They are committed when a family has a real producer/consumer, rather than creating speculative executable-looking schemas with no implementation.
+8. **Separate immutable evidence/decision subjects from mutable lifecycle projections.** Immutable certificates, manifests, baselines, and Route versions are never edited to represent later status; revisioned status/admission objects or later immutable bindings reference them instead.
+9. **Do not turn publication uncertainty into a terminal command result.** `RELEASED` and provably final `REJECTED` are definitive dispositions; unresolved durability/publication is explicit nonfinal status resolved with the same command identity.
 
 ## Consequences
 
-PriFly gains a stable semantic language before the PRD and Work Items are decomposed. Pilot, Bridge, Workers, Factory subsystems, verification, recovery, and provider adapters can be implemented independently without redefining core contracts.
+PriFly gains a stable semantic language before feature decomposition and Work Items are created. Pilot, Bridge, Workers, Factory subsystems, verification, recovery, and provider adapters can be implemented independently without redefining core contracts.
 
 Schema families, logical operation versions, and migrations become explicit product concerns. More changes will require deliberate schema/version evolution instead of silently adding fields. Historical Event/certificate/baseline semantics remain interpretable under their original versions.
 
