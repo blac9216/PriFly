@@ -1,6 +1,6 @@
 # ADR-0015: Use pluggable code intelligence with exact provenance
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-13
 
 ## Context
