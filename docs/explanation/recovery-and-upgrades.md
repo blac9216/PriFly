@@ -86,7 +86,8 @@ PriFly periodically restores Factory state into disposable storage and validates
 - domain/schema invariants;
 - preservation of authoritative historical metrics;
 - the published coordination frontier;
-- required Recovery Root Manifest dependencies for the tested checkpoint.
+- required Recovery Root Manifest dependencies for the tested checkpoint;
+- exact reconstructibility of every Published Frontier that remains protected by the coordination record or a supported Recovery Root Manifest under the configured replica compaction/retention behavior.
 
 v1 keeps at least one verified known-good recovery root protected from ordinary cleanup until a newer root is verified and authoritatively replaces it.
 
@@ -94,7 +95,7 @@ A Recovery Root Manifest identifies the required external closure for the suppor
 
 This protection addresses ordinary retention/cleanup mistakes under the declared local-host-loss failure model. It does not claim resistance to malicious destruction of the entire cloud account.
 
-Major persistence, coordination, artifact-retention, migration, or recovery changes require a recovery simulation that exercises the published-frontier protocol and an empty-host restore.
+Major persistence, coordination, artifact-retention, migration, or recovery changes require a recovery simulation that exercises the published-frontier protocol and an empty-host restore. The minimum failure-injection oracles are collected in [Implementation conformance](../reference/conformance.md).
 
 ## Factory updates and rollback cutoff
 
@@ -134,6 +135,27 @@ Each applied migration is recorded in a migration ledger containing at least:
 
 An already-recorded migration ID with a different checksum is a hard compatibility failure. A migration becomes immutable when it lands on `main`; unmerged branches may replace their migration before merge when integration requires it.
 
+### Ordered migration-lineage invariant
+
+For each supported schema baseline/epoch, the applied migration history must be a valid **ordered prefix** of the canonical migration lineage for that baseline. Factory never silently skips a canonical migration below the recorded high-water mark and never applies a newly discovered lower-ID migration after higher migrations have already been applied unless an explicitly designed future migration scheme proves that ordering safe.
+
+Therefore, in v1:
+
+```text
+canonical applied frontier = ...20
+late branch proposes migration ...10
+        ↓
+REJECT / REGENERATE BEFORE MERGE
+        ↓
+new migration ID > canonical frontier
+        ↓
+revalidate against current baseline + pending lineage
+```
+
+If a unique, syntactically valid migration arrives below the canonical applied frontier, integration/admission fails closed. Before merge, the unshipped migration is regenerated with an ID after the relevant canonical frontier and revalidated against the current schema. The migration library is not permitted to choose different semantics implicitly.
+
+Fresh creation and every supported sequential upgrade path must traverse the same declared ordered lineage and converge on semantically equivalent schema/domain state.
+
 PriFly deliberately has no paired `down` migration contract. Before the rollback cutoff, the durable pre-upgrade checkpoint is the rollback mechanism. After the cutoff, recovery is roll-forward.
 
 ### Pre-v1 consolidation
@@ -167,6 +189,8 @@ After v1, migrations required by a supported release-to-release upgrade path are
 CI and release conformance must test:
 
 - migration ID syntax and uniqueness;
+- ordered-prefix validity for the declared baseline/epoch;
+- rejection of late lower-ID migrations below an already-applied frontier;
 - immutable checksums for shipped migrations;
 - fresh creation from the current baseline plus pending migrations;
 - every declared supported release-to-release upgrade path;
@@ -180,7 +204,7 @@ The concrete Go migration library, source-tree path, migration transaction wrapp
 Before the upgraded Factory accepts new authoritative mutations it verifies, at minimum:
 
 - SQLite integrity;
-- migration ledger integrity and expected baseline/epoch;
+- migration ledger integrity, ordered-prefix validity, and expected baseline/epoch;
 - schema/domain invariants;
 - compatibility manifest;
 - R2 replication/durability;
@@ -191,11 +215,11 @@ Before the upgraded Factory accepts new authoritative mutations it verifies, at 
 
 ### Rollback cutoff
 
-Rollback to the pre-upgrade checkpoint is permitted only **before** the upgraded Factory acknowledges its first new AUTHORITATIVE mutation.
+Rollback to the pre-upgrade checkpoint is permitted only **before the upgraded Factory first successfully publishes new authoritative state through the coordination record**.
 
-After the first new authoritative acknowledgement, checkpoint rollback is closed. Recovery is **roll-forward**.
+The successful coordination publication is the cutoff even if its response to the caller is lost or temporarily cannot be read back. After that publication, checkpoint rollback is closed and recovery is **roll-forward**. A lost reply cannot reopen rollback authority.
 
-This avoids discarding post-upgrade owner decisions/results/provider facts.
+This avoids discarding post-upgrade owner decisions/results/provider facts that have already entered authoritative published history.
 
 ### Versioned compatibility
 
