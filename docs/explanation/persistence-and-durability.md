@@ -64,7 +64,7 @@ AUTHORITATIVE mutations must satisfy the durable acknowledgement protocol below 
 
 Large diagnostic/evidence objects live outside SQLite, normally in R2, with hashes/metadata/references in SQLite.
 
-Code artifacts use Git as described in [Execution architecture](execution.md#git-durability-and-worker-code-lifecycle).
+Code artifacts use Git as described in [Git artifact recovery](execution.md#git-artifact-recovery).
 
 ## Single mutation path
 
@@ -95,6 +95,8 @@ RECEIVED
 
 Until final coordination publication succeeds, the mutation is not returned as authoritative success, exposed as a released authoritative Query result, emitted as a final owner-visible success Event, used to release dependent authoritative scheduling, or allowed to dispatch consequential provider effects. Uploaded-but-unpublished database tails are recoverable bytes but are **not authoritative history**.
 
+If Factory cannot determine whether the publication CAS succeeded, the command has **no definitive disposition yet**. It must be resolved/read back/retried using the same command identity as defined by the [API contract](../reference/api-contract.md#nonfinal-command-status); publication uncertainty is not authoritative rejection.
+
 ### Application sequence and remote position
 
 Every authoritative SQLite transaction receives a monotonic Factory application sequence `N`. The durability adapter proves that the replica contains SQLite state through `N` and records the concrete remote restore position `T` required by the pinned Litestream integration.
@@ -104,6 +106,8 @@ SyncThrough(N) -> RemotePosition T
 ```
 
 The implementation must demonstrate that restoring through `T` contains transaction `N`. PriFly does not assume its application sequence and Litestream's internal transaction identifiers are numerically identical.
+
+The durability adapter must also preserve an **exactly reconstructible** published frontier for the entire period that the coordination record or any supported Recovery Root Manifest depends on that frontier. Passing an immediate restore test or recording a synced remote transaction identifier is insufficient if compaction, retention, chain expiry, or interrupted initialization can later make the published position unreconstructible. Retention/compaction policy therefore participates in the recovery guarantee.
 
 ### Coordination publication
 
@@ -143,7 +147,7 @@ Ephemeral telemetry/logging do not use this lane.
 - Crash before SQLite commit: the command did not occur.
 - Crash after local commit but before remote durability: no authoritative success exists.
 - Remote bytes exist but coordination publication did not occur: the tail is non-authoritative and may be discarded during recovery.
-- Coordination publication succeeds but the client response is lost: recovery restores through the published position and a retry returns the original command result.
+- Coordination publication succeeds but the publication/client response is lost: the command remains nonfinal to the caller until read-back/recovery proves the published result; recovery restores through the published position and a same-command retry returns the original `RELEASED` result.
 - Authoritative success returned: every permitted successor must restore at least the published frontier containing that result.
 
 No recursive receipt transaction is required; the CAS-published remote frontier is itself the recovery authorization.
@@ -194,7 +198,7 @@ After restore, validation, reconciliation, and establishment of the new replica,
 
 ### Lost CAS responses
 
-A lost publication/takeover CAS response is resolved by exact read-back of generation, Factory instance, state, and published sequence/position. Otherwise Factory fails closed and continues from the newly observed authoritative record.
+A lost publication/takeover CAS response is resolved by exact read-back of generation, Factory instance, state, and published sequence/position. If exact read-back is temporarily unavailable, Factory does not assert success **or rejection** for the affected command/transition. It fails closed operationally and resumes resolution from the newly observed authoritative record once available.
 
 ### Scope of fencing
 
