@@ -64,10 +64,18 @@ Docker-capable jobs receive attempt-scoped naming/project conventions. Factory's
 
 On normal cancellation/completion Factory revokes the job capability, terminates the harness/process tree, disables/removes known restartable Docker workloads, stops/removes attempt-owned containers/services, cleans attempt networks/volumes according to policy, and verifies no known attempt-owned workloads remain.
 
+### Worker identity retirement and safe reuse
+
+Each attempt-scoped OS identity is part of the attempt's runtime ownership boundary. After capability revocation and runtime cleanup, Factory removes or retires that identity before it may be reused.
+
+An identity/UID must **not** be reused in a way that grants a later attempt access to surviving files, sockets, processes, volumes, or other resources owned by an earlier attempt. If cleanup is interrupted or Factory cannot prove that residual UID-owned resources are gone or safely isolated, the identity remains quarantined and unavailable for reuse until reconciliation succeeds or the containing disposable execution environment is reset.
+
+The implementation may use a UID pool, delayed retirement, disposable namespaces, or another conforming mechanism; the safety property is that a new attempt never inherits access merely because an old numeric identity was recycled.
+
 ### Dirty shared-daemon fallback
 
 If Factory cannot establish that stale Docker/runtime work is gone, the Worker Docker daemon becomes `DIRTY`. Factory stops admitting new Docker jobs, pauses/requeues other Docker-dependent jobs as needed, destroys/recreates the disposable Worker Docker daemon environment/data root if necessary, and resumes only after the daemon is clean. Loss of Worker Docker image cache is acceptable.
 
 ### Recovery
 
-After Factory/Worker-Docker restart, the runtime adapter reconciles surviving resources before admitting new Docker work. No stale result from a cancelled/superseded attempt can regain acceptance authority.
+After Factory/Worker-Docker restart, the runtime adapter reconciles surviving resources **and retired/quarantined attempt identities** before admitting new work that could reuse them. No stale result from a cancelled/superseded attempt can regain acceptance authority.
