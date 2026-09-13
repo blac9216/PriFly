@@ -13,6 +13,7 @@ _(none yet)_
 ## Reference — facts and contracts
 - [Acceptance Contract](reference/acceptance-contract.md) — exact acceptance subject and evidence contract
 - [Api Contract](reference/api-contract.md) — Command, Query, Event and client authority semantics
+- [Implementation Conformance](reference/conformance.md) — failure-injection oracles required before implementation guarantees are claimed
 - [Planning Policy](reference/planning-policy.md) — initial planning authority and applicability policy
 - [Provider Operation Profiles](reference/provider-operation-profiles.md) — admitted provider operation semantics
 - [Schemas](reference/schemas.md) — canonical JSON schema families and versioning
