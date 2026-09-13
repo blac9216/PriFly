@@ -4,7 +4,7 @@ Kind: explanation
 
 The local PriFly host is disposable. v1 recovery is intentionally scoped to replacing that host while R2, Git remotes, accounts, and the independently retained Recovery Kit remain available.
 
-### 22.1 Recovery Kit
+### Recovery Kit
 
 v1 uses a small independently retained encrypted **Recovery Kit** rather than assuming local cached credentials survive.
 
@@ -20,7 +20,7 @@ A non-secret manifest may also be versioned in Git, but fresh-host recovery must
 
 The owner retains the Recovery Kit/root recovery material separately from the disposable PriFly host.
 
-### 22.2 Automated recovery
+### Automated recovery
 
 Given:
 
@@ -44,7 +44,7 @@ BOOTSTRAP
 
 Source/code work is recovered from configured Git remotes; Factory state/metrics are recovered from R2.
 
-### 22.3 Recovery goals
+### Recovery goals
 
 The practical v1 goal is:
 
@@ -175,7 +175,7 @@ CI and release conformance must test:
 
 The concrete Go migration library, source-tree path, migration transaction wrapper, and schema-fingerprint implementation are implementation choices. They must preserve this policy rather than redefine it.
 
-### 25.1 Health checks
+### Health checks
 
 Before the upgraded Factory accepts new authoritative mutations it verifies, at minimum:
 
@@ -189,7 +189,7 @@ Before the upgraded Factory accepts new authoritative mutations it verifies, at 
 - provider read/reconciliation access;
 - ability to restore the pre-upgrade checkpoint.
 
-### 25.2 Rollback cutoff
+### Rollback cutoff
 
 Rollback to the pre-upgrade checkpoint is permitted only **before** the upgraded Factory acknowledges its first new AUTHORITATIVE mutation.
 
@@ -197,7 +197,7 @@ After the first new authoritative acknowledgement, checkpoint rollback is closed
 
 This avoids discarding post-upgrade owner decisions/results/provider facts.
 
-### 25.3 Versioned compatibility
+### Versioned compatibility
 
 Factory binary, DB schema baseline/epoch, migration frontier, local API, Worker protocol, artifact schemas, and resolved execution manifests are versioned separately.
 
