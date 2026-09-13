@@ -4,7 +4,7 @@ Kind: explanation
 
 PriFly preserves compact semantic history and long-term learning metrics while allowing high-volume diagnostics and raw context to expire. Replayability is an explicit property, not something inferred from hashes after inputs are deleted.
 
-### 33.1 Historical metrics
+### Historical metrics
 
 Metrics used for long-term Factory learning are authoritative semantic state and are preserved across host loss.
 
@@ -20,11 +20,11 @@ Examples:
 - owner intervention;
 - estimate/impact prediction accuracy.
 
-### 33.2 Diagnostic artifacts
+### Diagnostic artifacts
 
 Large logs/evidence reside in R2 with retention metadata.
 
-### 33.3 Replayability is explicit
+### Replayability is explicit
 
 PriFly does not retain every prompt/context forever merely to preserve theoretical replay.
 
@@ -38,7 +38,7 @@ Deleting raw context may legitimately change replayability without invalidating 
 
 Experiments requiring exact replay may only select runs whose required inputs are retained.
 
-### 33.4 Auxiliary stores
+### Auxiliary stores
 
 If a harness/runtime maintains session history, caches, or pane history, the Route adapter declares whether those stores participate in retention/replay and ensures they are removed/disabled according to Factory policy for managed jobs.
 
