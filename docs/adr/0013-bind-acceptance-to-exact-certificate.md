@@ -1,6 +1,6 @@
 # ADR-0013: Bind acceptance to exact certificates and independent evidence
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-13
 
 ## Context
