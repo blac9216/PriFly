@@ -6,11 +6,11 @@ PriFly treats independent adversarial verification as a lifecycle property, not 
 
 ### Acceptance subject
 
-PriFly accepts an exact candidate, not an abstract Work Item. An immutable Acceptance Certificate binds at least the Planning Baseline, Work Item revision, implementation job attempt, exact candidate Git commit, target repository and base revision, verification-plan revision, Acceptance Evidence Manifest, Reviewer verdict, and governing policy version. Relevant changes invalidate it.
+PriFly accepts an exact candidate, not an abstract Work Item. An immutable Acceptance Certificate binds at least the Planning Baseline, Work Item revision, implementation job attempt, exact candidate Git commit, target repository and base revision, verification-plan revision, Acceptance Evidence Manifest, Reviewer verdict, and governing policy version. Relevant changes do not rewrite that certificate; they make it no longer current under the acceptance lifecycle projection.
 
 ### Acceptance Evidence Manifest
 
-Before acceptance can be released, Factory builds an immutable manifest that separates required evidence, optional diagnostics, and code recovery roots. Required evidence can include machine-observed verification summaries, required compatibility/migration/recovery objects, the exact verification execution manifest, and other artifacts explicitly required by policy. Every required external object carries immutable identity/hash, storage location, size/kind, and retention/root membership.
+Before acceptance can be released, Factory builds an immutable manifest that separates required evidence, optional diagnostics, and code recovery roots. Required evidence can include machine-observed verification summaries, required compatibility/migration/recovery objects, the exact verification execution manifest, and other artifacts explicitly required by policy. Every required external object carries immutable identity/hash, storage location, size/kind, and retention/root requirements fixed at acceptance time.
 
 ### Publish-before-acceptance ordering
 
@@ -28,11 +28,13 @@ Factory may not authoritatively accept a result while required evidence is pendi
 
 ### Recovery-root closure
 
-Each supported recovery/rollback checkpoint has an immutable Recovery Root Manifest identifying the external dependencies needed to honor the authoritative state it contains, including required R2 evidence/artifacts, accepted Git commit/ref recovery roots, and required key/secret generations. Cleanup protects both current active/accepted pins and every supported Recovery Root Manifest. Retiring a recovery root is itself authoritative; uncertain reachability leaks storage instead of deleting a potentially required object.
+Each supported recovery/rollback checkpoint has an immutable Recovery Root Manifest identifying the external dependencies needed to honor the authoritative state it contains, including required R2 evidence/artifacts, accepted Git commit/ref recovery roots, and required key/secret generations. A separate authoritative recovery-root lifecycle records whether that immutable manifest remains supported or has been retired. Cleanup protects both current active/accepted pins and every supported Recovery Root Manifest. Retiring a recovery root is itself authoritative; uncertain reachability leaks storage instead of deleting a potentially required object.
 
 ### Attempt identity and integration freshness
 
-Results carry exact job-attempt identity. Late results from cancelled/superseded attempts cannot revive old work. Candidate implementation is verified/reviewed, then integrated with the current target and reverified before merge eligibility. A target/base change invalidates integration eligibility unless the admitted integration protocol itself validates the exact resulting integration subject.
+Results carry exact job-attempt identity. Late results from cancelled/superseded attempts cannot revive old work. Candidate implementation is independently verified/reviewed and receives an immutable candidate Acceptance Certificate. Factory then constructs the exact integration subject against the **current** target/base and independently verifies that result before issuing a separate immutable integration binding/certificate for merge eligibility.
+
+The candidate Acceptance Certificate is never edited to add a later integration commit. A target/base change invalidates use of an existing integration binding unless the admitted integration protocol itself validates the exact resulting integration subject; PriFly constructs and verifies a new integration subject instead.
 
 ### Independent Verification Runner
 
