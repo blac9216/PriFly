@@ -7,7 +7,9 @@ AI Workers perform bounded jobs that benefit from inference, judgment, research,
 > **Big orchestration system, small cognitive jobs.**
 
 The project is currently in architecture-to-implementation transition. The canonical design set
-lives under [`docs/`](docs/README.md); start with the [vision](docs/explanation/vision.md),
+lives under [`docs/`](docs/README.md). A fresh reader should start with the
+[product definition](docs/explanation/product.md), then the
+[end-to-end product lifecycle](docs/explanation/product-lifecycle.md),
 [C4 architecture](docs/explanation/architecture.md), and the [ADR index](docs/adr/README.md).
 Canonical terminology is defined in [`CONTEXT.md`](CONTEXT.md).
 
@@ -18,5 +20,5 @@ The architecture is approved for implementation planning. That is **not** a clai
 ## Documentation rules
 
 This repository adopts the `design-docs` documentation framework. Decisions live in ADRs, durable
-system explanation lives in Diátaxis-organized docs, and committed design specs/planning transcripts
-are intentionally not used. See [`docs/doc-manifest.md`](docs/doc-manifest.md).
+product/system explanation lives in Diátaxis-organized docs, and committed design specs/planning transcripts
+or a duplicate monolithic PRD are intentionally not used. See [`docs/doc-manifest.md`](docs/doc-manifest.md).
