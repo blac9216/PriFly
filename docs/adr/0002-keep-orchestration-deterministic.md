@@ -1,6 +1,6 @@
 # ADR-0002: Keep orchestration deterministic and AI work bounded
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-13
 
 ## Context
