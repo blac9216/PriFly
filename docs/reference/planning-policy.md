@@ -4,7 +4,7 @@ Kind: reference
 
 PriFly separates **proposed semantic classification** from **effective authorization**.
 
-### 11.1 Mandatory concern inventory
+### Mandatory concern inventory
 
 Factory owns a versioned mandatory concern inventory. Candidate families include:
 
@@ -24,7 +24,7 @@ Factory owns a versioned mandatory concern inventory. Candidate families include
 
 A concern family not covered by the active policy remains `UNKNOWN` and cannot clear a blocking gate.
 
-### 11.2 Applicability state
+### Applicability state
 
 Each concern has:
 
@@ -40,7 +40,7 @@ A Worker may propose the first value. Only Factory policy can establish the seco
 
 `UNKNOWN` is always conservative.
 
-### 11.3 Initial effective authority table
+### Initial effective authority table
 
 The initial v1 policy uses the following minimum authority rules:
 
@@ -57,7 +57,7 @@ The initial v1 policy uses the following minimum authority rules:
 
 The table may evolve through versioned owner-approved policy changes, but **absence of a rule never becomes permission**.
 
-### 11.4 Protected triggers and trigger provenance
+### Protected triggers and trigger provenance
 
 Factory applies deterministic/procedural triggers where the project exposes independently observable surfaces.
 
@@ -75,7 +75,7 @@ Where PriFly cannot determine the protected condition from an admitted observabl
 
 AI semantic judgment may still provide evidence, but is represented as a reviewed assertion rather than deterministic fact.
 
-### 11.5 Delegation grants
+### Delegation grants
 
 A standing delegation is an owner/policy-authorized object with:
 
@@ -89,7 +89,7 @@ A Local decision is effective only if an applicable delegation covers it.
 
 Any protected-surface change, uncertainty, or cumulative scope expansion outside the grant invalidates the delegation and escalates.
 
-### 11.6 NOT_APPLICABLE transition
+### NOT_APPLICABLE transition
 
 A proposed `NOT_APPLICABLE` becomes effective only when:
 
