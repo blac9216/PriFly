@@ -3,6 +3,8 @@
 This repository follows the `design-docs` skill standard. This file records the adopted shape; the framework rules live in the skill and are not restated here.
 
 ## Design set
+- docs/explanation/product.md
+- docs/explanation/product-lifecycle.md
 - docs/explanation/architecture.md
 - docs/explanation/context-and-code-intelligence.md
 - docs/explanation/domain-model.md
@@ -49,4 +51,4 @@ CONTEXT.md at repo root · domain model: docs/explanation/domain-model.md
 Scripts source: scripts/docs/
 
 ## Design path
-Decisions are made through owner interrogation, decomposed through planning, recorded with design-docs author mode, and landed through the repository workflow. Specs, plans, interrogation records, and architecture-review transcripts are never committed. Adopted under ADR-0001.
+Decisions are made through owner interrogation, decomposed through planning, recorded with design-docs author mode, and landed through the repository workflow. Specs, plans, interrogation records, architecture-review transcripts, and duplicate monolithic PRDs are never committed. Durable product intent lives in `docs/explanation/product.md`; cross-subsystem product choreography lives in `docs/explanation/product-lifecycle.md`; detailed behavior remains in the owning canonical subsystem/reference docs. Adopted under ADR-0001.
