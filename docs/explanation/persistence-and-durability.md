@@ -4,7 +4,7 @@ Kind: explanation
 
 PriFly uses SQLite as canonical local state and R2/Litestream as the off-host durability path. The core rule is stronger than “the bytes were uploaded”: authoritative state is released only after its exact recoverable frontier is published through the coordination record.
 
-### 6.1 SQLite is canonical Factory state
+### SQLite is canonical Factory state
 
 SQLite stores compact authoritative state and semantic history, including:
 
@@ -25,7 +25,7 @@ Current-state rows and semantic Ledger Events change in the same SQLite transact
 
 PriFly does not require full event sourcing.
 
-### 6.2 Authoritative versus ephemeral data
+### Authoritative versus ephemeral data
 
 PriFly distinguishes ephemeral data from authoritative semantic state.
 
@@ -60,7 +60,7 @@ Examples:
 
 AUTHORITATIVE mutations must satisfy the durable acknowledgement protocol below before Factory publishes them as authoritative success or releases dependent authoritative work.
 
-### 6.3 Large artifacts
+### Large artifacts
 
 Large diagnostic/evidence objects live outside SQLite, normally in R2, with hashes/metadata/references in SQLite.
 
@@ -80,7 +80,7 @@ Queries inspect state without mutation. Events notify clients that state changed
 
 PriFly binds authoritative acknowledgement to both **remote database durability** and an **R2-published authoritative frontier**.
 
-### 9.1 Local commit is not acknowledgement
+### Local commit is not acknowledgement
 
 An AUTHORITATIVE command progresses:
 
@@ -95,7 +95,7 @@ RECEIVED
 
 Until final coordination publication succeeds, the mutation is not returned as authoritative success, exposed as a released authoritative Query result, emitted as a final owner-visible success Event, used to release dependent authoritative scheduling, or allowed to dispatch consequential provider effects. Uploaded-but-unpublished database tails are recoverable bytes but are **not authoritative history**.
 
-### 9.2 Application sequence and remote position
+### Application sequence and remote position
 
 Every authoritative SQLite transaction receives a monotonic Factory application sequence `N`. The durability adapter proves that the replica contains SQLite state through `N` and records the concrete remote restore position `T` required by the pinned Litestream integration.
 
@@ -105,7 +105,7 @@ SyncThrough(N) -> RemotePosition T
 
 The implementation must demonstrate that restoring through `T` contains transaction `N`. PriFly does not assume its application sequence and Litestream's internal transaction identifiers are numerically identical.
 
-### 9.3 Coordination publication
+### Coordination publication
 
 R2 holds one CAS-protected coordination object:
 
@@ -124,7 +124,7 @@ For the active generation, Factory may acknowledge sequence `N` only after SQLit
 
 Coordination publication is the linearization point for authoritative semantic release.
 
-### 9.4 Serialized publication lane in v1
+### Serialized publication lane in v1
 
 v1 uses one authoritative publication lane:
 
@@ -138,7 +138,7 @@ authoritative transaction N
 
 Ephemeral telemetry/logging do not use this lane.
 
-### 9.5 Crash semantics
+### Crash semantics
 
 - Crash before SQLite commit: the command did not occur.
 - Crash after local commit but before remote durability: no authoritative success exists.
@@ -148,23 +148,23 @@ Ephemeral telemetry/logging do not use this lane.
 
 No recursive receipt transaction is required; the CAS-published remote frontier is itself the recovery authorization.
 
-### 9.6 Query and event visibility
+### Query and event visibility
 
-Internally, Factory may know about LOCAL-PENDING state, but owner-facing canonical reads and downstream authoritative workflow operate on the latest Published Frontier. Implementations may block an authoritative query behind the publication lane or expose an explicitly provisional diagnostic view; provisional state must never be confused with authoritative state.
+Internally, Factory may know about LOCAL_PENDING state, but owner-facing canonical reads and downstream authoritative workflow operate on the latest Published Frontier. Implementations may block an authoritative query behind the publication lane or expose an explicitly provisional diagnostic view; provisional state must never be confused with authoritative state.
 
 ## Factory ownership, generations, and authoritative takeover cutover
 
 PriFly uses one CAS-protected R2 coordination record as both ownership state and authoritative recovery-frontier publication.
 
-### 21.1 Coordination record
+### Coordination record
 
 The object carries generation, state, Factory instance, published sequence, published remote position, and recoverable replica. Its object version/ETag is part of every CAS.
 
-### 21.2 Active-generation publication rule
+### Active-generation publication rule
 
 Every AUTHORITATIVE semantic release in generation `G` must CAS-publish its remote frontier through that object. Therefore a transaction uploaded after a successor changes the coordination object cannot later become acknowledged by the old generation; if the old Factory's publication CAS fails, its uploaded tail is non-authoritative; if the old Factory publishes first, a successor acquisition based on an older object version fails and must reread the newer frontier.
 
-### 21.3 Takeover initiation
+### Takeover initiation
 
 v1 has no timer-based leader election. Takeover is explicit through the Recovery Kit/owner recovery workflow. The replacement CAS-transitions:
 
@@ -176,26 +176,26 @@ generation G+1 / INITIALIZING / predecessor frontier N/T
 
 The successful takeover CAS fences further authoritative publication by generation `G`. Uploaded-but-unpublished tails are not authoritative. Already-published SEND_ARMED obligations are part of the predecessor Published Frontier and are inherited.
 
-### 21.4 Recovery source
+### Recovery source
 
 The successor restores **exactly through the predecessor's CAS-published remote position `T`**, not the latest bytes present in the old epoch. The restore is validated to contain published application sequence `N`.
 
-### 21.5 Interrupted INITIALIZING
+### Interrupted INITIALIZING
 
 While generation `G+1` is `INITIALIZING`, no normal new authoritative project work is accepted. If it dies, the coordination object still records the predecessor Published Frontier. A later recovery advances generation again and restarts from the last published authoritative frontier unless activation had already completed. Missing or inaccessible recovery data never means initialize a fresh empty Factory.
 
-### 21.6 Reconciliation during initialization
+### Reconciliation during initialization
 
 The successor restores the complete published obligation set, including every SEND_ARMED/UNKNOWN operation in the frontier. Before ACTIVE, provider reconciliation is read-only with respect to new project effects; unresolved conflict scopes remain reserved and conflicting successor operations are not authorized.
 
-### 21.7 Activation
+### Activation
 
 After restore, validation, reconciliation, and establishment of the new replica, Factory CAS-publishes generation `G+1` as ACTIVE with its restorable Published Frontier. Only after that succeeds may new authoritative project Commands be released.
 
-### 21.8 Lost CAS responses
+### Lost CAS responses
 
 A lost publication/takeover CAS response is resolved by exact read-back of generation, Factory instance, state, and published sequence/position. Otherwise Factory fails closed and continues from the newly observed authoritative record.
 
-### 21.9 Scope of fencing
+### Scope of fencing
 
 Generation coordination fences authoritative semantic release, new Worker dispatch, transition to SEND_ARMED, and new consequential provider authorization. It does not cancel a request already SEND_ARMED/sent; those obligations are handled by [Provider integration](providers.md).
