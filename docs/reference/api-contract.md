@@ -14,8 +14,9 @@ The contract is consumed by Pilot, future Bridge, CLI/admin tooling, Worker runt
 4. **Actor identity is authenticated, not self-asserted.** The transport/runtime adapter stamps the canonical actor from the authenticated capability.
 5. **Authoritative success means released.** A mutation is not successful merely because SQLite committed locally or remote bytes exist.
 6. **Retries preserve command identity.** A client that does not know whether a command completed retries the same `command_id`; it does not manufacture a new operation.
-7. **Schema identity is explicit.** Envelopes and logical operations are independently versioned.
-8. **Transport is replaceable.** Endpoint paths, socket names, HTTP status mappings, and serialization framing may evolve without changing the semantic contract.
+7. **Unknown publication outcome is nonfinal.** Failure to determine whether publication succeeded is never converted into authoritative rejection.
+8. **Schema identity is explicit.** Envelopes and logical operations are independently versioned.
+9. **Transport is replaceable.** Endpoint paths, socket names, HTTP status mappings, and serialization framing may evolve without changing the semantic contract.
 
 ## Common scalar and reference conventions
 
@@ -107,38 +108,67 @@ Factory evaluates a Command in this order conceptually:
 6. validate Factory generation/policy/domain invariants;
 7. execute the local authoritative transaction;
 8. satisfy remote durability and Published Frontier publication;
-9. return authoritative result.
+9. return a definitive command result only when Factory can prove the terminal disposition.
 
 ### Duplicate command IDs
 
-- Same `command_id`, same authenticated actor, same logical type, and semantically identical request returns the original authoritative result.
+- Same `command_id`, same authenticated actor, same logical type, and semantically identical request returns the original **definitive** command result when one exists.
 - Reuse of a `command_id` with a different actor, type, target, expected revision, or payload is rejected as `IDEMPOTENCY_CONFLICT`.
-- A transport timeout after submission is resolved by retrying the **same** `command_id`.
-- Clients must not generate a new command merely because the prior response was lost.
+- A transport timeout or nonfinal publication/durability status after submission is resolved by retrying the **same** `command_id`.
+- Clients must not generate a new command merely because the prior response was lost or the publication outcome is unresolved.
+- A nonfinal status is not cached as the command's idempotent terminal disposition. Resolution may later prove the same command `RELEASED` or establish a definitive `REJECTED` result under the then-authoritative state.
 
 Canonical request equality may be implemented using a deterministic request digest; the digest algorithm/storage is an implementation detail so long as the semantic rule above is preserved.
 
 ## Command result envelope
 
-An authoritative command response has this minimum shape:
+A **definitive authoritative command disposition** has this minimum shape:
 
 | Field | Required | Meaning |
 |---|---:|---|
 | `schema` | yes | `command-result/v1`. |
 | `command_id` | yes | Command whose disposition this is. |
 | `type` | yes | Mirrors the command logical type. |
-| `status` | yes | `RELEASED` or `REJECTED`. |
+| `status` | yes | `RELEASED` or `REJECTED`. Both are terminal dispositions. |
 | `result` | on release when operation returns data | Operation-specific result object. |
 | `resulting_objects` | no | Exact object refs/revisions changed or created. |
 | `event_refs` | no | Ledger Event refs emitted by the transaction. |
 | `published_frontier` | on release | Factory Generation + application sequence proving the release point; the transport need not expose storage-private restore internals. |
-| `error` | on rejection | Structured error object. |
+| `error` | on rejection | Structured terminal error object. |
 
-`LOCAL_PENDING`, `REMOTE_DURABLE`, and `FRONTIER_PUBLISHED` are internal lifecycle states, not authoritative success responses. A diagnostic/admin surface may expose provisional progress, but it must use an explicitly provisional schema and cannot be consumed as a successful Command result.
+`RELEASED` means the authoritative transaction is represented by the Published Frontier. `REJECTED` means Factory can prove that this command has no authoritative released mutation under that terminal disposition. A command must not be presented or persisted as definitively `REJECTED` merely because Factory cannot determine whether a publication CAS succeeded.
 
-## Structured error contract
+`LOCAL_PENDING`, `REMOTE_DURABLE`, and `FRONTIER_PUBLISHED` are internal lifecycle states, not authoritative success responses.
 
-Errors are semantic, transport-neutral objects:
+## Nonfinal command status
+
+When Factory cannot yet establish a terminal command disposition, it may expose an explicitly **non-authoritative** status, semantically `command-status/v1`. This is diagnostic/resolution state, not a `command-result/v1`.
+
+Minimum semantics:
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `schema` | yes | `command-status/v1`. |
+| `command_id` | yes | Command being resolved. |
+| `type` | yes | Mirrors the command logical type. |
+| `status` | yes | `OUTCOME_UNRESOLVED`. |
+| `reason` | yes | Typed reason such as `DURABILITY_UNAVAILABLE` or `PUBLICATION_OUTCOME_UNRESOLVED`. |
+| `retry` | yes | `SAME_COMMAND`. |
+| `observed_at` | yes | Diagnostic observation time. |
+
+Required behavior:
+
+- if local/remote durability cannot currently progress, Factory may return `OUTCOME_UNRESOLVED`; it does not manufacture terminal rejection;
+- if publication CAS may have succeeded but its response was lost and exact read-back is unavailable, Factory returns no definitive disposition and resolves/retries using the same command identity;
+- if later recovery/read-back proves the command was published, the definitive result is `RELEASED` and retries return that result;
+- if takeover or another authoritative fact proves the unpublished attempt cannot become part of authoritative history, Factory may continue resolving/re-executing the same command according to idempotency and current-state rules until a definitive result exists;
+- transport/network failure to deliver a response is not itself a semantic command status.
+
+A client, gate, or downstream workflow must never consume `command-status/v1` as authoritative success or rejection.
+
+## Structured terminal error contract
+
+Errors carried by definitive `REJECTED` command results are semantic, transport-neutral objects:
 
 ```json
 {
@@ -159,11 +189,11 @@ Errors are semantic, transport-neutral objects:
 | Retry value | Meaning |
 |---|---|
 | `NEVER` | Repeating the same request without changing intent/state cannot succeed. |
-| `SAME_COMMAND` | Retry the same `command_id`; creating a new command would be unsafe or incorrect. |
+| `SAME_COMMAND` | Resolve/retry the same `command_id`; creating a new command would be unsafe or incorrect. Used by nonfinal command status rather than a definitive rejection. |
 | `AFTER_STATE_CHANGE` | The caller must refresh/reconcile state, then decide whether to issue a new command. |
 | `AFTER_CAPACITY` | Retry only after capacity/resource pressure changes; same logical intent may keep the same command only when the operation contract permits. |
 
-### Core error codes
+### Core terminal error codes
 
 | Code | Typical retry | Meaning |
 |---|---|---|
@@ -181,12 +211,13 @@ Errors are semantic, transport-neutral objects:
 | `CONFLICT` | `AFTER_STATE_CHANGE` | Another active obligation/operation owns an incompatible conflict scope. |
 | `CAPACITY_UNAVAILABLE` | `AFTER_CAPACITY` | No eligible Route/capacity can currently admit the work. |
 | `EXECUTION_ENVELOPE_EXHAUSTED` | `AFTER_STATE_CHANGE` | Work Item cumulative autonomy envelope is exhausted and requires policy/owner disposition. |
-| `DURABILITY_UNAVAILABLE` | `SAME_COMMAND` | Factory cannot safely publish authoritative success through the required durability frontier. |
 | `FACTORY_NOT_ACTIVE` | `AFTER_STATE_CHANGE` | Normal project mutation is unavailable during recovery/quiesce/initialization. |
 | `PROVIDER_AMBIGUOUS` | `AFTER_STATE_CHANGE` | External operation remains UNKNOWN; blind retry/new conflicting intent is forbidden. |
 | `UNSUPPORTED` | `NEVER` | Requested schema/operation/profile is not admitted by this Factory version/configuration. |
 
-Individual operations may define additional typed error codes, but they must preserve these retry semantics.
+`DURABILITY_UNAVAILABLE` and `PUBLICATION_OUTCOME_UNRESOLVED` are intentionally **not terminal rejection codes**. They belong to nonfinal command resolution status because the same command may later resolve to `RELEASED`.
+
+Individual operations may define additional typed terminal error codes, but they must preserve these finality/retry semantics.
 
 ## Query envelope
 
