@@ -35,4 +35,22 @@ These deferrals are part of the v1 contract rather than hidden missing mechanism
 
 ## Implementation-conformance frontier
 
-Before claiming the corresponding implementation guarantees, the project still needs implementation ADRs and tests for the pinned Litestream/SQLite tuple, R2 CAS coordination, Worker identity and Docker lifecycle, Branch Publisher behavior, Verification Runner, provider operation profiles, Recovery Kit packaging, supported runtime bill of materials, retention pins, and fault injection. Those tasks implement the approved architecture; changing the reviewed authority/order rules requires a new architecture decision.
+Architecture approval is not implementation certification. Before PriFly claims the corresponding guarantees, implementation must satisfy the normative pass/fail oracles in [Implementation conformance](../reference/conformance.md).
+
+Those oracles preserve the concrete adversarial demonstrations that matter to the design, including:
+
+- publication/takeover ordering and lost CAS replies;
+- exact Published Frontier lifetime across replica retention/compaction and empty-host recovery;
+- SEND_ARMED crash/ambiguity handling;
+- exact target movement at the actual remote update;
+- acceptance-evidence upload/pin/cleanup races and supported historical roots;
+- owner-confirmation capability isolation;
+- missing-rule/UNKNOWN planning-gate behavior;
+- runtime cancellation, stale descendants, Worker-Docker DIRTY reset, and safe OS-identity retirement/UID reuse;
+- timestamped migration ordered-prefix behavior and baseline consolidation;
+- fresh Git reconstruction for checkpointed code;
+- publication-based upgrade rollback cutoff.
+
+The implementation also needs pinned and tested identities/configuration for the SQLite driver/PRAGMAs/concurrency model, Litestream replication/restore/retention behavior, R2 CAS coordination, Worker runtime/Docker lifecycle, Branch Publisher, Verification Runner, provider operation profiles, Recovery Kit packaging, supported runtime bill of materials, and retention pins.
+
+Those tasks implement the approved architecture. Changing the reviewed authority/order/safety result requires a new architecture decision; changing test fixtures or implementation mechanics while preserving the same oracle does not.
