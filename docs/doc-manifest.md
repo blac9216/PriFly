@@ -24,6 +24,7 @@ This repository follows the `design-docs` skill standard. This file records the 
 - docs/explanation/vision.md
 - docs/reference/acceptance-contract.md
 - docs/reference/api-contract.md
+- docs/reference/conformance.md
 - docs/reference/planning-policy.md
 - docs/reference/provider-operation-profiles.md
 - docs/reference/schemas.md
@@ -47,8 +48,8 @@ Index markers: `<!-- adr-index:start -->` / `<!-- adr-index:end -->` in docs/adr
 CONTEXT.md at repo root · domain model: docs/explanation/domain-model.md
 
 ## CI
-`check-pointers.sh` and `adr-index.sh --check` run in: .github/workflows/docs-checks.yml (always-report)
+`check-pointers.sh`, `adr-index.sh --check`, the mechanical design-doc audit, and repository-relative Markdown link/fragment validation run in: .github/workflows/docs-checks.yml (always-report)
 Scripts source: scripts/docs/
 
 ## Design path
-Decisions are made through owner interrogation, decomposed through planning, recorded with design-docs author mode, and landed through the repository workflow. Specs, plans, interrogation records, architecture-review transcripts, and duplicate monolithic PRDs are never committed. Durable product intent lives in `docs/explanation/product.md`; cross-subsystem product choreography lives in `docs/explanation/product-lifecycle.md`; detailed behavior remains in the owning canonical subsystem/reference docs. Adopted under ADR-0001.
+Decisions are made through owner interrogation, decomposed through planning, recorded with design-docs author mode, and landed through the repository workflow. Specs, plans, interrogation records, architecture-review transcripts, and duplicate monolithic PRDs are never committed. Durable product intent lives in `docs/explanation/product.md`; cross-subsystem product choreography lives in `docs/explanation/product-lifecycle.md`; implementation guarantee oracles live in `docs/reference/conformance.md`; detailed behavior remains in the owning canonical subsystem/reference docs. Adopted under ADR-0001.
