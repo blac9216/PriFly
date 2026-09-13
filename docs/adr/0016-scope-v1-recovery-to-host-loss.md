@@ -1,6 +1,6 @@
 # ADR-0016: Scope v1 recovery to local-host loss with a Recovery Kit
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-13
 
 ## Context
