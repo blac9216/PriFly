@@ -1,6 +1,6 @@
 # ADR-0017: Use controlled experiments and reviewed recommendations for policy learning
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-13
 
 ## Context
