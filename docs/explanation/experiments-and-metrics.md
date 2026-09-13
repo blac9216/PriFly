@@ -18,7 +18,7 @@ replay
 
 Harness security/maintenance updates are applied according to maintenance policy and measured afterward; they are not held back merely because an obsolete version performed better.
 
-### 29.1 Experiment validity
+### Experiment validity
 
 Experiments must predeclare, where applicable:
 
