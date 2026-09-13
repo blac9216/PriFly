@@ -1,6 +1,6 @@
 # ADR-0003: Implement PriFly as a Go modular monolith
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-13
 
 ## Context
