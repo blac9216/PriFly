@@ -31,6 +31,18 @@ Authoritative boundary schemas are **closed by default**: unknown semantic field
 
 Adding a semantic field to a closed authoritative object requires a new schema version unless the existing schema explicitly reserved that extension point.
 
+### Immutable subject versus mutable lifecycle
+
+When PriFly says a certificate, manifest, baseline, Route version, or other subject is **immutable**, fields that define the semantic subject are never edited in place to represent later lifecycle progress.
+
+Mutable lifecycle facts live in a separate revisioned status/admission/projection object or in later immutable records that reference the earlier subject. Examples:
+
+- an `acceptance-certificate/v1` never gains a different integration commit or a later `STALE` flag; `acceptance-status/v1` records current validity and `integration-certificate/v1` binds an exact later integration subject;
+- a `recovery-root-manifest/v1` never changes from supported to retired; `recovery-root-status/v1` records current support/retirement state;
+- a `route/v1` version never mutates from admitted to disabled; `route-admission/v1` records current policy/admission state for that immutable Route version.
+
+This separation keeps historical evidence byte/semantic identity stable while still allowing Factory lifecycle state to evolve.
+
 ### IDs
 
 IDs are opaque stable strings. Consumers must not infer:
@@ -102,10 +114,10 @@ JSON Schema does not decide:
 - whether a referenced object/revision exists;
 - whether dependency graphs are acyclic;
 - whether a Planning concern may become `NOT_APPLICABLE`;
-- whether an Acceptance Certificate is still fresh;
+- whether an Acceptance Certificate is currently valid/fresh;
 - whether provider conflict scope is available;
 - whether Git commits/recovery artifacts are actually reconstructible;
-- whether a Route satisfies capability/risk policy.
+- whether a Route satisfies capability/risk policy or is currently admitted.
 
 Those are Go/domain-policy validations over structurally valid objects.
 
@@ -193,7 +205,7 @@ Command-specific payloads are closed schemas identified by command `type`.
 
 ### `command-result/v1`
 
-Required fields:
+A definitive terminal disposition. Required fields:
 
 - `schema`;
 - `command_id`;
@@ -201,9 +213,25 @@ Required fields:
 - `status: RELEASED | REJECTED`;
 - `published_frontier` on release;
 - optional result/resulting object/event refs;
-- structured `error` on rejection.
+- structured terminal `error` on rejection.
 
-Provisional durability states are not valid authoritative command-result statuses.
+`REJECTED` is permitted only when Factory can prove that the command will not later appear as a released authoritative mutation under that terminal disposition. Provisional durability/publication uncertainty is not a command result.
+
+### `command-status/v1`
+
+Explicitly non-authoritative command-resolution status used when no definitive terminal disposition is known.
+
+Minimum fields:
+
+- `schema` = `command-status/v1`;
+- `command_id`;
+- command `type`;
+- `status: OUTCOME_UNRESOLVED`;
+- typed `reason`, including `DURABILITY_UNAVAILABLE` or `PUBLICATION_OUTCOME_UNRESOLVED`;
+- `retry: SAME_COMMAND`;
+- `observed_at`.
+
+This object is never consumed as authoritative success or rejection and is not cached as the command's terminal idempotent result.
 
 ### `query/v1`
 
@@ -649,14 +677,14 @@ Immutable fields:
 - `optional_diagnostics[]` artifact refs;
 - `code_recovery_roots[]` exact Git repository/commit/ref dependencies;
 - evidence object verification timestamps/results;
-- retention/root membership metadata;
+- retention policy/root requirements fixed at acceptance time;
 - manifest content digest.
 
 Required evidence must be durably uploaded and verified before authoritative acceptance release.
 
 ### `acceptance-certificate/v1`
 
-Immutable acceptance subject:
+An immutable acceptance binding for the exact verified/reviewed **candidate subject**. Minimum fields:
 
 | Field | Required | Meaning |
 |---|---:|---|
@@ -665,16 +693,14 @@ Immutable acceptance subject:
 | `work_item_ref` | yes | Exact Work Item revision. |
 | `worker_attempt_ref` | yes | Exact implementation attempt. |
 | `candidate` | yes | Repository + exact candidate Git commit. |
-| `target_base` | yes | Exact repository target/base SHA/revision verified. |
-| `integration_subject` | when merge eligible | Exact integration commit/result verified against target. |
+| `target_base` | yes | Exact repository target/base SHA/revision used for candidate acceptance context. |
 | `verification_plan_ref` | yes | Exact verification contract revision. |
 | `evidence_manifest_ref` | yes | Required evidence closure. |
 | `review_result_ref` | yes | Independent Reviewer verdict. |
 | `policy_version` | yes | Governing acceptance policy. |
 | `issued_at` | yes | Certificate construction timestamp. |
-| `state` | yes | Candidate/valid/stale/consumed/superseded state defined by schema. |
 
-Any relevant input change makes the existing certificate stale rather than editing it to fit the new subject.
+The certificate is never edited to add a later integration commit or mutable validity state. Any relevant input change makes this immutable certificate no longer current under `acceptance-status/v1`; it does not rewrite the certificate.
 
 Representative fragment:
 
@@ -691,10 +717,39 @@ Representative fragment:
   "evidence_manifest_ref": {"kind": "acceptance-evidence-manifest", "id": "E201"},
   "review_result_ref": {"kind": "review-result", "id": "RV55"},
   "policy_version": "delivery-policy/v1",
-  "issued_at": "2026-09-13T18:00:00Z",
-  "state": "VALID"
+  "issued_at": "2026-09-13T18:00:00Z"
 }
 ```
+
+### `acceptance-status/v1`
+
+Mutable/derived lifecycle for one immutable Acceptance Certificate:
+
+- `acceptance_status_id`, `revision`;
+- exact `acceptance_certificate_ref`;
+- `status: CURRENT | STALE | CONSUMED | SUPERSEDED`;
+- typed reason/cause refs for stale/superseded/consumed transitions;
+- `updated_at`.
+
+Current validity is re-evaluated from authoritative state. Changing status never changes the certificate subject/evidence.
+
+### `integration-certificate/v1`
+
+Immutable merge-eligibility binding created **after** PriFly constructs and independently verifies an exact integration subject against the then-current target.
+
+Minimum fields:
+
+- `integration_certificate_id`;
+- exact `acceptance_certificate_ref` for the candidate;
+- repository/target ref identity;
+- exact expected target/base commit `B`;
+- exact constructed integration commit/result `M`;
+- independent integration verification result/evidence refs;
+- admitted provider integration profile/version;
+- governing policy version;
+- `issued_at`.
+
+Factory does not mutate a candidate-stage Acceptance Certificate to add `M`. If target/base changes, the existing integration certificate is no longer usable and a newly constructed/reverified integration subject requires a new immutable integration certificate. The exact remote B→M compare-and-update consumes this binding.
 
 ### `recovery-root-manifest/v1`
 
@@ -707,10 +762,22 @@ Immutable dependency closure for one supported recovery/rollback root:
 - required Git recovery roots;
 - required key/secret generation refs (references only, never raw secrets);
 - creation/verification timestamp;
-- support status;
-- superseding root/ref if retired/replaced.
+- manifest content digest.
 
-Retirement is authoritative before cleanup may remove the final dependency protected by this manifest.
+The manifest itself does not mutate from supported to retired.
+
+### `recovery-root-status/v1`
+
+Mutable lifecycle for an immutable Recovery Root Manifest:
+
+- `recovery_root_status_id`, `revision`;
+- exact `recovery_root_manifest_ref`;
+- `status: SUPPORTED | RETIRING | RETIRED`;
+- replacement/superseding root ref when applicable;
+- authorizing command/policy refs;
+- `updated_at`.
+
+Retirement must become authoritative before cleanup may remove the final dependency protected by the manifest.
 
 ## Owner interaction schemas
 
@@ -782,11 +849,23 @@ Immutable versioned execution configuration:
 - capability profile;
 - Capacity Pool ref;
 - SandboxProvider/runtime mode;
-- admitted Worker roles/task classes;
-- maintenance/security compatibility metadata;
-- status (`CANDIDATE`, `ADMITTED`, `DISABLED`, etc. as executable policy defines).
+- declared Worker roles/task classes/capability claims;
+- maintenance/security compatibility metadata.
 
-Role answers *what job*; Route answers *how/where it executes*.
+Role answers *what job*; Route answers *how/where it executes*. The Route version itself does not mutate to represent current admission state.
+
+### `route-admission/v1`
+
+Mutable Factory policy/admission state for one immutable Route version:
+
+- `route_admission_id`, `revision`;
+- exact `route_ref` including version;
+- `status: CANDIDATE | ADMITTED | DISABLED` (or versioned closed equivalent);
+- governing Routing Policy/capability evidence refs;
+- disable/admit reason and authority refs;
+- `effective_at`, `updated_at`.
+
+Dispatch requires a currently ADMITTED route-admission object in addition to the immutable Route configuration.
 
 ### `capacity-pool/v1`
 
@@ -942,7 +1021,8 @@ The initial canonical registry therefore includes:
 | Family | Purpose |
 |---|---|
 | `command/v1` | Requested authoritative mutation envelope. |
-| `command-result/v1` | Released/rejected authoritative command disposition. |
+| `command-result/v1` | Released/rejected definitive authoritative command disposition. |
+| `command-status/v1` | Explicitly nonfinal command-resolution status. |
 | `query/v1` / `query-result/v1` | Non-mutating canonical read contract. |
 | `event/v1` | Immutable Ledger fact envelope. |
 | `project/v1` | Project boundary/configuration. |
@@ -967,11 +1047,15 @@ The initial canonical registry therefore includes:
 | `review-result/v1` | Independent review verdict/findings. |
 | `verification-result/v1` | Machine-observed verification evidence. |
 | `acceptance-evidence-manifest/v1` | Required/optional evidence and code roots. |
-| `acceptance-certificate/v1` | Exact immutable acceptance binding. |
-| `recovery-root-manifest/v1` | Supported checkpoint dependency closure. |
+| `acceptance-certificate/v1` | Immutable exact candidate acceptance binding. |
+| `acceptance-status/v1` | Current lifecycle/validity of an immutable acceptance certificate. |
+| `integration-certificate/v1` | Immutable exact integration/merge-eligibility binding. |
+| `recovery-root-manifest/v1` | Immutable supported-checkpoint dependency closure. |
+| `recovery-root-status/v1` | Current support/retirement lifecycle of a recovery root. |
 | `attention-item/v1` | Durable owner attention/action choices. |
-| `owner-action/v1` | Consequential immutable owner action package. |
-| `route/v1` | Versioned execution configuration. |
+| `owner-action/v1` | Consequential immutable owner action package with explicit lifecycle. |
+| `route/v1` | Immutable versioned execution configuration. |
+| `route-admission/v1` | Current policy/admission state for a Route version. |
 | `capacity-pool/v1` | Shared scarce execution resource state. |
 | `experiment/v1` | Controlled routing/context/tool experiment. |
 | `metric-observation/v1` | Authoritative historical learning metric. |
@@ -986,14 +1070,15 @@ Additional role-specific Worker result schemas and command/query/event payload s
 
 1. Schema version is part of type identity.
 2. Historical Ledger Events are never rewritten merely to adopt a newer schema.
-3. Immutable historical certificates/baselines/manifests remain interpretable under their original version.
+3. Immutable historical certificates/baselines/manifests/Route versions remain interpretable under their original version; mutable lifecycle is recorded separately.
 4. Current mutable projections may be deterministically migrated during Factory upgrade.
 5. Breaking semantic change requires a new schema version.
 6. Closed authoritative schemas do not accept unknown meaning by default.
 7. Migration code must preserve IDs, authority provenance, and historical traceability unless an explicit architecture decision says otherwise.
-8. API, DB schema, Worker protocol, canonical object schemas, and execution manifests version independently.
-9. Unsupported schema combinations fail admission rather than silently dropping fields.
-10. Schema migration does not imply permission to roll back authoritative post-upgrade history; upgrade rollback rules remain governed by recovery architecture.
+8. Database migration filename format, ordering, immutability, consolidation, and ordered-prefix semantics are governed by [ADR-0020](../adr/0020-use-timestamped-forward-only-migrations.md) and [Recovery and upgrades](../explanation/recovery-and-upgrades.md).
+9. API, DB schema, Worker protocol, canonical object schemas, and execution manifests version independently.
+10. Unsupported schema combinations fail admission rather than silently dropping fields.
+11. Schema migration does not imply permission to roll back authoritative post-upgrade history; upgrade rollback rules remain governed by recovery architecture.
 
 ## Validation layers
 
@@ -1013,7 +1098,10 @@ Examples of Go/domain validation:
 - dependency graph remains acyclic;
 - `planning-concern/v1` effective N/A names a valid authority rule and has no conflicting UNKNOWN trigger;
 - `owner-action/v1` confirmation proof matches the immutable package digest and target revisions;
-- `acceptance-certificate/v1` inputs are current and evidence manifest is fully durable;
+- `acceptance-status/v1` may be CURRENT only while all referenced acceptance inputs remain authoritative/current;
+- `integration-certificate/v1` binds the exact current target B, integration subject M, verification evidence, and candidate Acceptance Certificate;
+- `recovery-root-status/v1` retirement is authoritative before cleanup releases the root's final dependencies;
+- `route-admission/v1` may admit only an immutable Route version satisfying current capability/risk policy;
 - `provider-obligation/v1` may enter SEND_ARMED only after conflict ownership/preconditions/policy pass;
 - `coordination-record/v1` transition obeys the CAS generation/publication state machine.
 
@@ -1038,7 +1126,7 @@ This schema contract does not choose:
 - JSON Schema repository directory names;
 - ID encoding (UUID/ULID/etc.);
 - content-canonicalization library for digests;
-- database migration filenames/implementation;
+- concrete Go migration library, migration source-tree directory, transaction wrapper, or schema-fingerprint implementation (the migration filename format and ordering policy are already fixed by ADR-0020);
 - transport endpoint paths;
 - UI view models derived from canonical objects;
 - every role-specific Worker payload before the role is implemented.
