@@ -1,6 +1,6 @@
 # ADR-0006: Use explicit generation takeover through one coordination record
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-13
 
 ## Context
