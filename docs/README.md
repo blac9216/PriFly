@@ -19,6 +19,8 @@ _(none yet)_
 - [State Machines](reference/state-machines.md) — normative lifecycle state machines
 
 ## Explanation — why things are the way they are
+- [Product Definition](explanation/product.md) — product promise, primary user, jobs, scope and product-level success criteria
+- [Product Lifecycle](explanation/product-lifecycle.md) — end-to-end cross-subsystem flow diagrams from owner intent through closure and learning
 - [Architecture](explanation/architecture.md) — C4 Context, Container and Component map
 - [Context And Code Intelligence](explanation/context-and-code-intelligence.md) — bounded context, code intelligence and provenance
 - [Domain Model](explanation/domain-model.md) — canonical domain relationships and rules
