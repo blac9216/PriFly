@@ -1,6 +1,6 @@
 # ADR-0020: Use timestamped forward-only migrations with pre-v1 consolidation
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-13
 
 ## Context
