@@ -1,6 +1,6 @@
 # ADR-0011: Route Workers deterministically across versioned Routes and Capacity Pools
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-13
 
 ## Context
