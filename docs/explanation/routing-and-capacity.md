@@ -8,14 +8,14 @@ A Route is a versioned execution configuration including harness, model, effort/
 
 ## Capacity, concurrency, and cumulative execution envelope
 
-### 27.1 Capacity
+### Capacity
 
 Capacity Pools represent subscription, metered API, local compute, or harness limits. Unknown quota remains unknown. Pressure states may include HEALTHY, ELEVATED, PRESSURE, CRITICAL, and EXHAUSTED.
 
-### 27.2 Concurrency
+### Concurrency
 
 PriFly maximizes useful concurrency subject to dependency readiness, critical path, worktree/file/semantic collision risk, review/validation backpressure, Route capacity, and host resource pressure. There is no arbitrary normal Factory-wide Worker target.
 
-### 27.3 Work Item execution envelope
+### Work Item execution envelope
 
 Every Work Item has a cumulative execution envelope spanning Implementer attempts, Fixers, reimplementations, Reviews, Validators, and diagnostic arbitration. The envelope may constrain attempt count, elapsed time, premium-route usage, token/usage budget where measurable, storage/worktree growth, and repeated severe failures. Child jobs do not reset the envelope. Exhaustion enters owner attention/escalation rather than looping indefinitely. Factory preserves control/recovery headroom and may stop new Worker admission under severe disk/replication pressure.
