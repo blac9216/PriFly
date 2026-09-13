@@ -1,6 +1,6 @@
 # ADR-0004: Use SQLite as canonical Factory state
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-13
 
 ## Context
