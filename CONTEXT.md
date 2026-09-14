@@ -52,6 +52,14 @@ The canonical vocabulary of PriFly. Definitions are domain language only; implem
 
 **Decision** — An approved choice among meaningful alternatives within a defined scope. not: suggestion.
 
+**Standards Source** — A pinned external industry standard or authoritative engineering-guidance source used to derive a general quality rubric. not: project requirement, PriFly ADR.
+
+**Quality Rubric** — A versioned reusable set of standards-backed criteria for judging the general engineering quality of an artifact/work product. not: project conformance, workflow gate.
+
+**Rubric Evaluation** — The criterion-by-criterion PASS/FAIL/NOT_APPLICABLE/UNKNOWN result for one exact artifact against one exact Quality Rubric version, with evidence and evaluator provenance. not: free-form review summary.
+
+**Project Conformance** — The evaluation of whether an artifact obeys the governing Project Requirements, Design, Constraints, Planning Baseline, Work Item, and project-specific thresholds. not: industry quality rubric.
+
 **Constitution** — Owner-approved Project invariants that only the owner can amend or supersede. not: convention.
 
 **Owner Action** — A revision-bound consequential action package requiring owner authority or an applicable standing delegation. not: Pilot suggestion.
