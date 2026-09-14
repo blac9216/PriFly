@@ -47,4 +47,11 @@ _(none yet)_
 - `rationale/` — rationale index area files are added when code introduces `# why:` pointers
 
 ## Process
-- `process/` — reserved for workflow/process documentation owned by configure-workflow; none yet
+- [Work tracking](process/work-tracking.md) — Project, fields, identities, and board administration
+- [Labels](process/labels.md) — repo-specific area locks
+- [Testing](process/testing.md) — required checks and verification commands
+- [Live validation](process/validation.md) — live-proof boundary and evidence location
+- [Worktrees](process/worktrees.md) — checkout placement and naming
+- [Maintenance](process/maintenance.md) — resource isolation and concurrency controls
+- [Overnight limits](process/overnight.md) — unattended-run authority boundaries
+- [Failure modes](process/failure-modes.md) — observed repo-specific workflow hazards

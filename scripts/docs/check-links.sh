@@ -58,9 +58,9 @@ def anchors(path: pathlib.Path) -> set[str]:
     return result
 
 for md in sorted(root.rglob('*.md')):
-    if '.git' in md.parts:
-        continue
     rel = md.relative_to(root)
+    if rel.parts and rel.parts[0] in {'.git', '.claude', '.agents'}:
+        continue
     text = md.read_text(encoding='utf-8')
     for line_no, line in enumerate(text.splitlines(), 1):
         for raw in link_re.findall(line):
