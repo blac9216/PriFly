@@ -16,7 +16,9 @@ _(none yet)_
 - [Implementation Conformance](reference/conformance.md) — failure-injection oracles required before implementation guarantees are claimed
 - [Planning Policy](reference/planning-policy.md) — initial planning authority and applicability policy
 - [Provider Operation Profiles](reference/provider-operation-profiles.md) — admitted provider operation semantics
+- [Quality Rubrics](reference/quality-rubrics.md) — reusable standards-backed definitions of engineering quality across the lifecycle
 - [Schemas](reference/schemas.md) — canonical JSON schema families and versioning
+- [Standards Registry](reference/standards-registry.md) — pinned authoritative sources/versions used by quality rubrics
 - [State Machines](reference/state-machines.md) — normative lifecycle state machines
 
 ## Explanation — why things are the way they are
