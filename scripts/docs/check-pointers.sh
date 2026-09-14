@@ -11,7 +11,7 @@ while IFS=: read -r file line rest; do
   path="${ptr%%#*}"; slug="${ptr#*#}"
   [[ -f "$path" ]] || { echo "$file:$line: POINTER_BAD_FILE $path" >> "$tmp"; continue; }
   grep -qxF "### $slug" "$path" || echo "$file:$line: POINTER_UNRESOLVED $ptr" >> "$tmp"
-done < <(grep -rInE '(#|//|<!--)[[:space:]]*why:[[:space:]]*docs/rationale/[^ )]+\.md#[a-z0-9-]+' . --exclude-dir=.git || true)
+done < <(grep -rInE '(#|//|<!--)[[:space:]]*why:[[:space:]]*docs/rationale/[^ )]+\.md#[a-z0-9-]+' . --exclude-dir=.git --exclude-dir=.claude --exclude-dir=.agents || true)
 for f in docs/rationale/*.md; do [[ -e "$f" ]] || continue; awk -v file="$f" '
 /^### /{if(active)finish(); slug=$0; sub(/^### /,"",slug); if(seen[slug]++) print file ":" NR ": SLUG_DUPLICATE " slug; active=1; body=0; refs=0; next}
 /^## /{if(active)finish(); active=0; next}

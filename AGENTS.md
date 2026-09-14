@@ -1,5 +1,12 @@
 # Agent guidance
 
+## Repository workflow
+
+Repository-specific GitHub workflow configuration lives in `docs/process/`. Use the
+`github-workflow` skill for issue, branch, worktree, pull-request, review, merge, triage,
+status, and handoff work. Read every committed process file and applicable `*.local.md`
+guidance during workflow orientation.
+
 ## Read design before changing the system
 
 1. Read `docs/doc-manifest.md` to learn the adopted documentation shape.
