@@ -6,7 +6,15 @@ This is an architectural roadmap, not a feature backlog or implementation plan. 
 
 ## v1 architecture target
 
-The v1 target is a disposable containerized Go Factory with SQLite canonical state, R2/Litestream durability, explicit recovery, Git-based Worker checkpoints, deterministic routing, planning and review gates, a conversational Pilot, and a shared Worker Docker execution environment for container-development workloads.
+The v1 target is a disposable containerized Go Factory with SQLite canonical state, R2/Litestream durability, explicit recovery, Git-based Worker checkpoints, deterministic routing, standards-backed engineering-quality evaluation, planning and review gates, a conversational Pilot, and a shared Worker Docker execution environment for container-development workloads.
+
+For consequential artifacts, v1 must preserve the separation between:
+
+- reusable standards-backed general engineering quality;
+- Project-specific Requirements/Design/Constraint conformance;
+- PriFly lifecycle/authority/workflow permission.
+
+Workers and Reviewers use the pinned profiles in [Quality rubrics](../reference/quality-rubrics.md) and [Standards registry](../reference/standards-registry.md). Project conformance remains a separate evaluation rather than being represented as a fake external standard.
 
 The architecture is intentionally optimized for a personal autonomous software factory rather than enterprise hostile-code containment or high-availability distributed operation.
 
@@ -51,6 +59,8 @@ Those oracles preserve the concrete adversarial demonstrations that matter to th
 - fresh Git reconstruction for checkpointed code;
 - publication-based upgrade rollback cutoff.
 
-The implementation also needs pinned and tested identities/configuration for the SQLite driver/PRAGMAs/concurrency model, Litestream replication/restore/retention behavior, R2 CAS coordination, Worker runtime/Docker lifecycle, Branch Publisher, Verification Runner, provider operation profiles, Recovery Kit packaging, supported runtime bill of materials, and retention pins.
+The implementation also needs pinned and tested identities/configuration for the SQLite driver/PRAGMAs/concurrency model, Litestream replication/restore/retention behavior, R2 CAS coordination, Worker runtime/Docker lifecycle, Branch Publisher, Verification Runner, provider operation profiles, Recovery Kit packaging, supported runtime bill of materials, retention pins, and the first executable quality-rubric evaluator/schema conforming to ADR-0021/ADR-0018.
 
-Those tasks implement the approved architecture. Changing the reviewed authority/order/safety result requires a new architecture decision; changing test fixtures or implementation mechanics while preserving the same oracle does not.
+Quality-rubric implementation must demonstrate that exact rubric/source versions are pinned, criterion results preserve PASS/FAIL/NOT_APPLICABLE/UNKNOWN semantics, blocking FAIL/UNKNOWN cannot be promoted, official-source ambiguity fails closed, and project-specific thresholds are read from the governing Planning Baseline rather than invented during review.
+
+Those tasks implement the approved architecture. Changing the reviewed authority/order/safety result or the meaning of a standards-backed quality criterion requires a governed design/policy change; changing test fixtures or implementation mechanics while preserving the same oracle/criterion does not.
