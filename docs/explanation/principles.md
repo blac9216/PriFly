@@ -37,3 +37,6 @@ These invariants are the guardrails other design docs must preserve. They are co
 31. Historical learning metrics are durable; ephemeral telemetry may be lost.
 32. Replayability is explicit, not inferred from retained hashes.
 33. Operational adaptation may be autonomous; governing policy evolution remains controlled.
+34. General engineering quality, project conformance, and PriFly workflow permission are separate evaluations; none substitutes for another.
+35. Consequential work products use pinned versioned standards-backed quality rubrics; applicable blocking `FAIL` or unresolved `UNKNOWN` prevents promotion.
+36. When an industry standard leaves an acceptance threshold context-specific, the governing Planning Baseline fixes that threshold before affected delivery work is released; later Workers/Reviewers do not invent or weaken it.
