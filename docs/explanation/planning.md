@@ -22,6 +22,30 @@ owner need
 
 Changing an upstream object can invalidate downstream objects and Acceptance Certificates.
 
+## Quality, project conformance, and workflow policy
+
+PriFly deliberately separates three different questions that AI systems often blur together:
+
+```text
+INDUSTRY QUALITY
+Is this Requirement/plan/architecture/verification/etc. good engineering?
+
+PROJECT CONFORMANCE
+Does it obey this Project's owner needs, Requirements, Design, Constraints and baseline?
+
+PRIFLY WORKFLOW POLICY
+Is it allowed to advance now?
+```
+
+General engineering quality is evaluated with the reusable standards-backed profiles in [Quality rubrics](../reference/quality-rubrics.md), whose pinned sources live in [Standards registry](../reference/standards-registry.md). Project conformance is evaluated against the actual Planning Baseline. PriFly workflow policy then applies authority, applicability, traceability, blocking-state, review independence and lifecycle rules.
+
+This prevents two opposite failure modes:
+
+- a work product cannot pass merely because it conforms to a weak/incomplete Design; general engineering quality is evaluated separately;
+- a generally high-quality solution cannot pass if it violates this Project's governing Requirements/Design.
+
+Where an industry standard defines a quality dimension but leaves the acceptable threshold context-dependent, the Planning Baseline fixes the target/range before affected Work Items are released. Reviewers do not invent thresholds after seeing the implementation.
+
 ## Planning Policy Envelope and effective authority
 
 PriFly separates **proposed semantic classification** from **effective authorization**.
@@ -61,17 +85,23 @@ Planning uses strict gates, not aggregate readiness thresholds; percentages are 
 
 ### Gate 1 — Design Completeness
 
-Zero unresolved blocking concerns before decomposition.
+Design Completeness is not “the Architect thinks the design is done.” The quality layer normally requires successful standards-backed evaluations for Requirements, applicable quality Requirements, architecture description, architecture evaluation, material Risks, consequential evidence/provenance, and applicable secure-development concerns. Project conformance must show that the Design faithfully addresses the governing owner needs/Requirements/Constraints/Decisions. Workflow policy then requires zero unresolved blocking concerns, authority resolution, traceability and fresh challenge.
+
+The exact profile composition is normative in [Planning policy](../reference/planning-policy.md).
 
 ### Gate 2 — Delivery Readiness
 
-Before release, requirements/design/work traceability is complete under declared policy; dependencies are valid and acyclic; slices are bounded; early integrated/testable value exists; Work Items have Goal/Outcomes/Constraints/Verification; verification design survived fresh challenge; and the plan survived fresh adversarial review.
+Delivery Readiness similarly composes standards-backed plan quality, Verification-plan quality, estimate quality where relevant, material risk quality, and applicable security/documentation obligations. Project conformance proves the decomposition and Verification faithfully cover the Design Baseline. Workflow policy separately checks dependencies, bounded slices, early integrated/testable value, lane/collision assumptions, fresh verification challenge, and fresh Plan Review.
+
+Each Work Item still has Goal, Required Outcomes, Constraints, and Verification. Tests/commands are evidence mechanisms, not semantic Outcomes and not complete Verification definitions by themselves.
 
 PriFly claims deterministic enforcement of declared gates, **not mathematical proof that AI discovered every possible semantic concern**.
 
 ## Baselines, Change Requests, and impact uncertainty
 
-Released planning state uses immutable versioned baselines. Semantic changes use typed Change Requests. Impact classification is AFFECTED, PROVEN_UNAFFECTED, or UNKNOWN. UNKNOWN never means safe to continue: AFFECTED work pauses/revalidates; UNKNOWN work conservatively revalidates; only PROVEN_UNAFFECTED work continues without revalidation.
+Released planning state uses immutable versioned baselines. Semantic changes use typed Change Requests. Impact analysis itself is evaluated using the standards-backed `change-impact-quality/v1` profile; PriFly then applies its project-specific downstream classification of AFFECTED, PROVEN_UNAFFECTED, or UNKNOWN.
+
+UNKNOWN never means safe to continue: AFFECTED work pauses/revalidates; UNKNOWN work conservatively revalidates; only PROVEN_UNAFFECTED work continues without revalidation.
 
 Code-intelligence providers can provide evidence toward PROVEN_UNAFFECTED, but absence of a discovered edge never proves non-impact. Where PriFly cannot soundly narrow impact, it broadens invalidation/revalidation.
 
@@ -81,7 +111,9 @@ A Finding is not automatically a Work Item. Dispositions include current-work co
 
 ## Initiative closure and lessons
 
-Initiative closure requires terminal released Work Items, required validation, no unresolved blocking Findings/owner decisions, reconciled provider projection, and explicit residual risks. Factory computes deterministic metrics, then may run a bounded independently reviewed lessons analysis.
+Initiative closure requires terminal released Work Items, required validation, no unresolved blocking Findings/owner decisions, reconciled provider projection, and explicit residual risks. General closure quality is evaluated using `closure-quality/v1` plus applicable acceptance/product/documentation profiles; project conformance and PriFly closure policy remain separate.
+
+Factory computes deterministic metrics, then may run a bounded independently reviewed lessons analysis.
 
 ```text
 Observation
@@ -92,4 +124,4 @@ Observation
 → owner/policy decision
 ```
 
-Factory does not autonomously rewrite Constitution or routing policy.
+DORA-style delivery metrics may be used as diagnostic evidence for learning, not universal pass/fail thresholds. Factory does not autonomously rewrite Constitution or routing policy.
