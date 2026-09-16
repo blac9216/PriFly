@@ -479,3 +479,7 @@ Requirement, criterion, role/job and diagram identities are retained.
 - Section 32 is retained as [design governance](design-governance.md); it grants no implementation release.
 
 Implementation traces and executable test results are added with their actual producers. Their absence here is not a test pass. [Product acceptance](product-acceptance.md) and [conformance](conformance.md) define required observations; [deployment parameters](deployment-parameters.md) block dependent release/admission until selected.
+
+## Initial execution-handover refinements
+
+[ADR-0029](../adr/0029-admit-external-reviewed-execution-packages.md) refines PF-PLN/PF-PLAN/PF-API authority and artifact ingestion without changing their engineering gates.

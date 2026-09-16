@@ -102,3 +102,7 @@ Executable JSON Schemas and tests must exist when a real producer/consumer for t
 | PF-API-05 | Record identity, schema version, exact subject, and provenance remain explicit across interfaces. |
 | PF-API-06 | Deterministic renderers own output structure; model prose does not become canonical merely because it looks like a template. |
 | PF-API-07 | Schema/operation compatibility is explicit; unsupported combinations fail admission. |
+
+## Initial execution profile bindings
+
+Bundle inspection/import stages an immutable proposal, checks complete references/evaluations/authority and never directly launches work. The owner transport authenticates local peer identity and binds confirmation to exact package/source/rendered digest, permitted phase, scope and envelope. Pilot/Worker transports cannot confirm those operations.

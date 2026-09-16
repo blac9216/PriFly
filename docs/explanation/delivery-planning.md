@@ -112,3 +112,7 @@ After Delivery Readiness and owner execution release, Factory publishes the Deli
 | PF-PLAN-08 | Proposed-plan objects may be published only within owner-authorized delivery planning and do not make Work Items execution-ready. |
 | PF-PLAN-09 | The delivery package includes work contracts, estimates, dependencies, concurrency/forecast assumptions, validation coverage, review results, and provider synchronization status. |
 | PF-PLAN-10 | Delivery Readiness plus owner confirmation of the same exact package is required to publish execution eligibility. |
+
+### Externally prepared delivery packages
+
+For the initial execution profile, a reviewed external delivery bundle supplies the full Work Item contracts, outcome verification, dependency release conditions, estimates and separate overhead, footprints/envelopes, selected evaluation/probe versions, validation relationships and provider mappings. Factory validates the graph, evidence, applicability and exact owner releases before publishing eligibility. Existing GitHub planning objects may be reused as projections without becoming canonical authority. Common-triage follow-up and planning-change scope returns through this same reviewed import boundary; it does not give an Implementer planning authority. Native autonomous decomposition/estimation is unsupported until separately admitted. See [ADR-0029](../adr/0029-admit-external-reviewed-execution-packages.md).

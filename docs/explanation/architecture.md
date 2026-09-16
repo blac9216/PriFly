@@ -125,3 +125,15 @@ These are logical components inside a modular monolith, not separate microservic
 | **Serena** | v1 semantic navigation/editing and source-backed code discovery where the admitted language/backend is supported, alongside exact Git facts. | Canonical knowledge, proof of complete impact coverage, or permission to exceed job scope. |
 
 These selections reduce reinvention while leaving replaceable adapter boundaries. Go, SQLite, and the packaging shape derive from PriFly's product decisions [P1](../reference/source-register.md#source-p1), [P2](../reference/source-register.md#source-p2). HerdR's documented automation surface supports managed panes/agents and CLI/socket control, but its status signals are not business completion records [S03](../reference/source-register.md#source-s03), [S04](../reference/source-register.md#source-s04).
+
+### Initial execution profile: container and capability refinement
+
+The initial profile admits external reviewed execution packages. These refinements preserve the modular-monolith component ownership above.
+
+```mermaid
+flowchart TB
+  Owner[Owner CLI: separate local identity] --> API[Factory Go monolith]
+  Pilot[Disposable Pilot] -->|routine API only| API
+```
+
+See [ADR-0029](../adr/0029-admit-external-reviewed-execution-packages.md) and the subsystem contracts ([planning admission](planning.md#external-reviewed-package-admission), [API bindings](../reference/api-contract.md#initial-execution-profile-bindings)) for the exact authority, failure and qualification rules. This is the proposed topology.

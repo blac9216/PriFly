@@ -179,3 +179,7 @@ The next package includes an annotation-disposition record: addressed with exact
 | PF-PLN-09 | Owner annotations and their dispositions remain tied to exact package revisions, and replacement packages require current release authority. |
 | PF-PLN-10 | Package review exposes both the rendered proposed result and the relevant baseline diff; required files and evidence remain recoverable. |
 | PF-PLN-11 | Canonical documentation lands through planned, reviewed PRs; Factory-held planning material is not another repository specification tree. |
+
+### External reviewed-package admission
+
+The initial execution profile admits externally prepared planning through a typed, immutable bundle. The bundle carries exact source/requirements/design/delivery revisions, review artifacts and provenance, criterion results, concern/traceability coverage, bounded work, and actual owner-release records. Import records a proposal, never execution eligibility. Factory checks the same gate relationships and protected triggers before accepting a matching owner release. It does not invent historical Factory attempts or retrospective approvals. An owner-configured import trust profile binds named external producer/reviewer identities and their independent evidence; arbitrary file labels or provider comments cannot register a trusted evaluator. Owner confirmation cannot erase a blocking finding. [ADR-0029](../adr/0029-admit-external-reviewed-execution-packages.md) defines this bootstrap boundary; the eventual native planning jobs produce the same semantic records.
