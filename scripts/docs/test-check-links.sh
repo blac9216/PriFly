@@ -44,10 +44,10 @@ check_case 'custom anchor case must match' 1
 printf '%s\n' '[bad](#bad)' '<a id="bad></a>' >"$fixture_dir/README.md"
 check_case 'malformed anchor does not create a target' 1
 
-printf '%s\n' '[example](#example)' '    <a id="example"></a>' >"$fixture_dir/README.md"
+printf '%s\n' '[example](#example)' '' '    <a id="example"></a>' >"$fixture_dir/README.md"
 check_case 'space-indented code does not create a target' 1
 
-printf '%s\n' '[example](#example)' $'\t<a id="example"></a>' >"$fixture_dir/README.md"
+printf '%s\n' '[example](#example)' '' $'\t<a id="example"></a>' >"$fixture_dir/README.md"
 check_case 'tab-indented code does not create a target' 1
 
 printf '%s\n' '[example](#example)' '~~~html' '<a id="example"></a>' '~~~' >"$fixture_dir/README.md"
@@ -64,7 +64,7 @@ if [[ -r "$fixture_dir/locked" && -x "$fixture_dir/locked" ]]; then
   echo 'SKIP: unreadable directory (current user bypasses fixture permissions)'
 else
   check_case 'unreadable directory fails rather than silently skipping documents' 1
-  if ! rg -q 'LINK_TRAVERSAL_ERROR' "$fixture_dir/output"; then
+  if [[ "$(<"$fixture_dir/output")" != *LINK_TRAVERSAL_ERROR* ]]; then
     echo 'FAIL: missing explicit traversal diagnostic' >&2
     exit 1
   fi
