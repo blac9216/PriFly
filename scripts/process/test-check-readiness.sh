@@ -68,10 +68,12 @@ run_case 'body via process substitution passes' 0 'check-readiness: 5/5 as expec
   --root "$root" --body <(cat "$body") --labels "$labels"
 CASE_STDIN="$body" run_case 'body via stdin (--body -) passes' 0 'check-readiness: 5/5 as expected' \
   --root "$root" --body - --labels "$labels"
+# A non-type label must not satisfy the type check; an area: label outside labels.md's set
+# (area:docs is excluded there by name) must not satisfy the area check.
 run_case 'missing type label fails' 1 'MISSING: carries one type label' \
-  --root "$root" --body "$body" --labels 'area:workflow'
+  --root "$root" --body "$body" --labels 'priority:high,area:workflow'
 run_case 'missing area:* label fails' 1 'MISSING: carries one area:* label' \
-  --root "$root" --body "$body" --labels 'chore,priority:low'
+  --root "$root" --body "$body" --labels 'chore,priority:low,area:docs'
 
 # Template heading derivation: a heading added to the template is required of the body;
 # all headings removed is TEMPLATE_EMPTY; only the AC heading removed is named.
@@ -91,21 +93,40 @@ run_case 'only the Acceptance Criteria heading removed fails' 1 \
   'MISSING: template names an Acceptance Criteria heading' \
   --root "$ac_root" --body "$body" --labels "$labels"
 
-# AC scoping: the only checkbox sits in another section.
-elsewhere="$fixture_root/checkbox-elsewhere-body.md"
-cp "$body" "$elsewhere"
-replace "$elsewhere" $'- [ ] A criterion a reviewer can prove at merge.\n' ''
-replace "$elsewhere" $'## Summary / Goal\n' $'## Summary / Goal\n- [ ] Not an acceptance criterion.\n'
-# Fence handling: the AC checkbox sits inside a ~~~ fence whose ``` lines must not close it.
-fenced="$fixture_root/nested-fence-body.md"
-cp "$body" "$fenced"
-replace "$fenced" $'- [ ] A criterion a reviewer can prove at merge.\n' \
-  $'~~~\n```\n- [ ] Quoted inside a fence, not a criterion.\n```\n~~~\n'
-sha256sum "$elsewhere" "$fenced"
-run_case 'checkbox only outside the Acceptance Criteria section fails' 1 \
-  'MISSING: acceptance-criteria checkbox present' --root "$root" --body "$elsewhere" --labels "$labels"
-run_case 'checkbox only inside a ~~~ fence holding ``` lines fails' 1 \
-  'MISSING: acceptance-criteria checkbox present' --root "$root" --body "$fenced" --labels "$labels"
+# AC scoping, fences and comments: the body's only checkbox is moved out of the Acceptance
+# Criteria section's own text (checkbox_case NAME AFTER_LINE INSERT CASE-NAME).
+ac_h="$(grep -m1 '^## Acceptance Criteria' "$tmpl")"
+next_h="$(grep '^## ' "$tmpl" | grep -A1 -xF "$ac_h" | tail -1)"
+checkbox_case() {
+  local out="$fixture_root/$1-body.md"; cp "$body" "$out"
+  replace "$out" $'- [ ] A criterion a reviewer can prove at merge.\n' ''
+  replace "$out" "$2"$'\n' "$2"$'\n'"$3"
+  sha256sum "$out"
+  run_case "$4" 1 'MISSING: acceptance-criteria checkbox present' --root "$root" --body "$out" --labels "$labels"
+}
+checkbox_case before-ac '## Summary / Goal' $'- [ ] Not an acceptance criterion.\n' \
+  'checkbox only outside the Acceptance Criteria section fails'
+checkbox_case after-ac "$next_h" $'- [ ] Not an acceptance criterion.\n' \
+  'checkbox only in the section after Acceptance Criteria fails'
+checkbox_case nested-fence "$ac_h" $'~~~\n```\n- [ ] Quoted inside a fence.\n```\n~~~\n' \
+  'checkbox only inside a ~~~ fence holding ``` lines fails'
+checkbox_case short-fence "$ac_h" $'````\n```\n- [ ] Quoted inside a fence.\n````\n' \
+  'checkbox only inside a 4-backtick fence holding a shorter 3-backtick line fails'
+checkbox_case html-comment "$ac_h" $'<!--\n- [ ] Commented out.\n-->\n' \
+  'checkbox only inside a multi-line HTML comment fails'
+
+# labels.md anchors: rewording the Type row, the area:* heading or every area:* row fails loudly.
+# shellcheck disable=SC2016 # the backticks are literal labels.md text, not expansions
+lab_old=('| Type. |' '## Repo-specific `area:*` set' '| `area:')
+# shellcheck disable=SC2016
+lab_msg=("no labels.md row ending '| Type. |'" "no '## Repo-specific \`area:*\` set' heading" "no 'area:*' rows found")
+for j in 0 1 2; do
+  l_root="$fixture_root/labels-anchor-$j-root"; mk_root "$l_root"
+  replace "$l_root/docs/process/labels.md" "${lab_old[$j]}" '| REWORDED'
+  sha256sum "$l_root/docs/process/labels.md"
+  run_case "labels.md anchor $((j + 1)) reworded fails loudly" 3 "LABELS_ANCHOR_MISSING: ${lab_msg[$j]}" \
+    --root "$l_root" --body "$body" --labels "$labels"
+done
 
 # Doc anchors: rewording each rule the checker relies on fails loudly, one case per anchor.
 i=0
