@@ -16,12 +16,15 @@ ROOT="$(cd "$ROOT" && pwd)"
 
 python3 - "$ROOT" <<'PY'
 from __future__ import annotations
-import pathlib, re, sys, urllib.parse
+import functools, pathlib, re, sys, urllib.parse
 
 root = pathlib.Path(sys.argv[1])
 findings: list[str] = []
 link_re = re.compile(r'(?<!!)\[[^\]]*\]\(([^)]+)\)')
 heading_re = re.compile(r'^(#{1,6})\s+(.+?)\s*$')
+# Stable custom anchors are used by the accepted PRD's section/figure/source IDs.
+# Match standalone empty anchors, not examples inside prose or inline code.
+custom_anchor_re = re.compile(r'''^\s*<a\s+(?:id|name)=(['"])([^'"]+)\1\s*>\s*</a>\s*$''')
 
 def slugify(text: str) -> str:
     text = re.sub(r'\s+#+\s*$', '', text.strip()).lower()
@@ -32,6 +35,7 @@ def slugify(text: str) -> str:
     text = re.sub(r'-+', '-', text)
     return text.strip('-')
 
+@functools.lru_cache(maxsize=None)
 def anchors(path: pathlib.Path) -> set[str]:
     result: set[str] = set()
     counts: dict[str, int] = {}
@@ -45,6 +49,10 @@ def anchors(path: pathlib.Path) -> set[str]:
             in_fence = not in_fence
             continue
         if in_fence:
+            continue
+        custom = custom_anchor_re.match(line)
+        if custom:
+            result.add(custom.group(2))
             continue
         m = heading_re.match(line)
         if not m:

@@ -7,7 +7,7 @@ Date: 2026-09-16
 
 ## Context
 
-ADR-0012 selected exact expected-base target-ref integration and treated PRs as projections. PRD Candidate 2.1 §17 instead explicitly requires GitHub PR merge and rejects claiming that its expected-head parameter is an expected-base CAS. This replaces ADR-0012 and amends only ADR-0021 Decision item 8's example of exact-ref integration; its quality-layer separation remains intact. Owner direction is recorded in issue #36.
+ADR-0012 selected exact expected-base target-ref integration and treated PRs as projections. [PRD v2.1](../reference/product-requirements.md) §17 instead explicitly requires GitHub PR merge and rejects claiming that its expected-head parameter is an expected-base CAS. This replaces ADR-0012 and amends only ADR-0021 Decision item 8's example of exact-ref integration; its quality-layer separation remains intact. Owner direction is recorded in issue #36.
 
 ## Decision Drivers
 

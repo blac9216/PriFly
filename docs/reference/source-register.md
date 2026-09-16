@@ -6,15 +6,17 @@ Kind: reference
 
 ### Product sources
 
-Source precedence is explicit owner direction; the reviewed canonical design and active decision
-relationships; then qualified implementation behavior. Historical artifacts provide provenance,
+Source precedence is explicit owner direction; the [accepted PRD](product-requirements.md);
+the appropriately updated canonical design and active decision relationships; then qualified
+implementation behavior. Historical artifacts provide provenance,
 not permission to restore a replaced requirement. External technical documentation describes
 dependencies; it does not decide PriFly's scope.
 
 The P/S source identifiers below are retained from the owner-supplied PRD for stable references.
 Historical read dates and conversation provenance are claims inherited from that source, not
 claims that this repository reconciliation independently inspected those conversations or every
-external page. [Traceability](traceability.md) pins the actual supplied Candidate 2.1 bytes.
+external page. [Traceability](traceability.md) pins the original supplied Candidate 2.1 bytes
+and identifies their accepted canonical successor.
 [Standards registry](standards-registry.md) governs editions and access limitations; technology
 admission requires evidence for the selected version/configuration.
 
@@ -40,7 +42,7 @@ or a claim of complete standards conformance.
 
 ### source-p4
 
-**P4 — Owner product direction.** The supplied Candidate 2.1 and the owner's reconciliation request
+**P4 — Owner product direction.** The [accepted PRD v2.1](product-requirements.md) and the owner's reconciliation request
 govern phase releases, foundation/feature packages, execution estimates, Serena, fresh correction
 attempts, review history, configurable projections and Initiative-to-milestone mapping. The PRD
 attributes earlier direction to its design conversation; that conversation is not available as
@@ -49,7 +51,7 @@ independent evidence in this repository.
 ### source-p5
 
 **P5 — Revision and documentation framework provenance.** The PRD describes Candidate 1 and
-an edit discussion as earlier revision inputs. This decomposition uses Candidate 2.1, not inferred
+an edit discussion as earlier revision inputs. This decomposition uses the [accepted v2.1 baseline](product-requirements.md), not inferred
 missing attachments. The adopted [design-docs framework](https://github.com/blac9216/.devcontainer/tree/main/ai/skills/design-docs)
 supplies canonical layout and immutable decision-history rules; it does not grant Factory authority.
 

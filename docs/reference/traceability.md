@@ -2,7 +2,18 @@
 
 Kind: reference
 
-The design is decomposed from the owner-supplied **PriFly PRD Candidate 2.1, 16 September 2026**. Source SHA-256: `e14d47b25992df100003ddd697627c08bd9343c74bd984a6e744ceb7ef680490`. Its review material remains outside the repository. This catalog locates durable obligations without duplicating their wording. The source section/requirement/figure IDs are retained for comparison; the linked document owns the current obligation.
+The design decomposes the [Accepted PriFly PRD v2.1](product-requirements.md), accepted by the
+owner on 16 September 2026. The PRD governs product requirements; each linked document is its
+focused decomposition home, not a separate source of product authority. Review material remains
+outside the repository. [Design governance](design-governance.md) defines change control.
+
+The supplied pre-acceptance file was `PriFly-PRD-Candidate-v2.1.md`, SHA-256
+`e14d47b25992df100003ddd697627c08bd9343c74bd984a6e744ceb7ef680490`.
+Its complete content is now maintained in the accepted PRD, with acceptance metadata, current
+baseline framing and canonical navigation replacing candidate-only packaging. The hash identifies
+the original input, not the edited accepted file. **Source line** values below refer to that original
+input; stable section/requirement/figure IDs navigate the accepted baseline after line shifts.
+Requirement, criterion, role/job and diagram identities are retained.
 
 ## Source sections
 

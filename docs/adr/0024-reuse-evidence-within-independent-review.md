@@ -6,7 +6,7 @@ Date: 2026-09-16
 
 ## Context
 
-The prior acceptance design required independently executed verification for every factual execution claim. PRD Candidate 2.1 §§14–15 explicitly admits attributable Implementer evidence when the independent Reviewer finds it sufficient, and lets that Reviewer gather further evidence in the same review. This amends the blanket independent-execution interpretation of ADR-0009 and the independent-observation requirement of ADR-0013; their review independence, immutable acceptance and durability requirements remain. Owner direction is issue #36.
+The prior acceptance design required independently executed verification for every factual execution claim. [PRD v2.1](../reference/product-requirements.md) §§14–15 explicitly admits attributable Implementer evidence when the independent Reviewer finds it sufficient, and lets that Reviewer gather further evidence in the same review. This amends the blanket independent-execution interpretation of ADR-0009 and the independent-observation requirement of ADR-0013; their review independence, immutable acceptance and durability requirements remain. Owner direction is issue #36.
 
 ## Decision Drivers
 

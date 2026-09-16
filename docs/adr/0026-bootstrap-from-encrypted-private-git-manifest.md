@@ -6,7 +6,7 @@ Date: 2026-09-16
 
 ## Context
 
-ADR-0016 requires an independent Recovery Kit without fixing its packaging. PRD Candidate 2.1 §24 selects a private Git repository containing bootstrap.json and secrets.json.age. This amends the Kit's concrete delivery contract while retaining its host-loss assumptions and upgrade cutoff. Owner direction is issue #36.
+ADR-0016 requires an independent Recovery Kit without fixing its packaging. [PRD v2.1](../reference/product-requirements.md) §24 selects a private Git repository containing bootstrap.json and secrets.json.age. This amends the Kit's concrete delivery contract while retaining its host-loss assumptions and upgrade cutoff. Owner direction is issue #36.
 
 ## Decision Drivers
 

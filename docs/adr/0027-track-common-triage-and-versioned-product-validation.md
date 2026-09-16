@@ -5,7 +5,7 @@ Date: 2026-09-16
 
 ## Context
 
-PRD Candidate 2.1 §§16, 18 and 20 separates current correction, backlog treatment, product proof and scope closeout. It explicitly rejects a private validation fix-wave scheduler and closing a scope by filing its unfinished obligations elsewhere. This records the owner's selected lifecycle from issue #36.
+[PRD v2.1](../reference/product-requirements.md) §§16, 18 and 20 separates current correction, backlog treatment, product proof and scope closeout. It explicitly rejects a private validation fix-wave scheduler and closing a scope by filing its unfinished obligations elsewhere. This records the owner's selected lifecycle from issue #36.
 
 ## Decision Drivers
 

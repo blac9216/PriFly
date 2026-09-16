@@ -2,6 +2,26 @@
 
 Kind: reference
 
+## Product baseline authority and maintenance
+
+The owner, Justin Black, accepted [PRD v2.1](product-requirements.md) on 16 September 2026
+and requested its inclusion in the canonical doc set. It is the product requirements authority;
+the focused explanation/reference documents decompose that baseline, not a competing product definition.
+Explicit subsequent owner direction governs changes, but must be recorded in the canonical set
+before dependent work treats a changed requirement as its baseline.
+
+A conflict between the PRD and its decomposition is a documentation defect to reconcile, not
+permission to select whichever rule is convenient. Preserve accepted ADR bodies as history;
+their active amendment/supersession relationships explain design evolution. Proposed ADRs remain
+Proposed until separately accepted through repository review. PRD acceptance does not accept those
+proposals, certify feasibility, resolve unselected parameters or release delivery planning/execution.
+
+The owner retains product-acceptance authority. Contributors update the PRD, affected subsystem
+contracts, glossary, source/requirement traceability and any required ADRs in the same reviewed change
+when requirements change. Design refinements that do not change product meaning update their focused
+homes; contradictions require reconciliation and any necessary owner decision before dependent work.
+Review records and candidate-only attachments remain outside the canonical doc set.
+
 ## Review subject
 
 The owner reviews the product promise, scope, roles, records, lifecycle paths, quality policy,

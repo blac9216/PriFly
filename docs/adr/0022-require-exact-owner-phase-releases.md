@@ -6,7 +6,7 @@ Date: 2026-09-16
 
 ## Context
 
-The revised product direction separates recording an idea, authorized architecture, delivery planning and execution. This amends ADR-0008's baseline/release boundary and clarifies ADR-0010's consequential owner actions. The source is the owner's PRD Candidate 2.1 §§8–11 and explicit reconciliation request in issue #36; it does not grant execution release.
+The revised product direction separates recording an idea, authorized architecture, delivery planning and execution. This amends ADR-0008's baseline/release boundary and clarifies ADR-0010's consequential owner actions. The source is the owner's [PRD v2.1](../reference/product-requirements.md) §§8–11 and explicit reconciliation request in issue #36; it does not grant execution release.
 
 ## Decision Drivers
 

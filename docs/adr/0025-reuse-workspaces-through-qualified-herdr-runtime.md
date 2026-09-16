@@ -6,7 +6,7 @@ Date: 2026-09-16
 
 ## Context
 
-ADR-0014 assigned an isolated worktree to every attempt; ADR-0015 left richer code intelligence optional; ADR-0019 described attempt-owned resources without the new retained workspace boundary. PRD Candidate 2.1 §§5, 8, 13 and Appendix F select HerdR and Serena initially and make the Implementation Workspace longer-lived than an attempt. These portions are amended; the non-malicious threat model, replaceable boundaries, safe identity retirement and cumulative budgets remain. Owner direction is issue #36.
+ADR-0014 assigned an isolated worktree to every attempt; ADR-0015 left richer code intelligence optional; ADR-0019 described attempt-owned resources without the new retained workspace boundary. [PRD v2.1](../reference/product-requirements.md) §§5, 8, 13 and Appendix F select HerdR and Serena initially and make the Implementation Workspace longer-lived than an attempt. These portions are amended; the non-malicious threat model, replaceable boundaries, safe identity retirement and cumulative budgets remain. Owner direction is issue #36.
 
 ## Decision Drivers
 

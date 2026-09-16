@@ -1,10 +1,12 @@
 # Documentation manifest — as adopted here
 
-This repository follows the `design-docs` skill standard. This file records the adopted shape;
-framework rules live in the skill and are not restated here.
+This repository follows the `design-docs` skill standard, with the explicit owner-authorized
+accepted-PRD exception below. This file records the adopted shape; other framework rules live
+in the skill and are not restated here.
 
 ## Design set
 
+- docs/reference/product-requirements.md
 - docs/explanation/product.md
 - docs/explanation/product-lifecycle.md
 - docs/explanation/architecture.md
@@ -90,10 +92,18 @@ are separate evidence obligations.
 Durable decisions follow owner direction/interrogation, canonical design recording, and independent
 repository review; delivery planning then materializes only released scope. Architectural changes
 require new ADRs and all affected canonical documents in the same change. Accepted decision bodies
-are immutable. Specs, plans, interrogation records, research/audit reports and duplicate monolithic
-PRDs are not committed.
+are immutable. Transient specs, plans, interrogation records, research/audit reports and duplicate
+PRD copies are not committed.
 
-Product intent lives in `docs/explanation/product.md`; choreography in
+The owner's explicit acceptance and placement instruction establishes
+`docs/reference/product-requirements.md` as the single canonical product requirements baseline,
+an intentional exception to the framework's prohibition on committing specs. It is an accepted
+outcome, not deliberation. Focused docs decompose it without independently changing its meaning.
+The owner maintains product acceptance authority; a product-requirement change updates the PRD,
+affected decomposition and traceability together through owner approval and independent review.
+See `docs/reference/design-governance.md` for conflicts and phase-release limits.
+
+The product summary lives in `docs/explanation/product.md`; choreography in
 `docs/explanation/product-lifecycle.md`; source and obligation navigation in
 `docs/reference/traceability.md`; external engineering sources/rubrics in the standards registry
 and quality inventory; implementation guarantee oracles in `docs/reference/conformance.md`.

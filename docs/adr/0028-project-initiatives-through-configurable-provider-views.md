@@ -6,7 +6,7 @@ Date: 2026-09-16
 
 ## Context
 
-ADR-0007 established Factory authority over external projections but did not select the new configurable planning and review-history mappings. PRD Candidate 2.1 §§7, 11, 15 and 22 maps Initiatives to GitHub milestones and makes provider representations independently optional. This extends that projection decision under the owner's issue #36 direction.
+ADR-0007 established Factory authority over external projections but did not select the new configurable planning and review-history mappings. [PRD v2.1](../reference/product-requirements.md) §§7, 11, 15 and 22 maps Initiatives to GitHub milestones and makes provider representations independently optional. This extends that projection decision under the owner's issue #36 direction.
 
 ## Decision Drivers
 

@@ -18,3 +18,5 @@ jobs:
         run: bash scripts/docs/audit.sh --root . --out /tmp/prifly-design-doc-gap.md
       - name: Markdown links and fragments resolve
         run: bash scripts/docs/check-links.sh --root .
+      - name: Markdown link checker regression tests
+        run: bash scripts/docs/test-check-links.sh

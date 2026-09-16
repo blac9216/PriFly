@@ -2,8 +2,9 @@
 
 Kind: reference
 
-This is the canonical decomposition of the owner's revised PRD. Start with the product,
-lifecycle, architecture and glossary; then read the subsystem relevant to the work.
+This set contains the owner's [Accepted PRD v2.1](reference/product-requirements.md) and its
+canonical decomposition. The PRD governs product requirements; the product summary, lifecycle,
+architecture, glossary and subsystem docs provide focused views of that same baseline.
 [Traceability](reference/traceability.md) maps the source's stable identities to these homes.
 The [manifest](doc-manifest.md) records the adopted shape. The [ADR index](adr/README.md)
 distinguishes accepted history from proposed amendments; documentation is not implementation proof.
@@ -19,6 +20,7 @@ it does not pretend that unimplemented commands can be run.
 
 ## Reference — facts and contracts
 
+- [Accepted product requirements](reference/product-requirements.md) — complete owner-accepted PRD v2.1 baseline.
 - [Requirement and source traceability](reference/traceability.md) — source identity, obligations and diagram catalog.
 - [Worker roles](reference/worker-roles.md) — thirteen roles and responsibility routing.
 - [Worker prompt contracts](reference/worker-prompts.md) — cold-start contract and thirty-five job modules.
