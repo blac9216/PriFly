@@ -11,8 +11,8 @@ the check is safe to require on every pull request, including a documentation-on
 
 ## Commands
 
-PriFly is still in its architecture-to-implementation transition. The current executable
-verification surface is the canonical documentation suite, run from the repository root:
+The executable verification surface is the canonical documentation suite below, run from
+the repository root, plus the Go suite that follows it:
 
 | Suite | Command | Environment |
 |---|---|---|
@@ -58,7 +58,7 @@ Baseline still needs to fix a coverage threshold before one becomes required.
 
 ## Isolation on a shared host
 
-No runnable application or shared test service exists yet. Future tests must use the
+No shared test service exists yet, and the Go suite starts none. Future tests must use the
 `prifly-<issue-or-attempt>-<run-id>` resource prefix, unique ports, and disposable remote
 namespaces. A run removes only its own named resources — see
 [maintenance.md](maintenance.md).
