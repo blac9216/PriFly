@@ -65,7 +65,7 @@ The design specifies their future obligations without publishing fictional runbo
 
 ## ADRs
 
-Directory: docs/adr/ · Range in use: 0001–0028 · Normalisation ADR: none — all ADRs created post-adoption
+Directory: docs/adr/ · Range in use: 0001–0029 · Normalisation ADR: none — all ADRs created post-adoption
 Index markers: `<!-- adr-index:start -->` / `<!-- adr-index:end -->` in docs/adr/README.md
 
 ## Rationale areas

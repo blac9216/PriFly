@@ -85,3 +85,7 @@ The new records use versioned JSON with JSON Schemas, closed semantic fields/enu
 | Projection Mapping | Canonical subject and representation slot, profile version, repository/provider identity, desired and observed revisions, operation/correlation IDs, synchronized content digest, lag/drift/unknown state. |
 
 A valid schema is necessary but insufficient. Factory also validates that a correction addresses the named reviewed candidate, findings belong to the appropriate scope, a verdict has complete mandatory evaluations/probes, and the owner's release still matches its package. Conversation sequence comes from the canonical Ledger, not provider timestamps or comment order. Actual provider IDs are populated only from admitted observations; a Worker cannot invent them in its output.
+
+## Initial execution-profile representations
+
+The initial representation uses exact versioned JSON artifact bytes plus relational identity/revision/state indexes with uniqueness/foreign-key constraints. Typed opaque random 128-bit IDs, monotonic record revisions and SHA-256 byte digests are separate identities. A planning bundle records exact baseline/package kind/scope, requirement/design/risk artifacts, reviewed Work Item graph, selected criteria/probes, estimates/envelopes, validation/projection relationships, external reviewer provenance and actual owner releases. Imported external evaluations cannot invent Factory Attempt IDs.

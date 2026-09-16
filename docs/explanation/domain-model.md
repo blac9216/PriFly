@@ -60,3 +60,7 @@ flowchart TD
 Domain IDs are opaque strings. Revisions are scoped to a mutable record. Immutable baselines, evidence manifests, rubric versions, Route versions, and acceptance records are replaced or superseded, not rewritten. A reference must include the exact revision, commit, digest, or version whenever correctness depends on that identity.
 
 Examples such as `W-42`, `F-7`, and `VT-3` are readable notation, not a commitment to an ID encoding. Git identities in actual records use the repository's full commit/object identity, not abbreviated examples from diagrams.
+
+### Imported artifacts and execution ownership
+
+An externally prepared planning bundle is an immutable artifact set admitted into the existing Planning Record relationships, not a new parallel workflow store. Its external evaluation provenance identifies the producer and independent reviewer without impersonating a Factory Worker Attempt. A registered trust profile and separate owner binding govern that import. These refinements are proposed in [ADR-0029](../adr/0029-admit-external-reviewed-execution-packages.md).

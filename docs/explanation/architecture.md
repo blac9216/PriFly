@@ -125,3 +125,7 @@ These are logical components inside a modular monolith, not separate microservic
 | **Serena** | v1 semantic navigation/editing and source-backed code discovery where the admitted language/backend is supported, alongside exact Git facts. | Canonical knowledge, proof of complete impact coverage, or permission to exceed job scope. |
 
 These selections reduce reinvention while leaving replaceable adapter boundaries. Go, SQLite, and the packaging shape derive from PriFly's product decisions [P1](../reference/source-register.md#source-p1), [P2](../reference/source-register.md#source-p2). HerdR's documented automation surface supports managed panes/agents and CLI/socket control, but its status signals are not business completion records [S03](../reference/source-register.md#source-s03), [S04](../reference/source-register.md#source-s04).
+
+### Initial execution profile: external admission boundary
+
+The initial profile admits external reviewed execution packages. This refines the existing Container view's Owner/Pilot/API boundaries above without changing internal component ownership; the runtime/publication legs of this refinement land with their own ADRs. See [ADR-0029](../adr/0029-admit-external-reviewed-execution-packages.md).

@@ -1,6 +1,7 @@
 # ADR-0022: Require exact owner phase releases independently of quality gates
 
 Status: Proposed
+Amended-by: 0029
 Amends: 0008, 0010
 Date: 2026-09-16
 

@@ -129,3 +129,7 @@ Before a release claims one of these guarantees, its release evidence should ide
 - the conformance tests/failure injections executed and their evidence artifacts.
 
 Changing a mechanism in a way that changes the required semantic result is an architecture/design change. Changing how the same oracle is exercised is an implementation/test change.
+
+## Initial handover profile qualification
+
+Required additional profile observations: (1) externally imported stale/forged/incomplete packages never dispatch. These are required future tests, not claimed PASS evidence.
