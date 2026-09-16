@@ -1,5 +1,15 @@
 # Trusted Go checks (#57 / A06): always-report, SHA-pinned actions (DP4). Keep the
 # commands identical to docs/process/testing.md's Go suite.
+#
+# Dispositions:
+# - cache: false on setup-go below is deliberate, not an oversight: no go.sum
+#   exists yet (no dependencies), so the default cache would only produce a
+#   "Restore cache failed" warning. Turn it on in the same change that adds a
+#   go.sum.
+# - runs-on: ubuntu-latest is a mutable GitHub-hosted runner image. This job
+#   is CI infrastructure, not the product runtime profile; no product
+#   deployment parameter pins a CI runner image, so no pin is applied here.
+#   Revisit only if a documented deployment parameter targets CI runners.
 name: go-checks
 on:
   pull_request:
@@ -10,6 +20,7 @@ permissions:
 jobs:
   go:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       GOTOOLCHAIN: local
       GOFLAGS: -mod=readonly
@@ -18,10 +29,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - name: Set up pinned Go toolchain
-        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: false
       - name: Record tested commit and toolchain
         run: git rev-parse HEAD && go version
       - name: gofmt (no unformatted files)
