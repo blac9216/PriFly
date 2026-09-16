@@ -49,8 +49,8 @@ Target."
 
 A live check or live provisioning step needs three named inputs for its exact target.
 Machine-local `*.local.md` guidance supplies each one as a `<Input>: <reference>` line.
-The reference is a pointer, never a secret value; credentials themselves reach a check
-only through the `with-secrets` mechanism.
+The reference is a pointer, never a secret value; credentials themselves never appear in
+issues, logs, scratch, or committed files.
 
 | Input | What it names |
 |---|---|
