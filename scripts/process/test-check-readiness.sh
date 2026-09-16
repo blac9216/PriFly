@@ -214,11 +214,11 @@ run_case 'PR: heading added to the PR template is required of the body' 1 'missi
   --root "$pr_add_root" --body "$fixture_root/pr-closes.md" "${pr[@]}"
 # Every GitHub closing-keyword form for the Refs'd #57 is flagged, inside fenced code too.
 k=0
-fence=$'```\nfixes #57\n```'
+fence=$'quoted below\n```\nfixes #57\n```'
 for kw in 'close #57' 'closes #57' 'closed #57' 'fix #57' 'fixes #57' 'fixed #57' 'resolve #57' \
   'resolves #57' 'resolved #57' 'CLOSES #57' 'Closes: #57' 'resolves blac9216/PriFly#57' \
   'Fixes BLAC9216/prifly#57' "$fence"; do
-  k=$((k + 1)); found="${kw#$'```\n'}"; found="${found%$'\n```'}"
+  k=$((k + 1)); found="${kw#*$'```\n'}"; found="${found%$'\n```'}"
   pr_body "kw-$k" "$pr_refs"$'\nNote: '"$kw"$'\n'
   run_case "PR: '${kw//$'\n'/ }' for a Refs'd issue fails" 1 \
     "MISSING: no closing keyword for Refs #57 anywhere in the body (found: ['$found'])" \
