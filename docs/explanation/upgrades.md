@@ -88,3 +88,9 @@ An active attempt should not silently change material tools underneath its evide
 | PF-UPG-05 | Fixing or consolidating development schema must preserve the current development Factory's authoritative data/metrics. |
 | PF-UPG-06 | Supported post-v1 upgrade paths retain their immutable required migration history. |
 | PF-UPG-07 | Maintenance updates preserve manifest attribution and are not held indefinitely for obsolete performance advantages. |
+
+### Initial self-development activation
+
+Workers build and test a candidate controller separately from the running stack. Only the restricted owner upgrade path can activate it: drain admissions, stop/reconcile attempts and obligations, publish a pre-upgrade recovery root and upgrade state, then replace the controller with the exact reviewed image/archive identity. The candidate validates/restores a copy and applies only ordered-prefix forward migrations. First new-version authoritative publication closes rollback even if its acknowledgement is lost. Pre-ACTIVE repair remains usable without Pilot and cannot dispatch normal delivery. Qualification uses old/new stacks, lost replies and exact data/history comparisons.
+
+The initial graceful admission drain is bounded to 10 minutes, followed by the selected cancellation/retirement deadlines. An unresolved writer/provider/activation condition holds activation rather than extending a nominal deadline into silent success.
