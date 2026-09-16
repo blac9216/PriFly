@@ -20,12 +20,6 @@ Cleanup at the end of a run removes only resources the run itself created and na
 broad Docker prune, remote-namespace sweep, or process-name kill pattern is prohibited —
 never assume this host runs only this session's work.
 
-## Maintenance pass
-
-Because Project #8's built-in "Item reopened" workflow is not enabled and the GitHub API
-cannot enable it ([#125](https://github.com/blac9216/PriFly/issues/125)), no automation
-moves a reopened item back to Triage. An orchestrator session's routine maintenance pass
-covers this gap: scan for reopened items whose Status is not already Triage and move each
-one back to Triage manually (a board field value update, not a configuration change), so
-a reopened item still goes through the same triage step a newly filed one gets — see
-[work-tracking.md](work-tracking.md).
+Reopened issues still shown as Done are returned to Triage by the `github-workflow`
+skill's maintenance pass (`references/maintenance.md` § 5, "State audit"); this
+repository adds no rule of its own.

@@ -10,17 +10,26 @@ Standing rules for unattended runs in this repository:
 - use local or explicitly disposable test resources unless `*.local.md` guidance
   authorizes a named external environment; no live provisioning or product-dispatch
   action without a concrete, current owner authorization;
-- do not perform product/provider merges (Factory Provider Broker authority), owner-
-  confirmation actions, repository/Project **configuration** changes (permissions,
-  rulesets, field/option definitions, workflow settings), or weaken a conformance oracle
-  unattended. Two things stay permitted at any hour under the owner's explicit session
-  authority ([owner instruction](https://github.com/blac9216/PriFly/issues/38#issuecomment-5703543813):
-  "I want you to be able to merge anything"): an independent reviewer's or merge-
-  verifier's squash-merge of an approved bootstrap PR (never a self-merge — the
-  independent-review and blocking-criteria rules in
-  [work-tracking.md](work-tracking.md) and [validation.md](validation.md) stay intact),
-  and a role's own board field **value** updates (Status, Verified, Claimed by,
-  assignment) for work it owns — never a field's configuration;
+- do not mutate production/provider systems, perform owner-confirmation actions, change
+  repository/Project **configuration** (permissions, rulesets, Project field and option
+  definitions, workflow settings), merge, or weaken a conformance oracle unattended.
+  The owner's instruction
+  ([#38](https://github.com/blac9216/PriFly/issues/38#issuecomment-5703543813): "I want
+  you to be able to merge anything", as recorded there) permits exactly two exceptions,
+  at any hour:
+  - **Bootstrap PR merge.** An approved bootstrap PR may be squash-merged only by the
+    independent reviewer or merge-verifier for that PR, never by the orchestrator,
+    implementer or fix agent, and only after independent review with no blocking `FAIL`
+    or unresolved `UNKNOWN`, green required checks, and an up-to-date branch. Product
+    and provider merges remain Factory Provider Broker authority and stay prohibited
+    unattended.
+  - **Board field values.** Each role may update only the Project field values the
+    `github-workflow` skill assigns it, in `references/orchestration.md` ("Column
+    ownership") and `references/claims.md` (the `Claimed by` field): implementer or fix
+    agent, In progress and assignment; reviewer, In review and Verified at merge;
+    merge-verifier, Verified on its hand-back path; orchestrator, Triage/Backlog/Ready
+    moves and Claimed by. Field and option definitions remain configuration and stay
+    prohibited;
 - do not invent credentials, owner decisions, security exceptions, quality thresholds,
   architecture changes, or vendor behavior to keep a run moving; missing environmental
   access holds the dependent item rather than being worked around;

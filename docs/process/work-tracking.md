@@ -21,16 +21,15 @@ never a substitute for it — see [validation.md](validation.md) and
 ## Board and identity
 
 Project: [PriFly #8](https://github.com/users/blac9216/projects/8) — owner `blac9216`.
-Bootstrap sessions act as the owner account `blac9216` (repository role `admin`) or the
-automation account `machine-blac9216` (repository role `read`), per
+Every bootstrap role acts as the owner account `blac9216` (repository role `admin`).
+The automation account `machine-blac9216` holds repository role `read`, and that is
+intentional ([#125](https://github.com/blac9216/PriFly/issues/125)): no bootstrap role
+acts as it, so no bootstrap role needs write access through it, and it is not escalated
+to match a generic skill fixture. Both roles per
 `gh api repos/blac9216/PriFly/collaborators/<login>/permission`, read live 2026-09-16.
-`machine-blac9216`'s `read` role is intentional, not an oversight: no bootstrap role in
-this workflow ever acts as `machine-blac9216`, so there is no escalation to make for a
-generic skill fixture that expects it to hold a `project`/admin grant — see
-[#125](https://github.com/blac9216/PriFly/issues/125).
 No distinct reviewer account is provisioned, so implementer, reviewer, and merge-verifier
 sessions all act through the same active `gh` identity. See "Known identity limitation"
-below. Which account a given machine has signed in belongs in `*.local.md` guidance.
+below. Which accounts a given machine has signed in belongs in `*.local.md` guidance.
 
 IDs below were read live from `gh project field-list 8 --owner blac9216 --format json`
 and `gh api repos/blac9216/PriFly/rulesets` on 2026-09-16. Each row carries one exact
@@ -83,16 +82,18 @@ The Project's seven built-in workflows (`gh api graphql` `projectV2.workflows`, 
 | Pull request linked to issue | no |
 | Pull request merged | no |
 
-No workflow moves a reopened item back to Triage: the built-in "Item reopened" Project
-workflow is not enabled, and the GitHub API exposes no way to enable it — only the
-Project's own Workflows settings UI can, and no bootstrap session has been given that
-UI action to perform. Until an owner enables it there (harmless and optional whenever
-it happens), a reopened item returns to Triage through the maintenance pass described in
-[maintenance.md](maintenance.md) instead, not through automation. See
+No workflow moves a reopened item back to Triage. The live list above has seven entries
+and none is named "Item reopened". Introspecting the GraphQL schema
+(`gh api graphql -f query='{__schema{mutationType{fields{name}}}}' --jq '.data.__schema.mutationType.fields[].name' | grep -i workflow`,
+run 2026-09-16) returns only `deleteProjectV2Workflow`: there is no mutation to create,
+update, or enable a Project workflow. Whether the Project's Workflows settings UI offers
+a reopen workflow is UNKNOWN; it has not been checked. A reopened issue still showing
+Done is returned to Triage by the `github-workflow` skill's maintenance pass
+(`references/maintenance.md` § 5, "State audit"). See
 [#125](https://github.com/blac9216/PriFly/issues/125). The API also does not expose a
 workflow's target Status or auto-add filter. Before relying on "item added → Triage" or
 "item closed → Done", confirm the target in the Project's Workflows settings; the
-refresh command below shows only names and enabled state.
+refresh recipe above shows only names and enabled state.
 
 The `workflow-main` branch ruleset (`gh api repos/blac9216/PriFly/rulesets/23306001`,
 read live 2026-09-16) is `active` on the default branch with: required status check
@@ -129,7 +130,7 @@ own PR — [DP4 operating contract](https://github.com/blac9216/PriFly/issues/38
 but GitHub does **not** enforce it by identity. Two live facts show the gap:
 
 - the `workflow-main` ruleset requires zero approving reviews, and every bootstrap
-  session acts as one of the same two accounts;
+  role acts as the same account, `blac9216`;
 - the ruleset's bypass actor is the Admin repository role with `bypass_mode: always`, and
   the owner account `blac9216` is an admin. That account can merge or push past the
   required `design-docs` check, linear history, and non-fast-forward rules, whoever
