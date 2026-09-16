@@ -1,512 +1,493 @@
-# Standards-backed quality rubrics
+# Engineering quality rubrics
 
 Kind: reference
 
-This document defines PriFly's reusable **general engineering quality rubrics**. They answer questions such as “is this requirement well formed?”, “is this architecture description adequate?”, “can this verification actually prove the requirement?”, and “is this work product ready for acceptance?” using pinned industry standards and authoritative engineering guidance.
+## Detailed general engineering rubric inventory
+
+## Effective criterion descriptors and policy bindings
 
-The source registry is [Engineering standards registry](standards-registry.md). Project-specific Requirements, Design, Constraints, and baseline adherence are evaluated separately as **project conformance**. PriFly lifecycle state, authority, independence, and promotion rules are separately **workflow policy**.
+The nineteen `/v1` inventories below preserve the PRD's exact criterion identities and questions.
+For a particular evaluation, each effective criterion descriptor resolves:
 
-```text
-QUALITY
-standards-backed rubric
-        +
-CONFORMANCE
-project-specific requirements/design/constraints
-        +
-WORKFLOW
-PriFly lifecycle/authority/independence rules
-        ↓
-may the artifact advance?
-```
+- profile/criterion version and normalized question;
+- exact official source/version and reviewed locator/derivation, including access limitations;
+- artifact kind, lifecycle phase, applicability rule and N/A evidence;
+- required evidence, method and any project-baselined threshold;
+- result, rationale, exact subject and evidence references.
 
-A project-specific architecture rule is therefore not turned into an “industry rubric.” A Reviewer checks that rule as conformance while independently evaluating the artifact's general engineering quality with the applicable profiles below.
+Profile-level source references and evaluator/output descriptions are inherited by their rows.
+The row supplies its evidence question; an admitted descriptor supplies any further precision
+required to reach an objective result. Unresolved interpretation is `UNKNOWN`, not fabricated
+clause authority. [Standards registry](standards-registry.md) governs sources and updates.
+
+The separate **policy binding** selects the criterion version, required/advisory effect, gate,
+independence and authority. It cannot rewrite the engineering question to make a candidate pass.
+Project-specific rules belong in conformance; phase permission belongs in workflow eligibility.
+
+## Lifecycle application
 
-## Evaluation contract
+This map identifies applicable families, not a claim that any current artifact passed them.
+Scope-specific policy pins every actual profile version and threshold before evaluation.
 
-Each consequential evaluation binds at least:
+| Artifact/phase | Core profiles to resolve |
+|---|---|
+| Owner need and requirements | stakeholder-need, requirement, quality-requirement, evidence-provenance |
+| Architecture and design package | architecture-description, architecture-evaluation, risk-record, requirement/quality-requirement, evidence-provenance, documentation, applicable security-engineering |
+| Delivery package | plan, verification-plan, validation-plan where applicable, estimate, risk-record, documentation |
+| Implementation and independent review | implementation, review-inspection, evidence-provenance, applicable security-engineering and documentation |
+| Candidate acceptance/product evaluation | acceptance, product-quality-evaluation, applicable verification/validation-plan and security-engineering |
+| Material change | change-impact plus every affected artifact's profiles |
+| Release and closeout | closure, acceptance, documentation and applicable product-quality-evaluation |
 
-```text
-rubric_profile_id + rubric_version
-artifact kind + exact artifact revision/identity
-pinned Standards Source IDs/versions
-evaluator identity
-criterion results
-evidence references
-started/completed time
-aggregate disposition
-```
+All names above refer to the full `*-quality/v1` IDs below (the product evaluation ID is
+`product-quality-evaluation/v1`). WCAG/ASVS/SLSA and user-information overlays require explicit
+project applicability and target selection. Runtime evidence not yet available at design time is
+recorded as a future qualification obligation; a design-stage criterion requiring feasibility
+evidence is not automatically excused by calling the artifact “documentation.”
+
+### How to use this inventory
+
+The following profiles preserve the adopted local criterion identities from PriFly's standards-backed reference [P3](source-register.md#source-p3). They are normalized engineering questions, not copied ISO/IEEE clauses, a claim of full formal conformance, or a list of new project-specific architecture rules. The source references identify the standard families and public official guidance that support the profiles. When a precise clause-level interpretation is needed, the source-access and ambiguity procedure in [Section 10](../explanation/engineering-quality.md#engineering-quality-standards-and-mechanical-application) applies.
+
+Each row is evaluated against an exact artifact and its declared scope/phase. Evidence can be a specific passage, trace relationship, analysis, measurement, test observation, approved external constraint, or other admitted artifact. A bare “yes” without supporting evidence is not a complete result. A criterion result is `PASS`, `FAIL`, `NOT_APPLICABLE`, or `UNKNOWN`, with a reason and evidence references. Gate policy determines which applicable results are blocking; the evaluator does not invent that policy after reviewing the artifact.
 
-Each criterion resolves to exactly one of:
+Source categories are kept separate. ISO/IEEE documents provide published engineering frameworks; NASA pages provide official operational guidance; NIST, W3C, OWASP, and SLSA supply their respective published practices/specifications. The local normalized questions still require reviewed source mapping. An official catalog page verifies identity and scope, not access to the entire paid standard.
 
-- `PASS` — adequate evidence establishes that the criterion is satisfied;
-- `FAIL` — evidence establishes a material criterion violation;
-- `NOT_APPLICABLE` — the declared applicability rule proves the criterion does not apply;
-- `UNKNOWN` — the evaluator cannot establish PASS/FAIL/N/A from admitted evidence/source interpretation.
+### Stakeholder need quality — `stakeholder-need-quality/v1`
 
-For an applicable blocking profile, `FAIL` blocks promotion and unresolved `UNKNOWN` blocks promotion. `NOT_APPLICABLE` is not a synonym for “not checked.”
+**Sources:** ISO/IEC/IEEE 29148:2018 [S12](source-register.md#source-s12); ISO/IEC 25019:2023 [S15](source-register.md#source-s15).
 
-Rubric profiles are versioned. A historical evaluation remains bound to the version used at the time. Criteria cannot be retrospectively changed merely because a newer standards edition or rubric version is later adopted.
+**Evaluated by:** Reviewer when needs are accepted into planning; Architect uses the same profile while preparing them.
 
-## Source resolution and ambiguity
+**Output:** explicit, usable input to requirements engineering—not a prematurely prescribed implementation.
 
-An evaluator uses the normalized criteria below first. If interpretation is materially ambiguous:
+| ID | Evaluation question and required evidence |
+|---|---|
+| SN-01 | Is the purpose or desired outcome explicit? Point to the problem and the intended change in user/system behavior. |
+| SN-02 | Are the affected stakeholder/user classes identified? Show whose need is being represented. |
+| SN-03 | Is material context of use described? Identify relevant user tasks, environment, and operating assumptions. |
+| SN-04 | Is the system/product boundary clear enough to distinguish included and excluded behavior? |
+| SN-05 | Are known external constraints recorded separately from unexamined assumptions? |
+| SN-06 | Can observable success requirements be derived from this need? Identify what could demonstrate a useful outcome. |
+| SN-07 | Are material unknowns explicit and routed rather than silently filled in? |
+| SN-08 | Does the need remain solution-neutral unless a particular solution is itself a real external requirement? |
+
+### Requirement quality — `requirement-quality/v1`
+
+**Sources:** ISO/IEC/IEEE 29148:2018 [S12](source-register.md#source-s12); NASA SWE-050 [S13](source-register.md#source-s13).
+
+**Evaluated by:** Reviewer for individual Requirements and requirement sets.
+
+**Output:** requirements that can govern design and objective evaluation.
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| RQ-01 | Does the Requirement have a unique stable identity? |
+| RQ-02 | Is it necessary? Trace to a stakeholder need, parent requirement, external obligation, or justified derived need. |
+| RQ-03 | Does it correctly express the intended obligation? Compare with its source rather than only grammatical form. |
+| RQ-04 | Is the statement clear and unambiguous in the shared vocabulary? Resolve material undefined terms. |
+| RQ-05 | Is it sufficiently singular to evaluate independently? Split unrelated obligations or provide explicit sub-identities. |
+| RQ-06 | Is it consistent with other governing requirements and constraints? Record unresolved conflicts. |
+| RQ-07 | Is it feasible under known technical/resource constraints? Supply a credible basis; lack of proof of impossibility alone is weak evidence. |
+| RQ-08 | Does it avoid unnecessary implementation prescription? Identify the authority for any mandated mechanism. |
+| RQ-09 | Are necessary quantities, tolerances, ranges, limits, or timing conditions defined? |
+| RQ-10 | Can an objective method establish satisfaction? Point to the verification relationship or planned method. |
+| RQ-11 | Is upstream derivation traceable? Identify the exact source or parent. |
+| RQ-12 | Is downstream traceability available to the extent required at this phase? Do not demand final code before design, or excuse missing code traces at acceptance. |
+| RQ-13 | Are relevant nominal, adverse, boundary, and prohibited operating conditions addressed? |
+| RQ-14 | Is the requirement's review/authority state known? Evaluate whether the record is explicit, not whether a model can grant itself approval. |
+| RQ-15 | Does the set cover the applicable stakeholder needs and concern families, with justified exclusions? |
+| RQ-16 | Is the requirement set internally consistent, rather than only each sentence in isolation? |
+| RQ-17 | Does parent/child decomposition preserve required meaning without losing or adding hidden scope? |
+| RQ-18 | Are duplicates and material overlaps reconciled so ownership and evaluation are not ambiguous? |
+
+### Quality requirement quality — `quality-requirement-quality/v1`
 
-1. resolve the exact `Source ID` through [standards-registry.md](standards-registry.md);
-2. consult the pinned official source/version and available official implementation guidance;
-3. prefer specific official guidance over model recollection or third-party summaries;
-4. do not silently substitute a draft/newer edition;
-5. if the ambiguity still cannot be resolved, return `UNKNOWN` rather than inventing a quality rule.
+**Sources:** ISO/IEC 25010:2023 [S14](source-register.md#source-s14), 25019:2023 and 25030:2019 [S15](source-register.md#source-s15), 25023:2016 [S16](source-register.md#source-s16).
 
-Where a standard identifies a dimension/measure but leaves acceptable values to the project, the threshold must already exist in the governing Planning Baseline before affected delivery work is released.
+**Evaluated by:** Reviewer during requirements/design and acceptance-plan review.
 
----
+**Output:** measurable quality expectations instead of unsupported adjectives such as “fast” or “robust.”
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| QR-01 | Is the relevant product-quality or quality-in-use dimension identified? State any justified mapping across source editions. |
+| QR-02 | Is the operating context for the expectation explicit? A latency target without load/context is incomplete. |
+| QR-03 | Is the measure and its measurement method defined where objective measurement is possible? |
+| QR-04 | Is the target, range, tolerance, or ordinal decision rule fixed before affected work? |
+| QR-05 | Is the evaluation method capable of observing the relevant measure under the required conditions? |
+| QR-06 | Is the relationship to acceptance explicit: required, advisory, or otherwise governed? |
+| QR-07 | Are material quality trade-offs identified and resolved by the proper design authority? |
+| QR-08 | Can the expectation be traced into design and later verification/validation/evaluation evidence? |
+
+The 2016 measure standard and 2023 quality model are different editions of a family. Mapping is not assumed to be a perfect one-to-one subcharacteristic match. A reviewed profile documents the chosen relationship; it does not use a familiar label as proof of compatibility.
 
-# Core reusable profiles
+### Plan quality — `plan-quality/v1`
 
-## `stakeholder-need-quality/v1`
+**Sources:** ISO/IEC/IEEE 16326:2019 and NASA SWE-013 [S18](source-register.md#source-s18); lifecycle framing from ISO/IEC/IEEE 12207:2026 [S11](source-register.md#source-s11).
 
-**Purpose:** determine whether an owner/stakeholder need is good enough to drive requirements work without prematurely becoming an implementation prescription.
+**Evaluated by:** Reviewer at Delivery Readiness and material replanning.
+
+**Output:** a complete, correct, workable, consistent, and verifiable plan.
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| PL-01 | Is all required work in the plan's scope represented or explicitly covered by another governed artifact? |
+| PL-02 | Do planned activities correctly represent the governing objectives and intended lifecycle? |
+| PL-03 | Are sequence, dependencies, roles, capacity, environments, and constraints workable together? |
+| PL-04 | Is the plan consistent internally and with other governing plans? |
+| PL-05 | Can progress and completion be objectively established? |
+| PL-06 | Are objectives, boundaries, scope, and major deliverables/outcomes explicit? |
+| PL-07 | Are responsibilities assigned for required activities? |
+| PL-08 | Are interfaces, dependencies, sequencing constraints, and integration points identified? |
+| PL-09 | Are feasibility-affecting risks and assumptions linked to treatment or monitoring? |
+| PL-10 | Are required review, verification, validation, security, and acceptance activities planned? |
+| PL-11 | Are applicable change and configuration management obligations represented? |
+| PL-12 | Are documentation, rollout, operation/support, maintenance, or retirement obligations covered when needed? |
+| PL-13 | Are the standards and procedures claimed by the plan identified explicitly? |
 
-**Sources:** `STD-29148-2018`, `STD-25019-2023`.
+This profile evaluates plan quality. PriFly's slice/enabler rule, gate authority, batching thresholds, and dependency-release state remain workflow/product policy rather than external criteria.
 
-A need is quality-complete when:
+### Architecture description quality — `architecture-description-quality/v1`
 
-- **SN-01 Purpose/outcome** — the intended stakeholder outcome or problem is explicit enough to distinguish success from unrelated activity.
-- **SN-02 Stakeholder** — affected stakeholder/user classes are identified to the extent needed for the decision.
-- **SN-03 Context of use** — relevant environment, operating context, user/task context, or usage assumptions are explicit when they affect desired outcomes.
-- **SN-04 Boundary** — the system/product/project boundary is sufficiently clear to distinguish in-scope from out-of-scope behavior.
-- **SN-05 Constraints** — known external constraints that materially shape acceptable solutions are captured as constraints rather than hidden assumptions.
-- **SN-06 Observable success intent** — the need is concrete enough that downstream measurable/verifiable requirements can be derived from it.
-- **SN-07 Unknowns** — material uncertainty is represented explicitly rather than being silently guessed away.
-- **SN-08 Solution neutrality** — implementation detail is not embedded as a stakeholder need unless the implementation choice is itself externally mandated.
+**Sources:** ISO/IEC/IEEE 42010:2022 and NASA SWE-057 [S19](source-register.md#source-s19); quality concerns from ISO/IEC 25010:2023 [S14](source-register.md#source-s14).
+
+**Evaluated by:** Reviewer; Architect prepares the description.
+
+**Output:** architecture information sufficient to communicate and govern the chosen design.
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| AD-01 | Are the entity of interest, boundaries, and relevant environment identified? |
+| AD-02 | Are the architecture-relevant stakeholders known? |
+| AD-03 | Are their concerns addressed by suitable views, models, or decisions? |
+| AD-04 | Are architecture-driving functional and quality requirements traced into the design? |
+| AD-05 | Are principal elements, responsibilities, and relevant properties described to the needed depth? |
+| AD-06 | Are material dependencies and interactions between elements shown? |
+| AD-07 | Are important internal/external interfaces and their ownership/contracts explicit? |
+| AD-08 | Does each viewpoint/model answer its declared concern rather than provide decorative boxes? |
+| AD-09 | Are the views mutually consistent in naming, authority, state, and interactions? |
+| AD-10 | Are architecture-shaping constraints and assumptions explicit? |
+| AD-11 | Are meaningful alternatives and the rationale for consequential choices recorded? |
+| AD-12 | Are material risks and quality trade-offs visible? |
+| AD-13 | Is enough dependency/evolution information present to support later impact analysis? |
+| AD-14 | Are architecture obligations precise enough that implementation conformance can be assessed? |
+
+### Architecture evaluation quality — `architecture-evaluation-quality/v1`
+
+**Source:** ISO/IEC/IEEE 42030:2019 [S20](source-register.md#source-s20).
+
+**Evaluated by:** Reviewer performing architecture challenge, with later review-quality sampling where warranted.
+
+**Output:** an evidence-backed evaluation, not the Architect's confidence in its own description.
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| AE-01 | Is the exact evaluated architecture/revision and scope identified? |
+| AE-02 | Are the stakeholder concerns and purpose of the evaluation explicit? |
+| AE-03 | Are scenarios, criteria, measures, and analysis/review methods declared and appropriate? |
+| AE-04 | Do conclusions cite supporting evidence? |
+| AE-05 | Does every required concern in the evaluation scope have a result? |
+| AE-06 | Does the evaluation assess fitness for intended purpose and relevant quality objectives? |
+| AE-07 | Are risks, weaknesses, uncertainties, and opportunities surfaced rather than only strengths? |
+| AE-08 | Are findings sufficiently specific for disposition and action? |
+| AE-09 | Are unavailable evidence and unsupported assumptions represented explicitly? |
+| AE-10 | Does the final conclusion follow from individual results and residual concerns? |
+
+### Risk record quality — `risk-record-quality/v1`
+
+**Source:** ISO/IEC/IEEE 16085:2021 [S21](source-register.md#source-s21).
+
+**Evaluated by:** Reviewer for risk records used in design, planning, change, or acceptance.
+
+**Output:** useful risk information with treatment and ownership.
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| RK-01 | Is the affected product/process/decision scope clear? |
+| RK-02 | Does the record distinguish cause, uncertain event/condition, and consequence? |
+| RK-03 | Is likelihood or uncertainty assessed with the declared method/scale? |
+| RK-04 | Is relevant technical, security, cost, schedule, operational, or other impact assessed? |
+| RK-05 | Is priority/exposure traceable to that method rather than an unexplained label? |
+| RK-06 | Is required treatment explicit? |
+| RK-07 | Is an accountable owner identified? |
+| RK-08 | Are relevant triggers, indicators, or review conditions defined? |
+| RK-09 | Is residual risk after treatment stated? |
+| RK-10 | Are related requirements, decisions, work, evidence, and authority references traceable? |
+
+### Evidence provenance quality — `evidence-provenance-quality/v1`
+
+**Source model:** W3C PROV-DM [S24](source-register.md#source-s24).
+
+**Evaluated by:** the role consuming evidence, and Reviewer where consequential promotion requires it.
+
+**Output:** evidence whose origin and use can be revisited. Provenance is not itself proof that a claim is true.
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| EV-01 | Is the source/evidence entity identifiable? |
+| EV-02 | Is the activity that generated or retrieved it known when material? |
+| EV-03 | Is the responsible collector/producer/agent/tool identified? |
+| EV-04 | Can derived evidence or claims be traced back to their sources? |
+| EV-05 | Is an official/stable source locator retained when available? |
+| EV-06 | Are acquisition, observation, or valid-as-of times recorded where freshness matters? |
+| EV-07 | Are material filtering, transformations, calculations, or summaries represented? |
+| EV-08 | Is a content hash/version/object identity retained when exact bytes matter? |
+| EV-09 | Are conflicts, coverage gaps, uncertainty, and limitations visible? |
+| EV-10 | Can another evaluator determine what evidence was used and why it supports the interpretation? |
+
+These are local evaluation questions using the provenance model. PROV is not being represented as a universal factual-truth or research-method scoring standard.
+
+### Verification plan quality — `verification-plan-quality/v1`
+
+**Sources:** IEEE 1012-2024 and ISO/IEC/IEEE 29119-2:2021 [S22](source-register.md#source-s22); NASA SWE-028 [S27](source-register.md#source-s27).
+
+**Evaluated by:** Reviewer during planning and whenever the verification contract materially changes.
+
+**Output:** a method that can establish specified properties with objective evidence.
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| VP-01 | Is the exact requirement/outcome/property to be verified identified? |
+| VP-02 | Is the objective a property to establish, not only a tool or command name? |
+| VP-03 | Is analysis, inspection, demonstration, testing, or another method suitable for that property and risk? |
+| VP-04 | Are material environment/configuration conditions specified? |
+| VP-05 | Are necessary inputs, states, fixtures, setup, and preconditions defined? |
+| VP-06 | Is the expected observable behavior/measurement explicit? |
+| VP-07 | Is the pass/fail, range, tolerance, or other satisfaction rule predeclared? |
+| VP-08 | Does scenario/boundary/failure/coverage selection follow requirements and risk rather than convenience? |
+| VP-09 | Are required independence conditions explicit? Do not assume that independence always requires rerunning the whole suite. |
+| VP-10 | Is the evidence needed for later acceptance identified? |
+| VP-11 | Are tool/runner/version identities fixed where they materially affect the result? |
+| VP-12 | Is unavailable/skipped verification handled explicitly rather than treated as pass? |
+| VP-13 | Can verification trace backward to the obligation and forward to evidence/results? |
+
+### Validation plan quality — `validation-plan-quality/v1`
+
+**Sources:** IEEE 1012-2024 [S22](source-register.md#source-s22); NASA SWE-029 [S27](source-register.md#source-s27); ISO/IEC 25019:2023 [S15](source-register.md#source-s15).
+
+**Evaluated by:** Reviewer for planned product validation; Validator uses it to execute and report.
+
+**Output:** representative intended-use proof, not a synonym for a unit-test run.
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| VA-01 | Is the stakeholder need or intended-use claim explicit? |
+| VA-02 | Is the relevant operating/user/task context represented? |
+| VA-03 | Are scenarios and data representative, including material adverse/boundary conditions? |
+| VA-04 | Is the chosen operational exercise, demonstration, test, or analysis appropriate? |
+| VA-05 | Are satisfaction criteria and quality-in-use targets fixed before the run? |
+| VA-06 | Is the product/configuration sufficiently representative of what is being accepted? |
+| VA-07 | Are required observations and provenance defined? |
+| VA-08 | Are validation independence requirements explicit and achievable? |
+| VA-09 | Do failed or partial intended-use claims become explicit findings/limitations? |
+| VA-10 | Does evidence trace to intended use and the relevant acceptance scope? |
+
+### Product quality evaluation — `product-quality-evaluation/v1`
+
+**Sources:** ISO/IEC 25010:2023 [S14](source-register.md#source-s14), 25030:2019 [S15](source-register.md#source-s15), 25023:2016 [S16](source-register.md#source-s16), and 25040:2024 [S17](source-register.md#source-s17).
+
+**Evaluated by:** Reviewer for product/candidate acceptance where applicable; Validator supplies intended-use observations.
+
+**Output:** an explicit evaluation of selected quality requirements.
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| PQ-01 | Are relevant quality dimensions selected or explicitly dispositioned? |
+| PQ-02 | Does evaluation use predeclared quality requirements and targets? |
+| PQ-03 | Is the exact product/build/configuration/context identified? |
+| PQ-04 | Are measures and methods appropriate to each expectation? |
+| PQ-05 | Are observations retained with useful provenance? |
+| PQ-06 | Is every required quality expectation covered or explicitly unresolved? |
+| PQ-07 | Is each observation compared to its declared target/rule? |
+| PQ-08 | Are measurement uncertainty, skips, and environmental limitations explicit? |
+| PQ-09 | Are deficiencies visible individually rather than averaged away? |
+| PQ-10 | Does the conclusion follow the individual results and declared acceptance policy? |
+
+### Security engineering quality — `security-engineering-quality/v1`
+
+**Core source:** NIST SP 800-218, SSDF 1.1 [S23](source-register.md#source-s23).
+
+**Conditional verification sources:** OWASP ASVS [S29](source-register.md#source-s29) and selected supply-chain requirements [S30](source-register.md#source-s30), when activated.
+
+**Evaluated by:** appropriate planning/design/code/release Reviewer; scope and evidence differ by lifecycle phase.
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| SE-01 | Are applicable security roles, policies, tools, process expectations, and risk inputs identified? |
+| SE-02 | Do security needs/threats trace into requirements, constraints, design, verification, or explicit residual risk? |
+| SE-03 | Are development assets, credentials, source, artifacts, and environments protected according to the selected profile? |
+| SE-04 | Are the selected secure design, implementation, review, and testing practices evidenced? |
+| SE-05 | Are applicable third-party provenance, vulnerability, update, and component obligations addressed? |
+| SE-06 | Is there a working path for vulnerability triage, remediation, response, and recurrence analysis? |
+| SE-07 | Is claimed practice supported by the required evidence rather than confidence alone? |
+| SE-08 | Are unfulfilled controls and residual risks explicit with the required authority? |
+
+A hobby project can tailor scope transparently. It cannot claim every SSDF practice is fulfilled merely by activating this profile. ASVS requirements are selected and recorded by their official versioned identifiers instead of replaced with vaguely similar homegrown security questions.
+
+### Implementation quality — `implementation-quality/v1`
+
+**Sources:** NASA SWE-061 [S27](source-register.md#source-s27); ISO/IEC 25010:2023 [S14](source-register.md#source-s14); SSDF [S23](source-register.md#source-s23); selected official language/framework standards.
+
+**Evaluated by:** Reviewer on code/configuration/documentation work products as applicable.
+
+**Output:** workmanship assessed against declared engineering criteria, not an invented universal style guide.
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| IM-01 | Was the applicable coding/tooling profile selected before evaluation? |
+| IM-02 | Are violations of that coding profile resolved or explicitly dispositioned? |
+| IM-03 | Are required build/static/tool checks complete with known results? |
+| IM-04 | Can changed implementation be traced to the obligations it realizes? |
+| IM-05 | Are relevant code-level quality obligations addressed, not treated as purely external test properties? |
+| IM-06 | Are selected secure coding/dependency/secret/error-handling expectations satisfied? |
+| IM-07 | Are generated, reused, or third-party code obligations treated explicitly? |
+| IM-08 | Are known defects, bypasses, waived checks, and unsupported configurations visible rather than hidden? |
+
+Checking whether the implementation follows this Project's specific chosen design remains the separate conformance assessment.
+
+### Review/inspection quality — `review-inspection-quality/v1`
+
+**Sources:** NASA SWE-087 [S27](source-register.md#source-s27); IEEE 1012-2024 [S22](source-register.md#source-s22).
+
+**Evaluated within:** Reviewer's completion record and Factory's structural checks; Auditor/independent sampling when warranted.
+
+**Output:** a competent, complete, attributable review. It does not require an infinite chain of reviewers.
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| RV-01 | Is the exact reviewed subject/revision/scope known? |
+| RV-02 | Were required inputs, evidence, and rubrics available? |
+| RV-03 | Are reviewer capabilities/perspectives appropriate to the artifact and risk? |
+| RV-04 | Were the relevant artifact quality profiles actually evaluated? |
+| RV-05 | Was project conformance assessed separately rather than confused with general quality? |
+| RV-06 | Did the review address technical integrity and not merely formatting or presentation? |
+| RV-07 | Do findings state a specific problem with evidence and relevance? |
+| RV-08 | Are required actions/findings tracked instead of lost at review completion? |
+| RV-09 | Are completion and pass/fail conditions explicit and consistently applied? |
+| RV-10 | Are verdict, evidence, evaluator identity, profiles, findings, and limitations recorded? |
+| RV-11 | Were the required independence conditions satisfied? |
+
+### Acceptance quality — `acceptance-quality/v1`
+
+**Sources:** NASA SWE-034 [S27](source-register.md#source-s27); SQuaRE [S14](source-register.md#source-s14), [S17](source-register.md#source-s17); IEEE 1012 [S22](source-register.md#source-s22).
+
+**Evaluated by:** Reviewer for the named candidate, product, or release acceptance scope.
+
+**Output:** an evidence-supported acceptance recommendation with explicit authority and limitations.
+
+| ID | Evaluation question and required evidence |
+|---|---|
+| AC-01 | Did acceptance criteria exist before observing the final result? |
+| AC-02 | Are required criteria objective/measurable enough to decide satisfaction? |
+| AC-03 | Is the accepted subject/build/configuration/baseline exact? |
+| AC-04 | Is all verification/validation required for this acceptance scope complete? Candidate-for-merge scope does not imply product-validation completion. |
+| AC-05 | Are relevant product-quality expectations evaluated through their selected measures/profiles? |
+| AC-06 | Are required documentation, configuration identity, user/operator information, and release deliverables ready? |
+| AC-07 | Are defects/deviations and their treatment explicit, with no hidden blockers? |
+| AC-08 | Does material residual risk have the required disposition and authority? |
+| AC-09 | Does the conclusion trace to credible evidence with the required independence? |
+| AC-10 | Are the acceptance result, criteria, exceptions, evidence, and authority recorded? |
 
-This profile establishes readiness for requirements engineering, not Design Completeness.
+### Change impact quality — `change-impact-quality/v1`
 
-## `requirement-quality/v1`
+**Sources:** ISO/IEC/IEEE 12207 [S11](source-register.md#source-s11), NASA SWE-053 [S27](source-register.md#source-s27), ISO/IEC/IEEE 16085 [S21](source-register.md#source-s21).
 
-**Purpose:** judge individual Requirements and a requirement set before they may support a Design Baseline.
+**Evaluated by:** Reviewer for proposed semantic baseline changes.
 
-**Sources:** `STD-29148-2018`, `GUIDE-NASA-SWE050`.
+**Output:** explicit impact analysis that informs authority and downstream revalidation.
 
-An individual Requirement must satisfy, as applicable:
+| ID | Evaluation question and required evidence |
+|---|---|
+| CH-01 | Are the proposed semantic change, source/requester, and rationale explicit? |
+| CH-02 | Are affected baseline/object/product versions identified? |
+| CH-03 | Has upstream/downstream traceability been examined across requirements, design, implementation, tests, and information? |
+| CH-04 | Are material technical/behavior/interface/data/quality/security/operational impacts evaluated? |
+| CH-05 | Are material cost, effort, skills, and resource impacts assessed? |
+| CH-06 | Are schedule, dependency, rollout, and transition effects assessed where relevant? |
+| CH-07 | Are affected stakeholders identified? |
+| CH-08 | Are changed/new risks and residual risks evaluated? |
+| CH-09 | Are required verification, validation, and documentation updates identified? |
+| CH-10 | Can an independent evaluator follow the impact evidence and conclusion? |
+| CH-11 | Is impact uncertainty explicit rather than treated as proof of no impact? |
 
-- **RQ-01 Identity** — stable unique identity exists.
-- **RQ-02 Necessity** — the Requirement is needed to satisfy an identified stakeholder need, higher-level Requirement, external obligation, risk treatment, or justified derived need.
-- **RQ-03 Correctness** — it accurately expresses the intended required behavior/condition.
-- **RQ-04 Clarity** — wording is understandable and does not rely on unexplained ambiguity.
-- **RQ-05 Singularity** — the statement is sufficiently atomic to evaluate without hiding unrelated obligations in one Requirement.
-- **RQ-06 Consistency** — it does not conflict with other governing Requirements/Constraints.
-- **RQ-07 Feasibility** — evidence does not indicate that the Requirement is impossible under known project/technical constraints.
-- **RQ-08 Implementation neutrality** — it states the required outcome/condition rather than prescribing design unless design is genuinely mandated.
-- **RQ-09 Measurability/boundedness** — measurable values, ranges, tolerances, timing, quantities, or other bounds are supplied when the nature of the Requirement calls for them.
-- **RQ-10 Verifiability** — an objective method can establish whether the Requirement is satisfied.
-- **RQ-11 Upstream traceability** — source/stakeholder/higher-level derivation is known.
-- **RQ-12 Downstream traceability** — the Requirement can be traced into Design, delivery Outcomes, and Verification as those artifacts exist.
-- **RQ-13 Operational conditions** — nominal, off-nominal, adverse, boundary, or prohibited behavior is represented where material to the Requirement.
-- **RQ-14 Approval state** — the Requirement's governing authority/review state is known; draft text does not silently become binding.
+### Documentation quality — `documentation-quality/v1`
 
-The requirement **set** additionally satisfies:
+**Sources:** ISO/IEC/IEEE 15289:2019, 26514:2022, and 26515:2018 [S26](source-register.md#source-s26).
 
-- **RQ-15 Coverage/completeness** — all applicable stakeholder needs/mandatory concern families have Requirement coverage or explicit disposition.
-- **RQ-16 Set consistency** — the set is conflict-free or conflicts are explicitly unresolved/blocking.
-- **RQ-17 Appropriate decomposition** — parent/child decomposition is coherent and does not lose or invent required meaning.
-- **RQ-18 Duplicate/overlap control** — duplicates or materially overlapping Requirements are reconciled so verification/ownership is not ambiguous.
-
-## `quality-requirement-quality/v1`
+**Evaluated by:** Reviewer; Validator exercises supported operator material when appropriate.
 
-**Purpose:** make quality attributes objective instead of leaving “nonfunctional” expectations as adjectives.
+**Output:** usable lifecycle/user information, whether a document or structured record.
 
-**Sources:** `STD-25030-2019`, `STD-25010-2023`, `STD-25019-2023`, `STD-25023-2016`.
+| ID | Evaluation question and required evidence |
+|---|---|
+| DO-01 | Is the intended audience and purpose identifiable? |
+| DO-02 | Is the required information present or linked to an authoritative source? |
+| DO-03 | Is it correct and current for the product/revision it claims to describe? |
+| DO-04 | Is it consistent with governing information? |
+| DO-05 | Are consequential claims traceable to design/evidence/source where needed? |
+| DO-06 | Can the intended reader find it and navigate to related detail? |
+| DO-07 | Does it support the actual task/concept/reference need, not just internal implementation? |
+| DO-08 | Is format, structure, and media suitable for the reader and task? |
+| DO-09 | Are maintenance ownership and update triggers known? |
+| DO-10 | Does it avoid creating an ungoverned competing source of truth? |
 
-An applicable quality Requirement satisfies:
+### Estimate quality — `estimate-quality/v1`
 
-- **QR-01 Quality dimension** — applicable product-quality or quality-in-use characteristic/subcharacteristic is identified or an equivalently precise project quality dimension is justified.
-- **QR-02 Context** — operating/context-of-use conditions relevant to the quality expectation are identified.
-- **QR-03 Measure** — the property is tied to a defined measure/measurement method where objective measurement is possible.
-- **QR-04 Target** — acceptable target, range, threshold, or ordinal rule is fixed before affected Work Items are released.
-- **QR-05 Evaluation method** — how the target will be evaluated is identified.
-- **QR-06 Acceptance relationship** — the quality Requirement's role in product acceptance is explicit.
-- **QR-07 Trade-offs** — material conflicts/trade-offs with other quality characteristics are identified and dispositioned rather than hidden.
-- **QR-08 Traceability** — the quality Requirement traces into architectural decisions, Verification/Validation, and product-quality evaluation as applicable.
-
-ISO/IEC 25023 deliberately does not define universal acceptable values for its measures. PriFly therefore treats an unset project threshold as `UNKNOWN`, not permission for a later Reviewer to invent one.
+**Source:** GAO-20-195G [S25](source-register.md#source-s25), tailored to the bounded estimate being made.
 
-## `plan-quality/v1`
+**Evaluated by:** Reviewer when an estimate materially informs planning/capacity; Estimator produces it.
 
-**Purpose:** judge whether a delivery/project plan is an adequate basis for execution.
+**Output:** a defensible prediction of execution time and supportable token use for already-defined work, with uncertainty. Scope and file-footprint inputs come from planning/discovery; Estimator does not decompose or schedule the work.
 
-**Sources:** `STD-16326-2019`, `GUIDE-NASA-SWE013`, `STD-12207-2026`.
+| ID | Evaluation question and required evidence |
+|---|---|
+| ES-01 | Are estimate purpose, decision use, scope, and horizon explicit? |
+| ES-02 | Is it tied to a defined technical/planning baseline? |
+| ES-03 | Is included/excluded work structured sufficiently to understand the basis? |
+| ES-04 | Are material assumptions and constraints recorded? |
+| ES-05 | Are source data and provenance available? |
+| ES-06 | Is the method explained and suitable for the data/maturity? |
+| ES-07 | Is uncertainty represented rather than concealed by false precision? |
+| ES-08 | Are major drivers, sensitivities, and risks considered where material? |
+| ES-09 | Can another evaluator understand how the estimate was produced? |
+| ES-10 | Can estimates be compared with actuals without erasing the original prediction? |
 
-NASA's operational quality model is retained explicitly: a plan must be **complete, correct, workable, consistent, and verifiable**.
+### Closure quality — `closure-quality/v1`
 
-- **PL-01 Complete** — all required work/process obligations within plan scope are represented or explicitly delegated to another governed plan/artifact.
-- **PL-02 Correct** — planned activities accurately implement the governing scope, Requirements, Design, policy, and declared lifecycle approach.
-- **PL-03 Workable** — sequencing, dependencies, roles, resources/capacity assumptions, environments, and constraints form a credible executable plan.
-- **PL-04 Consistent** — the plan does not contradict itself or other governing plans/baselines.
-- **PL-05 Verifiable** — completion/progress can be objectively established rather than inferred from narrative status.
-- **PL-06 Scope/objectives** — scope, objectives, boundaries, and major deliverables/outcomes are explicit.
-- **PL-07 Responsibilities** — ownership/responsibility for required activities is defined.
-- **PL-08 Dependencies/interfaces** — relevant dependencies, external interfaces, sequencing constraints, and integration points are identified.
-- **PL-09 Risk/uncertainty** — material risks/assumptions affecting plan feasibility are represented and linked to treatment/monitoring.
-- **PL-10 Assurance/V&V** — verification, validation, review, quality/security, and acceptance activities required by scope are planned.
-- **PL-11 Change/configuration** — change/configuration control obligations are represented where applicable.
-- **PL-12 Information/support** — documentation, rollout, operations/support, maintenance, or retirement obligations are represented when applicable.
-- **PL-13 Standards/procedures** — standards/procedures the work claims to follow are identified rather than assumed.
-
-## `architecture-description-quality/v1`
+**Sources:** ISO/IEC/IEEE 12207 [S11](source-register.md#source-s11), IEEE 1012 [S22](source-register.md#source-s22), ISO/IEC 25040 [S17](source-register.md#source-s17), and ISO/IEC/IEEE 15289 [S26](source-register.md#source-s26).
 
-**Purpose:** judge whether an architecture description is sufficient to communicate and govern the architecture that downstream work must implement.
-
-**Sources:** `STD-42010-2022`, `GUIDE-NASA-SWE057`, `STD-25010-2023`.
-
-- **AD-01 Entity/boundary** — the entity/system of interest and relevant environment/boundaries are identified.
-- **AD-02 Stakeholders** — architecture-relevant stakeholders are identified.
-- **AD-03 Concerns** — architecture-relevant stakeholder concerns are explicit and addressed by appropriate views/models/decisions.
-- **AD-04 Requirements/qualities** — driving functional Requirements and quality Requirements trace into architectural decisions.
-- **AD-05 Structure** — major elements/components/subsystems and their responsibilities/properties are identified to the level needed for the architecture's purpose.
-- **AD-06 Relationships** — material relationships/dependencies/interactions between architectural elements are described.
-- **AD-07 Interfaces** — important internal/external interfaces and ownership/contracts are identified.
-- **AD-08 Viewpoint/model adequacy** — each architecture view/model has a clear concern/purpose and provides the information necessary for that concern.
-- **AD-09 Cross-view consistency** — models/views do not materially contradict one another.
-- **AD-10 Constraints/assumptions** — architecture-shaping constraints and assumptions are explicit.
-- **AD-11 Alternatives/rationale** — meaningful alternatives and the rationale for consequential architecture choices are captured where a real choice existed.
-- **AD-12 Risks/trade-offs** — material architecture risks and quality trade-offs are represented.
-- **AD-13 Evolution/change impact** — architectural dependencies/rules are sufficiently clear to support impact analysis and consistent evolution.
-- **AD-14 Verification/conformance points** — architecture obligations are expressed precisely enough that downstream conformance can be checked.
-
-This profile evaluates the quality of the architecture **description**. Whether a later implementation obeys that architecture is project conformance, not another architecture-quality criterion.
-
-## `architecture-evaluation-quality/v1`
-
-**Purpose:** judge whether an architecture evaluation is an adequate basis for accepting/challenging a Design Baseline.
-
-**Source:** `STD-42030-2019`.
-
-- **AE-01 Exact subject** — evaluated architecture/revision and evaluation scope are explicit.
-- **AE-02 Evaluation purpose** — stakeholder concerns/questions/intended-purpose claims being evaluated are explicit.
-- **AE-03 Criteria/method** — scenarios, criteria, measures, analysis methods, or review methods used are declared and appropriate to the concern.
-- **AE-04 Evidence** — conclusions trace to evidence rather than evaluator preference alone.
-- **AE-05 Concern coverage** — every concern required by the evaluation scope has a disposition.
-- **AE-06 Quality/intended purpose** — evaluation addresses whether the architecture is fit for the declared intended purpose and relevant quality objectives.
-- **AE-07 Risks/opportunities** — evaluation surfaces material architecture risk, weakness, uncertainty, or opportunity rather than only summarizing strengths.
-- **AE-08 Findings** — findings identify the subject/problem/evidence and are specific enough for disposition.
-- **AE-09 Uncertainty** — unsupported assumptions or unavailable evidence become explicit uncertainty/`UNKNOWN` rather than an implicit pass.
-- **AE-10 Conclusion** — final verdict follows from the evaluated criteria/findings and identifies residual concerns.
-
-## `risk-record-quality/v1`
-
-**Purpose:** judge whether a Risk is useful enough for engineering decision-making and ongoing control.
-
-**Source:** `STD-16085-2021`.
-
-- **RK-01 Risk subject** — affected product/process/decision/scope is clear.
-- **RK-02 Cause/event/consequence** — the risk statement distinguishes source/cause, uncertain event/condition, and material consequence sufficiently for treatment.
-- **RK-03 Likelihood/uncertainty** — probability/likelihood or uncertainty is assessed using the project's declared scale/method.
-- **RK-04 Impact** — technical, safety/security, cost, schedule, operational, quality, or other relevant impact is assessed using the declared method.
-- **RK-05 Priority/exposure** — relative priority is derived from the declared risk method rather than intuition alone.
-- **RK-06 Treatment** — avoidance/mitigation/transfer/acceptance or other treatment is explicit where action is required.
-- **RK-07 Owner** — accountable owner exists.
-- **RK-08 Triggers/monitoring** — conditions, indicators, or review cadence for reassessment are defined when relevant.
-- **RK-09 Residual risk** — expected residual risk after treatment is explicit when treatment does not eliminate the risk.
-- **RK-10 Traceability** — related Requirements, Decisions, Design, Work Items, evidence, and acceptance/owner actions are linked as applicable.
+**Evaluated by:** Reviewer for the closing scope, with Factory's separate workflow checks.
 
-## `evidence-provenance-quality/v1`
+**Output:** a supported statement of completion and transition readiness.
 
-**Purpose:** judge whether a Research Claim, verification observation, metric, or other evidence can be trusted, revisited, and interpreted in context.
+| ID | Evaluation question and required evidence |
+|---|---|
+| CL-01 | Are all requirements/outcomes in the closing scope accounted for? |
+| CL-02 | Is required delivery work complete for the scope being closed? |
+| CL-03 | Are required verification, validation, and acceptance obligations complete? |
+| CL-04 | Is the delivered configuration/as-built baseline known? |
+| CL-05 | Are findings, defects, and deviations explicitly resolved or legitimately dispositioned? |
+| CL-06 | Are residual risks owned and treated/accepted with the required authority? |
+| CL-07 | Is required lifecycle/user/operator information complete and current? |
+| CL-08 | Are required operational, support, maintenance, and transition obligations addressed? |
+| CL-09 | Does required acceptance/configuration/evaluation evidence remain available? |
+| CL-10 | Is the closure decision recorded rather than inferred from ticket counts? |
 
-**Source:** `STD-PROV-DM`.
-
-- **EV-01 Entity identity** — evidence/source entity is identifiable rather than an unattributed assertion.
-- **EV-02 Activity provenance** — the research/measurement/test/transformation activity that produced or retrieved the evidence is represented when material.
-- **EV-03 Agent responsibility** — responsible producer/collector/Worker/tool is identifiable when relevant to trust/independence.
-- **EV-04 Derivation** — derived evidence/claims can be related back to source evidence/entities.
-- **EV-05 Source locator** — official/stable locator exists when the source supports one.
-- **EV-06 Temporal context** — acquisition/observation/valid-as-of time is recorded where freshness matters.
-- **EV-07 Transformation context** — material transformations, summaries, normalization, filtering, or computation between source and derived claim are represented.
-- **EV-08 Integrity identity** — immutable content hash/version/object identity is retained when byte-level evidence identity matters.
-- **EV-09 Conflicts/limitations** — conflicting evidence, missing coverage, uncertainty, or known limitations are not hidden.
-- **EV-10 Reproducibility of interpretation** — another evaluator can determine what evidence was used and why it supports the associated claim/result.
+### Conditional profiles and direct source identifiers
 
-## `verification-plan-quality/v1`
+WCAG 2.2 [S28](source-register.md#source-s28), OWASP ASVS 5.0.0 [S29](source-register.md#source-s29), and SLSA 1.2 [S30](source-register.md#source-s30) are not universal obligations for every artifact. Planning selects the relevant version, applicability, level/track, and official requirement identifiers. Evaluation records those official identifiers rather than disguising them as new PriFly criteria.
 
-**Purpose:** judge whether proposed Verification can objectively establish that a work product conforms to its specified Requirements/Outcomes.
+A web UI may need WCAG success criteria at a declared conformance level; the product definition does not silently choose a universal level. A web API may need selected ASVS controls; it does not follow that every ASVS requirement applies. A distributed build may need a declared SLSA assurance target; merely recording its source commit does not imply a particular SLSA level.
 
-**Sources:** `STD-1012-2024`, `STD-29119-2-2021`, `GUIDE-NASA-SWE028`.
+DORA [S31](source-register.md#source-s31) remains diagnostic. INVEST and walking-skeleton heuristics are not mislabeled as formal standards. The latter can still inform PriFly's explicit product delivery policy.
 
-- **VP-01 Verification subject** — exact Requirement/Outcome/work product property being verified is identified.
-- **VP-02 Verification objective** — the property to be established is explicit; a command/tool name alone is not a verification objective.
-- **VP-03 Appropriate method** — analysis, inspection, demonstration, test, or other method is appropriate to the property and risk/integrity context.
-- **VP-04 Environment/configuration** — environment/configuration/base/runtime conditions that materially affect evidence are defined.
-- **VP-05 Inputs/preconditions** — required data, setup, fixtures, states, and preconditions are defined.
-- **VP-06 Observable result** — expected observable behavior/measurement is explicit.
-- **VP-07 Objective criterion** — pass/fail, numeric range, boolean condition, tolerance, or other objective satisfaction rule is predeclared where possible.
-- **VP-08 Coverage basis** — required scenarios, boundaries, failure modes, paths, configurations, or other coverage are derived from Requirements/risk rather than convenience.
-- **VP-09 Independence** — required evaluator/runner independence is defined according to governing risk/integrity/project policy.
-- **VP-10 Evidence retention** — evidence required to support later Review/Acceptance is identified.
-- **VP-11 Tool/runner identity** — tool/version/runner identity is fixed when it can materially change the result.
-- **VP-12 Exception/skip handling** — skipped/unavailable verification cannot silently count as pass; allowed exception/disposition paths are explicit.
-- **VP-13 Traceability** — Verification maps back to exact Requirements/Outcomes and forward to evidence/results.
+### Worked rubric application
 
-## `validation-plan-quality/v1`
+Consider an illustrative Work Item whose Outcome is: “The status command reports the last completed backup time for the selected archive.” This is not a PriFly feature requirement; it illustrates the evaluation mechanics.
 
-**Purpose:** judge whether proposed Validation can establish that the product satisfies intended use and stakeholder/user needs in its intended context.
+Architect has already defined what “completed,” “selected archive,” and time representation mean. Planner gives the Outcome a verification method and ties it to those definitions. Implementer adds the command and tests, records the candidate, test data, expected output, and observed output. Reviewer checks requirement clarity and verifiability, coding-profile adherence, evidence provenance, and the command's conformance to the accepted design.
 
-**Sources:** `STD-1012-2024`, `GUIDE-NASA-SWE029`, `STD-25019-2023`.
-
-- **VA-01 Intended use** — user/stakeholder need or intended-use claim being validated is explicit.
-- **VA-02 Context/environment** — intended environment and relevant context-of-use are represented.
-- **VA-03 Representative scenarios** — scenarios/tasks/data are representative enough to exercise the intended use and relevant adverse/boundary conditions.
-- **VA-04 Method** — demonstration, operational exercise, test, analysis, prototype, or other method is appropriate to the intended-use claim.
-- **VA-05 Objective criteria** — acceptance/satisfaction criteria and relevant quality-in-use measures/targets are predeclared.
-- **VA-06 Representative configuration** — product/configuration used is sufficiently representative of what will be accepted/delivered.
-- **VA-07 Evidence** — required observed evidence and provenance are defined.
-- **VA-08 Independence** — required validation independence is defined by governing policy/risk.
-- **VA-09 Failure/discrepancy handling** — failed/partial intended-use claims become explicit Findings/deviations rather than narrative caveats.
-- **VA-10 Traceability** — validation evidence traces to stakeholder needs/intended use and downstream acceptance.
+If the displayed timestamp is correct but there is no declared behavior when no backup exists, the Reviewer identifies the relevant requirement/design gap. It cannot invent a preferred behavior and demand it as a current correction without a governing basis. It may propose a planning change. If the accepted requirement already says “show no completed backup,” and the candidate crashes, a fresh Implementer receives a current-correction job in the existing workspace.
 
-## `product-quality-evaluation/v1`
-
-**Purpose:** judge whether product/system quality has been evaluated rigorously enough to support acceptance or improvement.
-
-**Sources:** `STD-25010-2023`, `STD-25023-2016`, `STD-25040-2024`, `STD-25030-2019`.
-
-- **PQ-01 Quality model applicability** — relevant product-quality characteristics/subcharacteristics are explicitly selected/dispositioned.
-- **PQ-02 Predeclared requirements** — evaluation uses quality Requirements/targets fixed before evaluation; it does not invent a favorable threshold after observing results.
-- **PQ-03 Evaluation subject** — exact product/build/configuration/context is identified.
-- **PQ-04 Measures/methods** — defined measures and evaluation methods are appropriate to each applicable quality Requirement.
-- **PQ-05 Evidence/provenance** — observations are retained with sufficient evidence/provenance to support the evaluation conclusion.
-- **PQ-06 Coverage** — every quality Requirement required for this acceptance/evaluation scope is evaluated or explicitly unresolved.
-- **PQ-07 Result against target** — observed value/result is compared with the predeclared target/range/rule.
-- **PQ-08 Uncertainty/limitations** — measurement uncertainty, environmental limitations, skipped measures, or incomplete coverage are explicit.
-- **PQ-09 Residual deficiencies** — quality deficiencies and accepted residual limitations are represented rather than averaged into an aggregate pass.
-- **PQ-10 Evaluation conclusion** — conclusion follows from the individual quality Requirement results and declared acceptance policy.
-
-## `security-engineering-quality/v1`
-
-**Purpose:** judge whether secure software-development obligations were integrated into the lifecycle rather than added as a late penetration-test step.
-
-**Core source:** `STD-SSDF-1.1`.
-
-- **SE-01 Security governance/preparation** — applicable secure-development roles, policies, tooling/process expectations, and risk inputs are identified for the work scope.
-- **SE-02 Security Requirements/risks** — material security needs/threats/risks trace into Requirements, Constraints, Design, Verification, or accepted residual risk.
-- **SE-03 Protection of development assets** — source, artifacts, credentials/secrets, and development/build environments receive the protections required by the selected security profile.
-- **SE-04 Secure production practices** — design/implementation/review/testing practices required to prevent or detect vulnerabilities are selected and evidenced.
-- **SE-05 Third-party/reused components** — applicable provenance, vulnerability, licensing/security, and update obligations for reused/third-party components are addressed.
-- **SE-06 Vulnerability handling** — discovered vulnerabilities/findings have triage, remediation, disclosure/response, and recurrence-prevention paths as applicable.
-- **SE-07 Evidence** — claimed secure-development practices are supported by evidence rather than self-attestation alone when verification is required.
-- **SE-08 Exceptions/residual risk** — unfulfilled security criteria require explicit disposition/risk authority rather than silent acceptance.
-
-For a web application/API with `STD-ASVS-5.0.0` activated, the security profile additionally pins the exact ASVS versioned requirement identifiers and required verification level/profile before they become blocking. The evaluator records each selected ASVS requirement separately; PriFly does not restate the whole ASVS in this document.
-
-For a web UI with `STD-WCAG-2.2` activated, the project/policy must pin the target conformance level before release. WCAG success criteria at or below that level become directly evaluable criteria rather than being paraphrased into a competing accessibility checklist.
-
-For a distributable build with `STD-SLSA-1.2` activated, the project/policy pins the required SLSA track/level and evidence/attestation expectations before they become blocking.
-
-## `implementation-quality/v1`
-
-**Purpose:** judge implementation workmanship without inventing one universal PriFly coding style.
-
-**Sources:** `GUIDE-NASA-SWE061`, `STD-25010-2023`, `STD-SSDF-1.1`; plus the Project's selected official language/repository coding standards.
-
-- **IM-01 Coding profile selected** — applicable language/framework/repository coding methods, standards, and criteria are declared before implementation evaluation.
-- **IM-02 Coding-profile adherence** — no undispositioned violation of the selected coding profile remains.
-- **IM-03 Required build/static/tool checks** — checks mandated by the coding/security/project profile pass or have explicit Findings/disposition.
-- **IM-04 Requirement/design traceability** — changed implementation can be related to the Work Item/Requirement/Design obligations it realizes.
-- **IM-05 Quality-sensitive implementation** — implementation satisfies the code-level obligations derived from applicable product-quality Requirements (for example maintainability, performance, compatibility, reliability) rather than treating quality as test-only.
-- **IM-06 Security-sensitive implementation** — applicable secure coding/dependency/secret/error-handling requirements from the selected security profile are satisfied.
-- **IM-07 Reused/generated code obligations** — generated, vendored, reused, or third-party code has the required provenance/compliance treatment for the project.
-- **IM-08 No hidden exception** — waived checks, unsupported configurations, known defects, or temporary bypasses are explicit Findings/Constraints rather than hidden in implementation detail.
-
-Whether the implementation matches the project's specific Design is evaluated separately as project conformance.
-
-## `review-inspection-quality/v1`
-
-**Purpose:** judge whether a review/inspection itself was competent and complete enough to support a lifecycle decision.
-
-**Sources:** `GUIDE-NASA-SWE087`, `STD-1012-2024`.
-
-- **RV-01 Exact subject** — reviewed artifact/revision/scope is explicit.
-- **RV-02 Readiness** — required inputs/evidence/rubrics exist before the review claims to start.
-- **RV-03 Appropriate perspectives** — reviewer expertise/perspectives are appropriate to the artifact and risk.
-- **RV-04 Applicable rubrics used** — artifact-specific standards-backed quality profiles are actually evaluated rather than replaced by free-form opinion.
-- **RV-05 Project conformance checked** — governing Requirements/Design/Constraints/baseline adherence is checked separately from general quality.
-- **RV-06 Technical focus** — review addresses technical integrity/quality and not merely formatting/status presentation.
-- **RV-07 Evidence-backed Findings** — Findings identify exact subject/problem/evidence and are actionable/dispositionable.
-- **RV-08 Action tracking** — required corrective actions/Findings remain tracked until appropriate disposition; review completion cannot hide unresolved blockers.
-- **RV-09 Completion criteria** — review has explicit completion/pass/fail conditions and applies them consistently.
-- **RV-10 Outcome record** — outcome, evaluator identity, rubric versions, evidence, Findings, and unresolved uncertainty are recorded.
-- **RV-11 Independence** — independence requirements established by governing V&V/workflow policy are satisfied.
-
-## `acceptance-quality/v1`
-
-**Purpose:** judge whether an acceptance decision is based on adequate, predeclared, measurable evidence rather than a producer's declaration of completion.
-
-**Sources:** `GUIDE-NASA-SWE034`, `STD-25010-2023`, `STD-25040-2024`, `STD-1012-2024`.
-
-- **AC-01 Criteria predeclared** — acceptance criteria existed before observing the final candidate/result.
-- **AC-02 Criteria measurable/objective** — each blocking criterion has a defined observable/measure/range/pass rule appropriate to the Requirement.
-- **AC-03 Exact subject** — product/build/configuration/baseline being accepted is exact and current.
-- **AC-04 Required V&V complete** — required verification and validation have completed for the acceptance scope.
-- **AC-05 Product-quality Requirements satisfied** — applicable correctness/performance/reliability/availability/compatibility/maintainability/security/etc. claims are evaluated through their selected product-quality Requirements/profile rather than generic confidence.
-- **AC-06 Documentation/configuration readiness** — required as-built information, user/operator information, release/configuration identity, licenses/rights or analogous acceptance deliverables are current where applicable.
-- **AC-07 Deviations/findings** — unresolved defects/deviations/Finding dispositions are explicit; blockers cannot disappear inside an aggregate score.
-- **AC-08 Residual risk** — material residual risk has the authority/disposition required by project policy.
-- **AC-09 Evidence provenance** — acceptance conclusion traces to independent/credible evidence appropriate to the criterion.
-- **AC-10 Decision record** — final acceptance outcome, criteria results, exceptions, evidence, and decision authority are recorded.
-
-PriFly's exact Acceptance Certificate/evidence ordering is workflow/project conformance around this quality decision; it is not itself an external acceptance-quality rubric.
-
-## `change-impact-quality/v1`
-
-**Purpose:** judge whether a proposed change has been analyzed thoroughly enough before a baseline/project decision.
-
-**Sources:** `STD-12207-2026`, `GUIDE-NASA-SWE053`, `STD-16085-2021`.
-
-- **CH-01 Change identity/rationale** — proposed semantic change, requester/cause, and reason are explicit.
-- **CH-02 Exact baseline/subjects** — affected baseline/Requirements/Design/product versions are identified.
-- **CH-03 Traceability impact** — upstream/downstream requirements, design, interfaces, implementation, tests/verification, documentation, and other related work products are analyzed using available traceability.
-- **CH-04 Technical impact** — architecture, behavior, interfaces, performance, reliability, compatibility, security/safety, data/migration, operational or other technical impacts are evaluated as applicable.
-- **CH-05 Cost/resource impact** — rework/new effort, skills/resources, capacity/cost impacts are evaluated when material.
-- **CH-06 Schedule/dependency impact** — sequencing, milestone/dependency, rollout/transition impacts are evaluated when material.
-- **CH-07 Stakeholder impact** — affected users/owners/providers/operators/other stakeholders are identified when material.
-- **CH-08 Risk impact** — new/changed risks and residual risks are evaluated.
-- **CH-09 V&V/documentation impact** — required re-verification/re-validation and information updates are identified.
-- **CH-10 Analysis evidence** — impact conclusion is documented with enough evidence/provenance to review.
-- **CH-11 Uncertainty** — impact that cannot be proven becomes explicit `UNKNOWN`, not assumed unaffected.
-
-## `documentation-quality/v1`
-
-**Purpose:** judge lifecycle information and user-facing information for completeness/usefulness without forcing every information item to be a separate document.
-
-**Sources:** `STD-15289-2019`; when user information is in scope, `STD-26514-2022` and/or `STD-26515-2018`.
-
-- **DO-01 Purpose/audience** — information item's purpose and intended audience/use are identifiable.
-- **DO-02 Required content** — information needed for the lifecycle/user task is present or explicitly linked to an authoritative structured source.
-- **DO-03 Correct/current** — information matches the current authoritative product/configuration/process state for its claimed revision.
-- **DO-04 Consistent** — information does not materially contradict governing Requirements/Design/other authoritative information.
-- **DO-05 Traceable/source-backed** — consequential technical claims can be traced to their governing source/evidence when needed.
-- **DO-06 Findable/navigation** — intended users can locate the information and related authoritative detail.
-- **DO-07 Task suitability** — user-facing information supports the actual concepts/tasks/reference needs of intended users rather than merely describing implementation internals.
-- **DO-08 Format/presentation suitability** — structure/format/media are usable for the intended information task/context.
-- **DO-09 Maintenance ownership** — update trigger/owner/version relationship is known for information that must remain current.
-- **DO-10 No duplicate authority** — documentation does not create an ungoverned competing source of truth where canonical structured state already exists.
-
-## `estimate-quality/v1`
-
-**Purpose:** judge whether an estimate is a credible decision input rather than unsupported precision.
-
-**Source:** `GUIDE-GAO-20-195G`.
-
-- **ES-01 Purpose/scope** — estimate purpose, decision use, scope, and time horizon are explicit.
-- **ES-02 Technical baseline** — estimate is tied to a defined technical/product/planning baseline rather than an undefined future scope.
-- **ES-03 Work decomposition/basis** — estimated work/content is structured enough to show what is included/excluded.
-- **ES-04 Ground rules/assumptions** — material assumptions and constraints are explicit.
-- **ES-05 Source data** — input data and provenance/basis are identified.
-- **ES-06 Methodology** — estimating method/model is explained and appropriate to available data/maturity.
-- **ES-07 Range/uncertainty** — uncertainty/risk is represented; unsupported point precision is not presented as certainty.
-- **ES-08 Sensitivity/risk analysis** — major estimate drivers and sensitivity/risks are identified when material.
-- **ES-09 Documentation/reproducibility** — another reviewer can understand how the estimate was produced.
-- **ES-10 Update/calibration** — estimates intended for ongoing management can be compared with actuals and revised without erasing historical accuracy evidence.
-
-## `closure-quality/v1`
-
-**Purpose:** judge whether a project/Initiative can credibly claim that its intended delivery is complete, validated, documented, and transition-ready.
-
-**Sources:** `STD-12207-2026`, `STD-1012-2024`, `STD-25040-2024`, `STD-15289-2019`.
-
-- **CL-01 Requirement/accounting completeness** — required stakeholder/technical/product-quality Requirements for the closure scope are satisfied or have authorized residual disposition.
-- **CL-02 Required V&V** — required verification/validation is complete for the delivered system/release/Initiative scope.
-- **CL-03 Acceptance state** — required acceptance decisions are complete and current.
-- **CL-04 Configuration/as-built state** — delivered configuration and relevant baselines/version identities are known.
-- **CL-05 Outstanding findings/deviations** — remaining defects/Findings/deviations are explicitly dispositioned; no blocker is hidden by closure.
-- **CL-06 Residual risk** — residual risks are explicit, owned, and accepted/transferred/treated as required.
-- **CL-07 Information readiness** — required lifecycle/user/operator/support information is complete/current.
-- **CL-08 Operational/support/transition obligations** — deployment/transition/support/maintenance/retirement obligations required by scope have explicit completion/disposition.
-- **CL-09 Evidence preservation** — required acceptance/verification/configuration evidence remains available according to governing retention/recovery policy.
-- **CL-10 Closure record** — closure decision and unresolved residuals are recorded rather than inferred from “all tickets closed.”
-
-DORA delivery metrics may be attached as diagnostic observations for lessons/continuous improvement, but they do not add universal closure pass/fail thresholds.
-
----
-
-# Lifecycle composition
-
-The following table maps PriFly lifecycle points to reusable **quality** profiles. Project conformance and workflow conditions are evaluated alongside these profiles but are not duplicated here.
-
-| Lifecycle point / artifact | Required general quality profiles | Conditional overlays |
-|---|---|---|
-| Owner/stakeholder intent ready for planning | `stakeholder-need-quality/v1`, relevant `evidence-provenance-quality/v1` | quality-in-use context through `STD-25019-2023` when relevant |
-| Research Claim accepted as planning evidence | `evidence-provenance-quality/v1` | source/domain-specific evidence standards if adopted by project |
-| Requirement accepted into planning baseline | `requirement-quality/v1` | `quality-requirement-quality/v1`, `security-engineering-quality/v1` as applicable |
-| Quality Requirement accepted | `requirement-quality/v1`, `quality-requirement-quality/v1` | WCAG/ASVS/etc. when applicable |
-| Risk accepted into planning | `risk-record-quality/v1` | security/safety-specific risk standards if adopted |
-| Architecture description ready for Design Gate | `architecture-description-quality/v1` | `security-engineering-quality/v1` when trust/security architecture applies |
-| Architecture evaluation / Design Completeness challenge | `architecture-evaluation-quality/v1` plus quality profiles for the artifacts it evaluates | conditional quality/security/accessibility overlays |
-| Estimate used for planning/scheduling/capacity decision | `estimate-quality/v1` | none by default |
-| Delivery plan / decomposition ready for Delivery Readiness | `plan-quality/v1`, `verification-plan-quality/v1`, `risk-record-quality/v1` for material risks | `security-engineering-quality/v1`, `documentation-quality/v1` as applicable |
-| Work Item contract quality | `requirement-quality/v1` applied to Required Outcomes/Constraints where semantically applicable; `verification-plan-quality/v1` for Verification | project/product overlays |
-| Implementation work product review | `implementation-quality/v1`, `review-inspection-quality/v1` | security/ASVS/WCAG/SLSA/project coding profile as applicable |
-| Verification execution/result review | `verification-plan-quality/v1`, `review-inspection-quality/v1`, `evidence-provenance-quality/v1` | product/security profiles relevant to verified Requirement |
-| Validation execution/result review | `validation-plan-quality/v1`, `review-inspection-quality/v1`, `evidence-provenance-quality/v1` | product-quality-in-use profiles |
-| Candidate/product acceptance | `acceptance-quality/v1`, `product-quality-evaluation/v1`, applicable V&V profiles | security/accessibility/supply-chain/user-information overlays |
-| Change Request / impact analysis | `change-impact-quality/v1`, updated `risk-record-quality/v1` where material | security/product-quality overlays if affected |
-| Lifecycle/user documentation acceptance | `documentation-quality/v1` | WCAG when web-delivered information is in scope |
-| Initiative/release closure | `closure-quality/v1`, `documentation-quality/v1`, relevant acceptance/product-quality profiles | operational/security/support profiles as applicable |
-
-## Gate composition examples
-
-### Design Completeness
-
-The standards-backed quality side of the Design Completeness decision normally requires successful evaluations for:
-
-- stakeholder/Requirement quality;
-- applicable quality-Requirement quality;
-- architecture-description quality;
-- architecture-evaluation quality;
-- risk quality;
-- evidence/provenance quality for consequential research claims;
-- security-engineering quality where security/trust concerns apply.
-
-PriFly then separately applies project conformance (traceability to owner need/Requirements/Decisions/Constraints) and workflow policy (mandatory-concern coverage, authority, blocking `UNKNOWN`, fresh challenge, etc.).
-
-### Delivery Readiness
-
-The standards-backed quality side normally requires:
-
-- plan quality;
-- verification-plan quality;
-- estimate quality where estimates influence scheduling/capacity;
-- risk quality;
-- applicable security/documentation quality planning.
-
-PriFly separately checks project conformance (all baseline obligations covered; Work Items faithfully implement the baseline) and workflow policy (dependency graph, slicing/enabler rules, reviewer independence, no blockers, etc.).
-
-### Candidate acceptance
-
-The standards-backed quality side normally requires:
-
-- acceptance quality;
-- required Verification/Validation quality;
-- applicable product-quality evaluation;
-- evidence/provenance quality;
-- applicable security/accessibility/supply-chain/documentation quality.
-
-PriFly separately checks exact project conformance and its own Acceptance Certificate/evidence/publication lifecycle.
-
-## Threshold policy
-
-Some external standards provide directly testable conformance criteria; others define dimensions/measures/process quality while intentionally leaving thresholds to the project.
-
-PriFly therefore uses this rule:
-
-> **No evaluator may invent an acceptance threshold after work has begun. Any project-specific threshold needed to turn an applicable standards-backed quality dimension into PASS/FAIL must be present in the governing Planning Baseline before affected Work Items are released.**
-
-Examples include latency/performance limits, availability targets, acceptable defect/security-risk levels, compatibility scope, product-quality measure ranges, and the exact WCAG/ASVS/SLSA target profile when those conditional overlays apply.
-
-## What this document deliberately does not contain
-
-- PriFly-specific durability/provider/authority rules — those are system/project conformance and workflow policy.
-- a duplicate of ISO/IEEE copyrighted text;
-- universal thresholds that the source standard intentionally leaves context-specific;
-- heuristic frameworks presented as standards;
-- model-created “best practices” that lack a pinned authoritative source.
+If the existing evidence covers the declared states and the Reviewer finds it credible, it can accept it. If a boundary case is doubtful, it runs that case and continues the same review. A missing target definition yields criterion-unknown; a demonstrated incorrect result yields fail. Factory aggregates those records with conformance and workflow policy before any candidate acceptance.

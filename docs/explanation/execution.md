@@ -1,81 +1,103 @@
-# Execution architecture
+# Implementation and verification evidence
 
 Kind: explanation
 
-Execution turns released Work Items into exact, recoverable code candidates while preserving branch/worktree isolation, bounded autonomy, and Factory ownership of provider authority.
+## Implementation and reusable verification evidence
 
-### Worktrees and job branches
+### Inputs and meaning of done
 
-Each Worker attempt operates in a dedicated worktree on a namespaced branch such as:
+An **Implementer** receives a released Work Item, the exact Design and Delivery Baselines, its Implementation Envelope, applicable quality profiles, verification requirements, repository instructions, relevant context, and an exclusive lease on the Implementation Workspace. The job is to satisfy those existing obligations, not to discover a new product scope while writing code.
 
-```text
-prifly/jobs/W17/J812-a1
+Implementation is complete for submission when the requested code/configuration/documentation exists; the required tests and checks have been performed or their inability is explicitly reported; the candidate is identified exactly; deviations and discoveries have been recorded; the structured PR Draft explains the proposed change; and the result is in the required structured format. This is **ready for review**, not self-acceptance.
+
+A Work Item can be documentation-only or infrastructure-only. “Code” in the implementation lifecycle includes those artifacts. Their verification methods differ, but their scope, traceability, review, and evidence requirements do not disappear.
+
+### Ordinary implementation sequence
+
+Factory admits the attempt and grants the workspace lease. The Implementer inspects the assigned context, makes the scoped changes, writes or adjusts tests, runs the appropriate checks, and creates a candidate commit. It may run tests many times while developing; those ordinary development iterations do not create a new Factory job for each test.
+
+The submitted evidence must describe the **bytes actually tested**. A test performed before the final commit can be reused when the tested tree is demonstrably identical to the submitted tree for all material inputs. Merely attaching the final SHA to an earlier log is not acceptable. Uncommitted relevant files, generated artifacts, configuration, dependencies, and environment can matter; evidence must expose them when they affect the result.
+
+The Implementer does not need to create a ceremonial extra test run solely because it made a commit. It does need a trustworthy relationship between the tested subject and the submitted subject.
+
+### Figure 17 — Implementation, evidence, and branch checkpoint
+
+```mermaid
+sequenceDiagram
+    participant Factory
+    participant Implementer
+    participant Workspace
+    participant Publisher as Factory Branch Publisher
+    participant Git as Git remote
+    participant Broker as Provider Broker
+    participant GitHub
+    Factory->>Implementer: Work Item, envelope, profiles, workspace lease
+    Implementer->>Workspace: Inspect and implement scoped changes
+    loop Development as necessary
+        Implementer->>Workspace: Write tests and execute relevant checks
+        Workspace-->>Implementer: Observations and logs
+    end
+    Implementer->>Workspace: Commit exact candidate C
+    Implementer-->>Factory: C, Verification Evidence, PR Draft, and Findings
+    Factory->>Factory: Validate attempt, scope, submission, and required PR fields
+    Factory->>Publisher: Checkpoint exact commit to assigned branch
+    Publisher->>Git: Publish namespaced branch without target authority
+    Git-->>Publisher: Remote ref and reconstructibility evidence
+    Publisher-->>Factory: Confirmed remote candidate C
+    Factory->>Broker: Render and create or update PR for C
+    Broker->>GitHub: Publish PR body and canonical links
+    GitHub-->>Broker: PR identity and observed head C
+    Broker-->>Factory: Recorded PR mapping and outcome
+    Factory->>Factory: Admit independent review of exact candidate C
 ```
 
-Worker A is not given write permissions to Worker B's worktree. Workers do not receive protected-ref provider authority.
+The Publisher is trusted Factory software, not a second Implementer. It imports the exact objects into a controlled Git context and publishes them without executing the Worker checkout's hooks or trusting its privileged Git configuration. It preserves the Worker's commit objects rather than replaying edits into a different history. Reconstructibility includes admitted LFS objects or submodule references; unsupported dependency mechanisms cannot be called recoverable.
 
-### Exact Worker commits are preserved
+### Verification Evidence record
 
-PriFly does **not** replay Worker edits. A Worker may commit normally. Factory checkpoints the **exact commit objects** through a trusted Branch Publisher to the configured upstream job branch.
+**Verification** means establishing a specified property. **Verification Evidence** is the recorded observation supporting that claim. It may come from an Implementer, Reviewer, CI service, or a product Validation Run; those origins are not interchangeable.
 
-States:
+| Field group | Meaning |
+|---|---|
+| Subject | Repository, candidate commit/tree, Work Item revision, and verification-plan revision. |
+| Producer | Worker Attempt or automation identity and actual execution manifest. |
+| Scope | Which Requirement/Outcome and which check/scenario this observation supports. |
+| Execution | Commands/tool actions actually executed, start/end times, exit/result values, skipped checks, and reasons. |
+| Material environment | Operating environment, dependency/build/test configuration, test data identity, services, and relevant external conditions. |
+| Observation | Expected result, observed result, comparison to predeclared threshold, uncertainty or flakiness. |
+| Artifacts | Logs, measurement data, reports, screenshots when useful, and hashes/retention classifications. |
+| Test changes | Tests, harnesses, fixtures, assertions, or acceptance-related code changed by the candidate. |
+| Limitations | Incomplete coverage, unavailable infrastructure, unverified assumptions, or known failures. |
 
-1. `LOCAL` — commit exists only locally; may be lost.
-2. `DURABLE_PROVISIONAL` — exact commit is verified recoverable from the configured Git remote; still unreviewed.
-3. `ACCEPTED_CANDIDATE` — exact durable commit plus valid Acceptance Certificate.
+The record does not turn a claim into fact merely by being valid JSON. The Reviewer checks whether it is credible, relevant, and sufficient. Factory can validate references, hashes, states, and identities; it cannot deterministically infer that a test has good semantic coverage simply because its exit code is zero.
 
-Factory may checkpoint long-running jobs periodically so host loss does not waste large amounts of work/tokens.
+### Progress durability without constant overhead
 
-### Trusted Branch Publisher
+Long-running implementations checkpoint exact commits at meaningful progress points under a configurable maximum uncheckpointed-work policy. The product goal is not to lose a large amount of completed work and token expenditure when the host dies. The precise checkpoint interval is an operational parameter, not an invented universal constant.
 
-Provider credentials remain with Factory. Factory does not perform a privileged push from the Worker-controlled checkout. The Branch Publisher imports/fetches the exact commit into a trusted Git context using controlled Git configuration with hooks disabled, verifies the expected object/diff/scope, and pushes the exact commit to the namespaced remote branch.
+Factory may report that code is locally present, remotely checkpointed but unreviewed, or accepted. These are different facts. Uncommitted edits and running containers are not promised recoverable after total host loss. A code checkpoint must never be presented as accepted simply because it reached GitHub.
 
-The v1 threat model does not claim resistance to a deliberately malicious crafted Git object, but it avoids ordinary hook/configuration execution from a Worker-owned checkout.
+### Discovery during implementation
 
-### Git artifact recovery
+The Implementer can report a blocker or propose one of the three Finding routes. It must not quietly enlarge its scope. A missing requirement or contradictory design enters the planning-change route, and Factory places any necessary blocker on affected work while disposition is pending. An unrelated improvement becomes a follow-up; it does not hold the current implementation hostage unless an authorized relevance decision establishes a real dependency.
 
-Code is considered durably checkpointed only after PriFly verifies that a fresh Git client can reconstruct the supported repository state for that exact commit. Adapters must explicitly handle or reject Git LFS, submodules, and other external object dependencies. If PriFly cannot prove complete reconstruction for the configured repository mechanism, it cannot label that code artifact durably recoverable.
+### PR Draft and submission contract
 
-### Retention
+Implementer authors a structured **PR Draft** with the candidate. It contains a title, substantive change summary, motivation/Goal, requirement and outcome coverage, implementation notes needed by reviewers, tests and suggested verification steps, evidence references, skips/limitations, validation expectations, documentation changes, and relevant Finding/decision links. The selected PR template determines required sections before implementation starts. A missing required section or placeholder explanation makes the submission incomplete.
 
-A job branch remains pinned while it is the recovery root for active/accepted work. After accepted code becomes reachable from another retained project ref, the temporary job branch may be deleted according to retention policy. Rejected/discarded branches may be deleted after their configured diagnostic retention window.
+Factory owns formatting and canonical metadata, not the engineering explanation. It validates the fields, injects authoritative Work Item/baseline/candidate/provider references, and renders the body deterministically. It does not fabricate a test run, fill an unknown outcome with persuasive prose, or ask another general-purpose model to reconstruct the explanation.
 
-## Work Item contract and Implementation Envelope
+After result admission, Factory pushes the exact candidate through its Branch Publisher and confirms the remote head and recoverability. It then creates or updates the PR through Provider Broker. Only a recorded PR with the expected head and complete review inputs becomes eligible for candidate review. A failed or ambiguous push/create remains an explicit blocker, with [Section 22](providers.md#provider-broker-projections-reconciliation-and-rate-limits) reconciliation rather than a duplicate PR.
 
-Every Work Item has Goal, Required Outcomes, Constraints, and Verification. Every Worker attempt has an Implementation Envelope containing the relevant baseline/design, authorized worktree/branch, authorized areas, predicted files, protected surfaces, scope, and dependency assumptions.
+A current correction includes updated PR Draft fields when the change affects the description, tests, limitations, or validation expectations. The current PR body may be updated; earlier Review Results and correction comments remain historical entries. The meaningful PR explanation is part of the review subject and can itself receive findings.
 
-Deviation classes include Detail, Local, Expansion, Design, and Violation. Scope expansion is Factory-mediated. Design-level deviation enters Change Request/change-control flow.
-
-## Runtime resume, Docker resources, and attempt cancellation
-
-Every managed execution belongs to one active Factory job attempt and cumulative Work Item envelope.
-
-### Route admission
-
-A v1 Route is admitted only if Factory can start the managed session/process, identify the attempt, prevent or reconcile automatic session resume after cancellation, account for declared descendants/resources, and terminate or quarantine those resources. A runtime/harness whose uncontrolled resume cannot be disabled or reconciled is not an admitted v1 Route.
-
-### Subagents/descendants
-
-If a harness supports subagents, PriFly either disables them or treats them as descendants of the same attempt, permissions, and cumulative execution envelope. They do not become independent Factory Workers unless Factory creates independent jobs.
-
-### Worker Docker ownership
-
-Docker-capable jobs receive attempt-scoped naming/project conventions. Factory's Worker-Docker adapter tracks Compose project identity, container IDs, networks, volumes, and long-running service identities.
-
-On normal cancellation/completion Factory revokes the job capability, terminates the harness/process tree, disables/removes known restartable Docker workloads, stops/removes attempt-owned containers/services, cleans attempt networks/volumes according to policy, and verifies no known attempt-owned workloads remain.
-
-### Worker identity retirement and safe reuse
-
-Each attempt-scoped OS identity is part of the attempt's runtime ownership boundary. After capability revocation and runtime cleanup, Factory removes or retires that identity before it may be reused.
-
-An identity/UID must **not** be reused in a way that grants a later attempt access to surviving files, sockets, processes, volumes, or other resources owned by an earlier attempt. If cleanup is interrupted or Factory cannot prove that residual UID-owned resources are gone or safely isolated, the identity remains quarantined and unavailable for reuse until reconciliation succeeds or the containing disposable execution environment is reset.
-
-The implementation may use a UID pool, delayed retirement, disposable namespaces, or another conforming mechanism; the safety property is that a new attempt never inherits access merely because an old numeric identity was recycled.
-
-### Dirty shared-daemon fallback
-
-If Factory cannot establish that stale Docker/runtime work is gone, the Worker Docker daemon becomes `DIRTY`. Factory stops admitting new Docker jobs, pauses/requeues other Docker-dependent jobs as needed, destroys/recreates the disposable Worker Docker daemon environment/data root if necessary, and resumes only after the daemon is clean. Loss of Worker Docker image cache is acceptable.
-
-### Recovery
-
-After Factory/Worker-Docker restart, the runtime adapter reconciles surviving resources **and retired/quarantined attempt identities** before admitting new work that could reuse them. No stale result from a cancelled/superseded attempt can regain acceptance authority.
+| ID | Requirement |
+|---|---|
+| PF-IMP-01 | Implementer submission includes exact candidate identity, Verification Evidence, structured PR Draft, skips, limitations, and discovered Findings; corrections add per-finding responses. |
+| PF-IMP-02 | Evidence refers to the actual tested subject; later commit identity cannot silently replace the recorded tested identity. |
+| PF-IMP-03 | Ordinary development checks execute inside the Implementer attempt without a new orchestration job per test. |
+| PF-IMP-04 | Factory checkpoints exact candidate commits to assigned branches without permitting Worker target-branch mutation. |
+| PF-IMP-05 | A provisional code checkpoint is distinct from candidate acceptance, PR merge, validation, and release. |
+| PF-IMP-06 | Discovering unrelated work does not implicitly enlarge the current Implementation Envelope. |
+| PF-IMP-07 | Implementer authors the required PR content; Factory validates and deterministically renders it with canonical metadata. |
+| PF-IMP-08 | Factory confirms the pushed candidate and creates/updates the corresponding PR before dispatching candidate review. |

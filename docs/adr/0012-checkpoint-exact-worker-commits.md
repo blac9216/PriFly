@@ -1,6 +1,7 @@
 # ADR-0012: Checkpoint exact Worker commits and integrate with exact-ref compare-and-update
 
-Status: Accepted
+Status: Superseded
+Superseded-by: 0023
 Date: 2026-09-13
 
 ## Context

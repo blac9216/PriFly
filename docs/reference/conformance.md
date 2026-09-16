@@ -36,13 +36,16 @@ Retention/compaction configuration is therefore part of the pinned durability co
 
 Canonical rules: [Provider integration](../explanation/providers.md), [Provider operation profiles](provider-operation-profiles.md), ADR-0007.
 
-## Exact integration target
+## Qualified PR-only integration
 
 | Guarantee | Failure injection / boundary | Required result |
 |---|---|---|
-| Verified code is integrated only against the exact verified target | Construct and independently verify integration commit M against target/base B. Move the remote target before the actual update. | Exact B→M compare-and-update fails; the stale Acceptance Certificate/integration eligibility cannot integrate and work returns to revalidation. Ordinary PR merge semantics cannot bypass the check. |
+| A changed PR head cannot reuse old acceptance | Accept head H, replace it with H2 before the native merge request. | Expected-head precondition or preceding eligibility rejects the stale request; H2 requires fresh review. No direct target push occurs. |
+| Base-race safety matches the admitted GitHub profile | Race a target/base update with the merge request under the exact configured checks/protection/merge method. | The admitted profile establishes the required current-base/check behavior or admission fails. Expected-head protection is never reported as expected-base CAS. A pre-send read alone is insufficient. |
+| An ambiguous merge is reconciled | Let merge succeed, lose the reply and make read-back temporarily unavailable. | The operation remains UNKNOWN with its conflict scope reserved; no duplicate conflicting mutation is sent. Later native evidence records the actual merge SHA, not an assumed candidate SHA. |
+| Native review identity is real | Require native approval but offer only the PR author's identity or a comment projection. | Merge eligibility is blocked; a comment is not counted as native approval and no identity is fabricated. |
 
-Canonical rules: [Execution](../explanation/execution.md), [Acceptance contract](acceptance-contract.md), [Provider operation profiles](provider-operation-profiles.md), ADR-0012, ADR-0013.
+Canonical rules: [Git integration](../explanation/git-integration.md), [Acceptance contract](acceptance-contract.md), [Provider operation profiles](provider-operation-profiles.md), ADR-0023, ADR-0013 as amended by ADR-0024.
 
 ## Acceptance evidence and recovery-root closure
 
@@ -52,13 +55,14 @@ Canonical rules: [Execution](../explanation/execution.md), [Acceptance contract]
 | Supported historical roots protect all required dependencies | Accept work, create a Recovery Root Manifest, then run cleanup while that root remains supported. Exercise evidence/Git/key-generation retention races. | Cleanup cannot remove the final dependency required by any supported root. Uncertain reachability leaks storage rather than deleting possibly required evidence. |
 | Retiring a recovery root is authoritative before cleanup | Attempt cleanup concurrently with root retirement. | Last dependencies become deletable only after authoritative retirement is published. |
 
-Canonical rules: [Review and validation](../explanation/review-and-validation.md), [Acceptance contract](acceptance-contract.md), ADR-0013, ADR-0016.
+Canonical rules: [Review](../explanation/review.md), [Acceptance contract](acceptance-contract.md), ADR-0013, ADR-0016 and their indexed amendments.
 
 ## Owner and planning authority
 
 | Guarantee | Failure injection / boundary | Required result |
 |---|---|---|
-| Pilot/Worker cannot mint consequential owner consent | Attempt `owner-action.confirm/v1` through Pilot and Worker credentials/capabilities. | Authentication/authorization denies the call. Only the separately protected owner-control capability can confirm the exact immutable Owner Action package. |
+| Pilot/Worker cannot mint consequential owner consent | Attempt consequential owner confirmation through Pilot and Worker credentials/capabilities. | Authentication/authorization denies the call. Only the separately protected owner-control capability can confirm the exact immutable Owner Action package. |
+| Engineering success cannot mint a phase release | Pass an engineering gate without the matching owner confirmation; then change the package after confirmation. | Neither case permits next-phase work. Release checks exact package identity, scope and envelope. |
 | AI proposal cannot waive its own mandatory planning gate | Remove the applicable policy rule/detector coverage or return UNKNOWN for a protected trigger while a producer proposes `NOT_APPLICABLE`. | Effective applicability remains UNKNOWN/blocking. A reviewed assertion alone cannot establish N/A. |
 
 Canonical rules: [Pilot](../explanation/pilot.md), [Planning policy](planning-policy.md), [API contract](api-contract.md), ADR-0008, ADR-0010.
@@ -67,11 +71,13 @@ Canonical rules: [Pilot](../explanation/pilot.md), [Planning policy](planning-po
 
 | Guarantee | Failure injection / boundary | Required result |
 |---|---|---|
-| Cancelled attempt cannot continue as valid work | Cancel an attempt while descendants/services exist; exercise harness/runtime restart or auto-resume behavior. | Capability is revoked, managed descendants are terminated/reconciled, and late results cannot regain acceptance authority. Uncontrollable resume modes are not admitted Routes. |
+| Cancelled attempt cannot continue as valid work | Cancel an attempt while descendants/services exist; exercise harness/runtime restart or auto-resume behavior. | Capability is revoked, attempt-owned writers/descendants are terminated or reconciled, and late results cannot regain acceptance authority. Explicitly retained workspace services have separate ownership and grants. Uncontrollable resume modes are not admitted Routes. |
+| Workspace reuse never overlaps writers | Keep a workspace service, interrupt the current Implementer, and dispatch a fresh correction attempt. | Old write grants and writers are proven stopped before the new lease; retained resources stay inventoried. Reviewer receives an isolated exact candidate view rather than hidden mutable workspace state. |
+| Evidence reuse preserves credible independent judgment | Supply exact attributable CI/Implementer results, then stale or incomplete results. | Reviewer may accept sufficient credible evidence; rejects stale/insufficient evidence and can gather missing checks in the same review. A changed candidate requires fresh review, not a review of each test invocation. |
 | Residual Docker resources fail closed | Interrupt Docker cleanup and leave attempt-owned resources whose removal cannot be proven. | Shared Worker Docker becomes DIRTY; new Docker work is blocked/requeued until reconciliation or disposable-daemon reset establishes cleanliness. |
 | UID reuse cannot leak old resources | Interrupt cleanup with surviving resources owned by the old attempt identity, restart Factory, and attempt to admit another Worker. | The old identity remains retired/quarantined; the new attempt cannot inherit access through UID reuse. Reuse occurs only after resource removal/safe isolation or disposable-environment reset. |
 
-Canonical rules: [Execution](../explanation/execution.md), [Security](../explanation/security.md), ADR-0014, ADR-0019.
+Canonical rules: [Execution](../explanation/execution.md), [Execution runtime](../explanation/execution-runtime.md), [Review](../explanation/review.md), [Security](../explanation/security.md), ADR-0024, ADR-0025.
 
 ## Database migration lineage
 
@@ -81,16 +87,16 @@ Canonical rules: [Execution](../explanation/execution.md), [Security](../explana
 | Fresh and sequential upgrade paths converge | Build one database fresh from the current baseline + migrations and another through each declared supported release upgrade path. | Resulting schema/domain state is semantically equivalent under the same declared migration lineage. |
 | Pre-v1 consolidation preserves current development data | Bring the development DB to the exact consolidation frontier, checkpoint, generate/verify a baseline, and promote the live DB to the baseline marker. | Existing authoritative data/metrics remain intact; fresh baseline creation reproduces equivalent schema state. |
 
-Canonical rules: [Recovery and upgrades](../explanation/recovery-and-upgrades.md), ADR-0020.
+Canonical rules: [Upgrades](../explanation/upgrades.md), ADR-0020.
 
 ## Empty-host recovery and upgrade cutoff
 
 | Guarantee | Failure injection / boundary | Required result |
 |---|---|---|
-| Fresh host can recover the supported Factory state | Destroy local Factory state and recover using only the supported release/container images, Recovery Kit/root material, configured Git remotes, R2, and declared external dependencies. | Recovery restores the exact published authoritative frontier, required historical metrics and recovery-root dependencies, inherited SEND_ARMED/UNKNOWN obligations, and reaches ACTIVE only after validation/reconciliation. |
+| Fresh host can recover the supported Factory state | Destroy local Factory state and recover using only supported release/container images, the pinned private-Git `bootstrap.json` and `secrets.json.age`, independently retained repository access/age key, configured Git remotes, R2 and declared dependencies. | Recovery has no dependency on the lost host's credential store; transient plaintext is protected. It restores the exact published frontier, historical metrics/root dependencies and inherited SEND_ARMED/UNKNOWN obligations; ACTIVE requires validation/reconciliation. A missing DB never silently initializes an empty Factory. |
 | Successful new-version publication closes rollback even if reply is lost | Create durable pre-upgrade checkpoint, start upgraded Factory, successfully publish its first new authoritative mutation, then lose the publication/client reply and simulate failure. | Pre-upgrade checkpoint rollback remains closed because publication—not receipt of acknowledgement—is the cutoff. Recovery is roll-forward and same-command resolution discovers the published result. |
 
-Canonical rules: [Recovery and upgrades](../explanation/recovery-and-upgrades.md), [Persistence and durability](../explanation/persistence-and-durability.md), ADR-0016.
+Canonical rules: [Recovery](../explanation/recovery.md), [Upgrades](../explanation/upgrades.md), [Persistence and durability](../explanation/persistence-and-durability.md), ADR-0016 as amended by ADR-0026.
 
 ## Git reconstruction
 
@@ -98,7 +104,17 @@ Canonical rules: [Recovery and upgrades](../explanation/recovery-and-upgrades.md
 |---|---|---|
 | A durable Worker code checkpoint is reconstructible outside the Worker checkout | From a clean client/environment, fetch the exact checkpoint commit and all admitted external Git dependencies such as LFS/submodules. Exercise missing/unsupported dependency configurations. | PriFly labels the code durably recoverable only if the supported repository state can be reconstructed exactly. Unsupported dependency mechanisms fail admission or durability labeling rather than silently producing an incomplete checkout. |
 
-Canonical rules: [Execution](../explanation/execution.md), ADR-0012.
+Canonical rules: [Execution](../explanation/execution.md), ADR-0023.
+
+## Triage, validation and fulfillment
+
+| Guarantee | Failure injection / boundary | Required result |
+|---|---|---|
+| Backlog treatment does not discharge an obligation | Hold, batch or release a Finding to planning; attempt parent closeout; then duplicate it into a surviving Finding. | Nonterminal treatment still blocks affected scope as policy requires. Duplicate handling preserves surviving blockers; cancellation/scope reduction is not reported as fulfilled delivery. |
+| Fixes re-pend the exact target | Fail a versioned Validation Target with multiple blockers, integrate fixes one by one, and change the target revision during a run. | Only resolution of all blockers re-pends the target for normal scheduling. Old-run evidence does not validate the new revision; no private fix-wave bypass exists. |
+| Incomplete infrastructure is not product evidence | Lose the environment part-way through a multi-target run; offer an ad hoc workaround. | Affected observations remain incomplete/unknown, not product PASS or confirmed product defect without evidence. A workaround does not establish intended behavior. |
+
+Canonical rules: [Findings and triage](../explanation/findings-and-triage.md), [Validation](../explanation/validation.md), [Release and closeout](../explanation/release-and-closeout.md), ADR-0027. The complete scenario inventory is [Product acceptance](product-acceptance.md).
 
 ## Release use
 

@@ -1,66 +1,30 @@
-# Architecture roadmap
+# Product delivery progression
 
 Kind: explanation
 
-This is an architectural roadmap, not a feature backlog or implementation plan. It records the boundary between the approved v1 shape and intentionally deferred capabilities.
+## Delivery strategy and release progression
 
-## v1 architecture target
+### Build usable vertical paths
 
-The v1 target is a disposable containerized Go Factory with SQLite canonical state, R2/Litestream durability, explicit recovery, Git-based Worker checkpoints, deterministic routing, standards-backed engineering-quality evaluation, planning and review gates, a conversational Pilot, and a shared Worker Docker execution environment for container-development workloads.
+Implementation should reach a testable product early, rather than complete every backend subsystem before exposing a single owner journey. The following progression is a proposed decomposition strategy, not dated commitments or already-created milestones. Detailed Work Items are created only after this design is reviewed and their planning gates are satisfied.
 
-For consequential artifacts, v1 must preserve the separation between:
+| Increment | Usable outcome | Necessary controls included from the start |
+|---|---|---|
+| 1. Durable conversational control slice | CLI/Pilot can capture Intake without fan-out, query it, replace its session, and observe one explicitly authorized bounded HerdR job. | Typed commands, exact-scope owner release, actor identity, core persistence/publication proof, separated sessions, runtime attempt/prompt identity, deterministic rendering, basic metrics. |
+| 2. One reviewed PR | One scoped Work Item is implemented, tested, independently reviewed, corrected in the same workspace if necessary, and merged through GitHub. | Exact evidence identity, Implementer-authored PR Draft, same-review test collection, fresh Implementer correction, structured review history, branch authority, admitted merge profile. |
+| 3. Product proof and common triage | Integrated work creates a validation target; Validator failure creates normal planned work and later returns the target to pending. | Per-target versions, common triage, hold/batch tracking, validation precedence, normal target re-pending and scheduling. |
+| 4. Full planning and multi-repository work | Owner intent passes requirements/design and delivery gates, then produces useful parallel slices across repositories and Routes. | Three owner releases, reviewable new/feature design packages, synthesis, pure execution estimates, configurable Initiative-milestone/issue/board projections, standards profiles, change control, collision handling, cumulative envelopes. |
+| 5. Operational recovery and safe update qualification | The useful product survives host loss and an interrupted upgrade under the declared guarantees. | Recovery Kit, restore lifetime, required evidence pins, migration policy, repair CLI, runtime cleanup. |
+| 6. Complete v1 product lifecycle and learning | Releases/closeout account for all findings and validation; measured experiments support route decisions. | Release evidence, closure sweep, all-assigned experiment accounting, source/version governance, owner control. |
 
-- reusable standards-backed general engineering quality;
-- Project-specific Requirements/Design/Constraint conformance;
-- PriFly lifecycle/authority/workflow permission.
+Durability cannot be deferred until Increment 5 while earlier increments claim host-loss-safe authoritative success. Increment 1 must prove the narrow publication/recovery foundation for its own state; Increment 5 broadens and qualifies the complete recovery surface as more objects/resources exist. Likewise, metrics begin with the first jobs rather than being reconstructed later from logs.
 
-Workers and Reviewers use the pinned profiles in [Quality rubrics](../reference/quality-rubrics.md) and [Standards registry](../reference/standards-registry.md). Project conformance remains a separate evaluation rather than being represented as a fake external standard.
+### Qualification before broad autonomy
 
-The architecture is intentionally optimized for a personal autonomous software factory rather than enterprise hostile-code containment or high-availability distributed operation.
+Each newly supported harness, runtime mode, repository integration profile, persistence configuration, and validation environment is admitted only after the controls it relies on are tested. Early increments can use a smaller admitted matrix without claiming arbitrary compatibility.
 
-## Deferred capabilities
+The owner can operate narrowly scoped real work while some later product capabilities remain unavailable. Unsupported operations return explicit unsupported/not-ready status. The product must not let a partially implemented gate silently become an unconditional pass.
 
-Deferred:
+### v1 release gate
 
-- malicious/compromised Worker or harness containment;
-- per-Worker microVM isolation;
-- multi-cloud recovery;
-- survival of permanent R2/Git account loss;
-- hostile cloud-credential deletion recovery;
-- enterprise DLP/data-classification policy;
-- remote/multi-user Bridge security;
-- distributed Workers;
-- automatic lease-expiry takeover;
-- atomic cross-repository merge;
-- Redis/PostgreSQL;
-- hosted Factory;
-- plugin SDK;
-- automatic routing-policy mutation;
-- broad GitLab implementation;
-- advanced prompt-codec optimization.
-
-These deferrals are part of the v1 contract rather than hidden missing mechanisms.
-
-## Implementation-conformance frontier
-
-Architecture approval is not implementation certification. Before PriFly claims the corresponding guarantees, implementation must satisfy the normative pass/fail oracles in [Implementation conformance](../reference/conformance.md).
-
-Those oracles preserve the concrete adversarial demonstrations that matter to the design, including:
-
-- publication/takeover ordering and lost CAS replies;
-- exact Published Frontier lifetime across replica retention/compaction and empty-host recovery;
-- SEND_ARMED crash/ambiguity handling;
-- exact target movement at the actual remote update;
-- acceptance-evidence upload/pin/cleanup races and supported historical roots;
-- owner-confirmation capability isolation;
-- missing-rule/UNKNOWN planning-gate behavior;
-- runtime cancellation, stale descendants, Worker-Docker DIRTY reset, and safe OS-identity retirement/UID reuse;
-- timestamped migration ordered-prefix behavior and baseline consolidation;
-- fresh Git reconstruction for checkpointed code;
-- publication-based upgrade rollback cutoff.
-
-The implementation also needs pinned and tested identities/configuration for the SQLite driver/PRAGMAs/concurrency model, Litestream replication/restore/retention behavior, R2 CAS coordination, Worker runtime/Docker lifecycle, Branch Publisher, Verification Runner, provider operation profiles, Recovery Kit packaging, supported runtime bill of materials, retention pins, and the first executable quality-rubric evaluator/schema conforming to ADR-0021/ADR-0018.
-
-Quality-rubric implementation must demonstrate that exact rubric/source versions are pinned, criterion results preserve PASS/FAIL/NOT_APPLICABLE/UNKNOWN semantics, blocking FAIL/UNKNOWN cannot be promoted, official-source ambiguity fails closed, and project-specific thresholds are read from the governing Planning Baseline rather than invented during review.
-
-Those tasks implement the approved architecture. Changing the reviewed authority/order/safety result or the meaning of a standards-backed quality criterion requires a governed design/policy change; changing test fixtures or implementation mechanics while preserving the same oracle/criterion does not.
+A full v1 release requires the agreed scope, required acceptance scenarios, selected deployment bill of materials, supported recovery/upgrade paths, operator documentation, and measured quality requirements to be satisfied. Architecture approval alone is not a release certification. Any accepted residual limitations are named, authorized, and reflected in product claims.

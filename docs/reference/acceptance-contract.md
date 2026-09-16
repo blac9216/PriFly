@@ -2,72 +2,48 @@
 
 Kind: reference
 
-## Acceptance layers
+## Three separate judgments
 
-A candidate is not accepted on a single undifferentiated “looks good” judgment. Acceptance composes three separately inspectable results:
+Acceptance composes separately inspectable results:
 
-1. **Standards-backed quality** — applicable profiles from [Quality rubrics](quality-rubrics.md), including `acceptance-quality/v1`, required Verification/Validation profiles, and applicable product/security/accessibility/supply-chain/documentation profiles.
-2. **Project conformance** — exact candidate behavior/implementation conforms to the governing Planning Baseline, Work Item, Requirements, Design, Constraints, and predeclared project-specific acceptance thresholds.
-3. **PriFly workflow eligibility** — exact subject freshness, independent evidence/review, lifecycle state, authority, Findings, evidence durability, and publication rules all permit acceptance.
+1. **Engineering quality:** the exact policy-selected versions in [Quality rubrics](quality-rubrics.md), including the applicable acceptance, verification, product-quality, security and documentation criteria.
+2. **Project conformance:** the candidate satisfies the governing Requirements, Design, Constraints, baselines, Work Item and predeclared thresholds.
+3. **Workflow eligibility:** authority, freshness, independent review, lifecycle state, Findings, evidence durability and publication permit the transition.
 
-A pass in one layer cannot substitute for a failure/`UNKNOWN` in another.
+A pass in one does not substitute for a failure or blocking `UNKNOWN` in another. A criterion's project-specific threshold is fixed before the result is observed. Acceptance cannot invent or weaken it.
 
-## Acceptance subject
+## Exact subject and immutable certificate
 
-PriFly accepts an exact candidate, not an abstract Work Item. An immutable Acceptance Certificate binds at least the Planning Baseline, Work Item revision, implementation job attempt, exact candidate Git commit, target repository, exact target/base revision, verification-plan revision, exact applicable quality-rubric profile/evaluation versions, Acceptance Evidence Manifest, Reviewer verdict, and governing policy version. Relevant changes invalidate current use of the certificate rather than carrying acceptance forward to a different subject.
+An Acceptance Certificate binds the exact Candidate, Work Item revision, producing attempt, repository/branch/commit, relevant base observations, governing Design and Delivery Baseline revisions, Verification definition, policy/profile versions, Rubric Evaluations, independent Review Result, and Acceptance Evidence Manifest. A base observation is evidence about a particular review context, not a claim that the GitHub merge API offers an expected-base compare-and-swap.
 
-## Standards-backed acceptance quality
+The certificate is immutable. Its **current usability** is a separate revision-controlled projection: changed candidates, revoked authority, relevant baseline or policy changes, unresolved blockers, or loss of supported evidence can prevent further use without rewriting the historical decision. Late results from cancelled or superseded attempts cannot revive authority.
 
-`acceptance-quality/v1` requires, at minimum, predeclared measurable criteria, exact subject identity, required V&V completion, applicable product-quality satisfaction, documentation/configuration readiness where relevant, explicit deviations/Findings, residual-risk disposition, credible evidence provenance, and a recorded acceptance decision.
+## Evidence credibility and independence
 
-Other profiles compose according to project scope:
+Reviewer is independent of the producer; every test process need not be. Reviewer may accept attributable Implementer or CI evidence that covers the exact subject and required check, is credible, and meets the pinned evidence-independence policy. Missing or insufficient evidence is gathered during the same review where its envelope permits. Running a check does not create an infinite review-of-review chain.
 
-- `verification-plan-quality/v1` and/or `validation-plan-quality/v1`;
-- `product-quality-evaluation/v1` for applicable product-quality Requirements;
-- `security-engineering-quality/v1`;
-- `documentation-quality/v1`;
-- WCAG/ASVS/SLSA or other activated conditional profiles;
-- any additional standards profile declared by the governing Planning Baseline.
+Required independent checks are selected by the project/risk profile before acceptance. A changed candidate requires a fresh review. A producer's unsupported assertion that tests passed is not evidence. Record actual, skipped and failed checks; subject/configuration identity; tools/environment where material; results and limitations; and durable evidence references.
 
-Project-specific thresholds required to turn a standards-backed quality dimension into PASS/FAIL must already be fixed in the Planning Baseline. A missing threshold is blocking `UNKNOWN`; Review/Acceptance may not invent one after observing the candidate.
+See [Review](../explanation/review.md), [Attack profiles](attack-profiles.md), and [RP-08](deployment-parameters.md#fixed-direction-versus-unselected-parameters). No universal independently reconstructed integration commit or separate Verification Runner is required by this design.
 
-## Acceptance Evidence Manifest
+## Evidence publication and retention
 
-Before acceptance can be released, Factory builds an immutable manifest separating required evidence, optional diagnostics, and code recovery roots. Required evidence includes the exact blocking quality-rubric evaluation results required by policy as well as machine-observed V&V evidence and project-conformance evidence. Every required external object carries immutable content identity/hash, storage location, size/kind, and retention/root membership. Optional logs/raw context may expire unless policy made them required.
-
-## Publish-before-acceptance ordering
+The Acceptance Evidence Manifest separates required evidence, optional diagnostics and code recovery roots. Required external objects carry immutable digest, location, size/kind and retention/root membership. Required rubric, verification and conformance results belong in this manifest; optional raw logs may expire only when they are not necessary to support the decision.
 
 ```text
-produce candidate/evidence
-→ complete required quality evaluations
-→ complete exact project-conformance evaluation
-→ independent Review resolves required findings
-→ upload required evidence to R2 / durable store
-→ verify object identity/presence
-→ construct Acceptance Evidence Manifest
-→ record manifest + retention pins in authoritative SQLite transaction
-→ remote database durability + coordination publication
-→ release Acceptance Certificate
+exact candidate and attributable evidence
+→ required quality and conformance evaluations
+→ independent review and required finding dispositions
+→ upload and verify required evidence identities
+→ record manifest and retention pins in SQLite
+→ remote database durability and coordination publication
+→ release the Acceptance Certificate
 ```
 
-Factory may not authoritatively accept a result while required evidence or an applicable blocking quality/conformance criterion is `FAIL`, unresolved `UNKNOWN`, pending, or unverified.
+Pending uploads, unverified required objects, or applicable blocking `FAIL`/`UNKNOWN` prevent release. Supported Recovery Root Manifests protect historical evidence, Git recovery roots and key generations. Root retirement must be authoritative before cleanup; uncertain reachability retains data.
 
-## Recovery-root closure
+## Acceptance is not integration, validation or release
 
-Each supported recovery/rollback checkpoint has an immutable Recovery Root Manifest identifying the external dependencies needed to honor the authoritative state contained in that checkpoint, including required R2 evidence/artifacts, accepted Git commit/ref recovery roots, required quality/V&V evaluation evidence, and required key/secret generations. Cleanup protects both current pins and every supported Recovery Root Manifest. Retiring a root is authoritative; uncertain reachability leaks storage rather than deleting a potentially required object.
+Factory's Broker integrates only through the admitted GitHub PR merge operation. It checks the accepted head and current merge eligibility, represents native head/base guarantees honestly, and records the actual merge receipt. Concurrent-base safety must be established by the qualified checks/protection profile, not assumed from a pre-send read. No direct target-branch push is a fallback. See [Git integration](../explanation/git-integration.md) and [Provider operation profiles](provider-operation-profiles.md).
 
-## Attempt identity and integration freshness
-
-Results carry exact job-attempt identity. Late results from cancelled/superseded attempts cannot revive old work. Candidate implementation is verified/reviewed, then an exact integration subject is constructed against the current target and independently verified before merge eligibility. A target/base change invalidates integration eligibility unless the admitted protocol validates the exact resulting integration subject.
-
-A candidate Acceptance Certificate remains an immutable binding to the candidate subject; later integration eligibility binds the exact integration subject separately rather than editing the original certificate.
-
-## Independent Verification Runner
-
-Producer-supplied “tests passed” is not acceptance evidence. Factory launches independent verification against the exact candidate/integration subject using the exact Verification definition that already passed `verification-plan-quality/v1`. The runner records actual/skipped checks, exact candidate/base/integration identity, Verification revision, environment/tool identity where material, observed results, and required evidence identities/provenance.
-
-AI Review then judges whether those independently observed facts satisfy the predeclared Verification and semantic Required Outcomes. Material changes to the Verification plan or acceptance threshold require the governing change/review path.
-
-## Multi-repository delivery
-
-PriFly may validate a multi-repository Release Set. v1 does not claim atomic distributed merge; each repository integration independently satisfies its exact-target contract while planning tolerates partial sequential delivery through compatibility design, sequencing, flags, or migrations.
+`INTEGRATED` does not mean `VALIDATED` or released. Validation assesses versioned targets in the representative integrated environment. A Release Manifest names its exact repository version set and applicable validated targets; multi-repository publication is not an atomic distributed merge. [Validation](../explanation/validation.md) and [Release and closeout](../explanation/release-and-closeout.md) own those later gates.

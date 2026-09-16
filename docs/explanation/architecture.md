@@ -2,90 +2,126 @@
 
 Kind: explanation
 
-This document is the C4-level map of PriFly. Detailed subsystem contracts live in the linked explanation and reference documents.
+PriFly's architectural audience is the product owner/operator, design reviewers and implementers. The views answer scope and external authority (Context), deployment and isolation (Container), and responsibility and interface ownership (Component). They describe the target design; no deployment has been qualified yet.
 
 ## Context
 
+### Essential terms
+
+**Factory** is the deterministic control plane. **Pilot** is its conversational client. **HerdR** is the selected initial session/runtime substrate. A **harness** is the program running an AI coding session. A **model** provides inference to that harness. A **Worker role** says what job the session is doing. A **Route** selects the harness, model, effort, account, capabilities, and capacity used for a particular execution.
+
+A **Project** is the product or system being developed. It may span repositories. A **Work Item** is an executable unit within that project, not a synonym for one chat or one GitHub issue.
+
+### Figure 1 — System context
+
 ```mermaid
 flowchart LR
-    Owner[Owner] -->|natural language / explicit owner actions| PriFly[PriFly]
-    PriFly -->|code refs, issues, PR projections| Git[Git + GitHub]
-    PriFly -->|Factory state replica, evidence artifacts| R2[Cloudflare R2]
-    PriFly -->|AI jobs| Harnesses[AI harnesses / model providers]
-    PriFly -->|package/docs research when allowed| Web[External documentation/web]
+    Owner["Owner"]
+    Pilot["Pilot: conversation"]
+    CLI["Owner CLI and future Bridge"]
+    Factory["Factory: workflow authority"]
+    HerdR["HerdR: managed sessions"]
+    Workers["Workers in admitted harnesses"]
+    GitHub["GitHub: PR merges, issues, checks, board"]
+    Git["Git remotes: code checkpoints"]
+    R2["R2: recoverable state and evidence"]
+    Sources["Official sources and code intelligence"]
+    Docker["Dedicated Worker Docker"]
+    Owner <--> Pilot
+    Owner <--> CLI
+    Pilot <--> Factory
+    CLI <--> Factory
+    Factory <--> HerdR
+    HerdR <--> Workers
+    Factory <--> GitHub
+    Factory <--> Git
+    Factory <--> R2
+    Workers -->|allowed tools| Sources
+    Workers -->|assigned environment| Docker
 ```
 
-PriFly is a local-first autonomous software factory used by one owner in v1. The owner interacts through Pilot, CLI, and later Bridge. PriFly manages software work across one or more repositories while keeping its workflow authority inside Factory. Git/GitHub store code and provider projections; R2 stores recoverable Factory state and large evidence artifacts; AI harnesses execute bounded Worker jobs.
+GitHub remains the familiar place to inspect PRs and board progress. It is not the only place where the work exists. Factory holds the machine-readable records and publishes a projection to GitHub. A GitHub outage may delay those projections; it does not erase the planning record or make a conversation authoritative.
+
 
 ## Container
 
+### Figure 4 — Logical deployment
+
 ```mermaid
 flowchart TB
-    subgraph Stack[Disposable PriFly stack]
-      Factory[factory\nGo control plane]
-      WorkerDocker[worker-docker\ndedicated Docker daemon]
-      Bridge[bridge\nfuture GUI]
-      Factory -->|job-scoped Docker workloads| WorkerDocker
-      Bridge -->|local Factory API| Factory
+    subgraph Host["Replaceable host with container runtime"]
+        OwnerCLI["Owner administration interface"]
+        subgraph Stack["Disposable PriFly stack"]
+            Factory["Factory Go application and local API"]
+            Replica["Litestream process"]
+            Sessions["Managed HerdR runtime boundary"]
+            Workspaces["Worktrees, dependencies, workspace resources"]
+            WD["Dedicated Worker Docker daemon"]
+            LocalState[("Local SQLite and derived caches")]
+            Factory <--> LocalState
+            Replica --> LocalState
+            Factory <--> Sessions
+            Sessions --> Workspaces
+            Workspaces -->|Docker-capable jobs| WD
+        end
+        Pilot["Pilot session, ordinarily viewed through HerdR"]
+        OwnerCLI --> Factory
+        Pilot <--> Factory
     end
-
-    Pilot[Pilot client] -->|local Factory API| Factory
-    CLI[Owner CLI/TUI] -->|commands + owner confirmation| Factory
-    Factory -->|SQLite/Litestream| R2[(Cloudflare R2)]
-    Factory -->|trusted Git/provider operations| GitHub[Git remotes / GitHub]
-    Factory -->|launch bounded jobs| Harnesses[AI harnesses]
-    Harnesses -->|job context/results| Factory
+    Replica --> R2["R2 replica storage"]
+    Factory --> R2
+    Factory --> GitHub["GitHub and Git remotes"]
 ```
 
-`factory` is the authoritative runnable unit. It owns SQLite, the domain engine, scheduling, provider credentials, durability, and Worker lifecycle. `worker-docker` is a disposable execution universe for Docker-capable jobs and is deliberately separate from the outer Docker context that hosts Factory. `bridge` is a future GUI container and does not own state. Pilot and the owner CLI are clients of Factory, not orchestration peers.
+The deployment does not mount the outer host's Docker socket into Worker sessions. Worker Docker is a separate disposable daemon. Its placement as a sidecar or equivalent packaged service must preserve that separation. HerdR server placement and OS identity mechanics must be qualified against the workspace/capability requirements in [Section 13](execution-runtime.md#herdr-workspaces-and-worker-runtime); the diagram is not a claim that one unrestricted shared socket provides per-Worker permissions.
+
+**Technology admission is a real deliverable.** The release must record the exact versions, process ownership, mounted paths, API/schema capabilities, and tested combinations. A dependency's marketing description is not an implementation proof.
 
 ## Component
 
-```mermaid
-flowchart LR
-    API[Application API\nCommands / Queries / Events]
-    Domain[Domain Core\nstate machines + invariants]
-    Planning[Planning Engine\nrecords + gates]
-    Scheduler[Scheduler\ndependencies + lanes]
-    Routing[Routing & Capacity]
-    Runtime[Worker Runtime Manager]
-    Context[Context Compiler]
-    Review[Review / Verification Coordinator]
-    Provider[Provider Broker]
-    Durability[Durability & Recovery]
-    Artifacts[Artifact / Retention Manager]
-    State[(SQLite + Ledger)]
+### Figure 3 — Factory components
 
-    API --> Domain
-    Domain --> Planning
-    Domain --> Scheduler
-    Scheduler --> Routing
-    Scheduler --> Runtime
-    Runtime --> Context
-    Runtime --> Review
-    Domain --> Provider
-    Domain --> Durability
-    Domain --> Artifacts
-    Domain <--> State
+```mermaid
+flowchart TB
+    API["Local API and CLI adapters"] --> Domain["Domain Core: commands, authority, state transitions"]
+    Domain --> Planning["Planning Engine: concerns, graphs, gates"]
+    Domain --> Intake["Finding Intake and Triage Controller"]
+    Domain --> Scheduler["Scheduler: eligibility, priorities, dependencies"]
+    Scheduler --> Routing["Routing and Capacity"]
+    Scheduler --> Runtime["Worker Runtime Manager"]
+    Runtime --> Context["Context Compiler"]
+    Runtime <--> HerdR["HerdR adapter"]
+    Domain --> Quality["Quality and Review Coordinator"]
+    Domain --> Validation["Validation Target Controller"]
+    Domain --> Attention["Attention and Owner Actions"]
+    Domain --> Broker["Provider Broker"]
+    Domain --> Artifacts["Artifact and Retention Manager"]
+    Domain --> Durability["Durability, Recovery, Upgrade Controller"]
+    Domain <--> State[("SQLite: state and Ledger")]
     Durability <--> State
+    Quality --> Scheduler
+    Validation --> Scheduler
+    Intake --> Scheduler
 ```
 
-The **Application API** is the single mutation/query boundary. The **Domain Core** validates authority and state transitions. The **Planning Engine** owns Planning Records, baselines, policy envelopes, and readiness gates. The **Scheduler** turns ready work into safe execution lanes. **Routing & Capacity** selects eligible Routes deterministically. The **Worker Runtime Manager** provisions attempts, worktrees, and runtime resources. The **Context Compiler** builds bounded provenance-tagged Worker context. The **Review / Verification Coordinator** constructs exact acceptance subjects and independent evidence. The **Provider Broker** is the privileged external-mutation choke point. **Durability & Recovery** publishes authoritative frontiers and performs explicit takeover. The **Artifact / Retention Manager** protects required evidence and recovery roots.
+These are logical components inside a modular monolith, not separate microservices. A component may request work, but only the Scheduler/Runtime path creates a Worker execution. The **Quality and Review Coordinator** selects contracts and checks returned evaluation records; it is not a permanent “quality LLM.”
 
-## Cross-cutting state and authority
 
-Factory is the only workflow authority. SQLite is canonical current state and semantic history; Git is code/history authority; provider systems are projections and external facts. Every authoritative mutation uses a typed Command. Consequential AI artifacts cannot self-promote, and consequential owner actions require the owner-only confirmation capability.
+## Technology choices
 
-See [Persistence and durability](persistence-and-durability.md), [Planning architecture](planning.md), [Execution architecture](execution.md), and [Provider integration](providers.md).
+### Selected technologies and their boundaries
 
-## Delivery and acceptance flow
+| Technology | Selected responsibility | What it does not decide |
+|---|---|---|
+| **Go** | Factory's compiled modular-monolith core, CLI, local API, domain transitions, scheduling, adapters. | The languages used by managed Projects. |
+| **Docker / Compose** | Disposable packaging of Factory and a dedicated Worker Docker environment. | Workflow state or malicious-code containment guarantees. |
+| **SQLite** | Canonical current state, semantic history, command identities, planning, triage, execution, attention, metrics, and artifact references. | Code history or large raw logs. |
+| **Litestream + Cloudflare R2** | Off-host database replication and recoverable-position support; R2 also holds large evidence artifacts. | Which uploaded state is authoritative; Factory's Published Frontier does that. |
+| **Git + GitHub** | Exact code checkpoints, PRs, CI observations, provider-side merge, and board/issue projections. | PriFly planning, priorities, or canonical workflow truth. |
+| **HerdR** | The selected v1 session/runtime substrate for managing admitted harness sessions and their observable runtime facts. | Work Item completion, acceptance, routing policy, or owner authority. |
+| **Versioned JSON + JSON Schema** | Interchange records and structural validation; Go enforces cross-object and policy invariants. | Semantic correctness merely from schema validity. |
+| **Markdown + Mermaid** | Human-readable deterministic reports, review packages, and durable documentation/diagrams. | An alternate unstructured workflow database. |
+| **age-encrypted JSON + private Git bootstrap repository** | A pinned startup manifest and encrypted secret file, with independent repository access and decryption material. | Workflow-state storage or automatic recovery takeover authority. |
+| **Serena** | v1 semantic navigation/editing and source-backed code discovery where the admitted language/backend is supported, alongside exact Git facts. | Canonical knowledge, proof of complete impact coverage, or permission to exceed job scope. |
 
-A released Work Item becomes one or more Worker attempts in namespaced worktrees. Exact Worker commits are checkpointed upstream. Independent verification produces machine-observed evidence. A fresh Reviewer judges semantic sufficiency. An Acceptance Certificate binds the exact planning, attempt, code, target, evidence, and policy state. Factory then consumes that certificate through an admitted exact-target integration protocol.
-
-See [Review and validation](review-and-validation.md) and [Acceptance contract](../reference/acceptance-contract.md).
-
-## Recovery and update flow
-
-Authoritative state is acknowledged only after remote database durability and CAS publication of the Published Frontier. Explicit takeover fences old publication through the same coordination record. Recovery restores exactly the published frontier and inherits all published `SEND_ARMED` provider obligations before new authoritative work resumes. Upgrades may roll back only before the upgraded Factory publishes its first new authoritative state.
-
-See [Recovery and upgrades](recovery-and-upgrades.md) and [State machines](../reference/state-machines.md).
+These selections reduce reinvention while leaving replaceable adapter boundaries. Go, SQLite, and the packaging shape derive from PriFly's product decisions [P1](../reference/source-register.md#source-p1), [P2](../reference/source-register.md#source-p2). HerdR's documented automation surface supports managed panes/agents and CLI/socket control, but its status signals are not business completion records [S03](../reference/source-register.md#source-s03), [S04](../reference/source-register.md#source-s04).

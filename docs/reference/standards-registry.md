@@ -8,6 +8,11 @@ The normalized rubrics live in [Quality rubrics](quality-rubrics.md). When an ev
 
 ## Registry rules
 
+The source identities and historical verification dates below are retained from the adopted
+registry. They do not record a new full-text inspection during the PRD reconciliation.
+[Product and dependency sources](source-register.md) preserves the PRD's S/P bibliography;
+the STD/GUIDE identifiers here are the durable versioned registry identities.
+
 - Use the exact edition/version recorded here for normative evaluation until a governed update changes the registry.
 - Drafts do not silently replace published standards.
 - Official implementation guidance may operationalize a standard, but does not override the pinned standard.
@@ -75,6 +80,13 @@ DORA currently measures delivery throughput and instability using change lead ti
 - Blogs, vendor summaries, model memory, forum posts, and search snippets may help locate an authoritative source but cannot override a pinned criterion.
 
 ## Standards update procedure
+
+Before a normalized criterion becomes an executable blocking rule, its reviewed descriptor must
+identify the exact source/locator and derivation, available access scope, applicability, artifact
+phase, evidence and evaluation method. A profile-level source list is not a clause-complete mapping.
+Public catalog identity/scope may support a general engineering question; it cannot settle a
+disputed paid-standard clause. Such interpretation remains `UNKNOWN` until sufficient official
+source evidence is available. See RP-14 in [Unselected parameters](deployment-parameters.md).
 
 A standards update is a governed change when it can alter a blocking rubric.
 

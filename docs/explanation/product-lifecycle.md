@@ -1,303 +1,98 @@
-# Product lifecycle
+# Product lifecycle and owner journey
 
 Kind: explanation
 
-This document shows how PriFly's existing canonical subsystems participate in one end-to-end piece of software work. It is a **cross-subsystem choreography**, not a second specification: each box links conceptually to the subsystem document that owns its detailed rules.
-
-The product-level promise and success criteria live in [Product definition](product.md).
-
-## Owner intent to Design Baseline
-
-The first lifecycle converts an owner goal into an explicit, traceable design rather than immediately creating implementation tasks.
+### Figure 2 — End-to-end product journey
 
 ```mermaid
 flowchart TD
-    Intent[Owner intent]
-    Pilot[Pilot / owner interface]
-    Start[planning.start Command]
-    Record[Planning Record]
-    Concerns[Mandatory concern inventory]
-    Gaps[Gap Register]
-    Research[Research Claims + evidence]
-    Options[Options + Decisions]
-    Design[Design objects + traceability]
-    Gate{Design Completeness Gate}
-    Baseline[Immutable Design Baseline]
-    Attention[Owner Attention / Owner Action]
-
-    Intent --> Pilot --> Start --> Record --> Concerns --> Gaps
-    Gaps -->|facts needed| Research --> Gaps
-    Gaps -->|material choice| Options --> Attention --> Options
-    Options --> Design --> Gate
-    Research --> Design
-    Gate -->|blocking concern remains| Gaps
-    Gate -->|zero unresolved blocking applicable concerns| Baseline
+    Idea["Owner idea"] --> Intake["Pilot elicits requirements in draft Intake"]
+    Intake --> R1{"Owner releases requirements to architecture?"}
+    R1 -->|not yet| Intake
+    R1 -->|confirmed| Design["Architect outlines, develops, and synthesizes design"]
+    Design --> ReviewD["Reviewer evaluates complete design package"]
+    ReviewD --> Gate1{"Design Completeness satisfied?"}
+    Gate1 -->|no| Design
+    Gate1 -->|yes| R2{"Owner approves design and releases delivery planning?"}
+    R2 -->|revise| Design
+    R2 -->|confirmed| Plan["Planner decomposes and Estimator predicts execution effort"]
+    Plan --> Projection["Factory projects proposed plan using selected provider profile"]
+    Projection --> ReviewP["Reviewer evaluates delivery plan"]
+    ReviewP --> Gate2{"Delivery Readiness satisfied?"}
+    Gate2 -->|no| Plan
+    Gate2 -->|yes| R3{"Owner releases exact plan to execution?"}
+    R3 -->|revise| Plan
+    R3 -->|confirmed| Work["Implementer builds, tests, and drafts PR"]
+    Work --> PR["Factory checkpoints branch and opens PR"]
+    PR --> Review["Reviewer evaluates candidate and records verdict"]
+    Review -->|current correction| Fix["Fresh Implementer corrects in same workspace"]
+    Fix --> PR
+    Review -->|accepted| Merge["Factory requests GitHub PR merge"]
+    Merge --> Validate["Validator exercises integrated behavior"]
+    Validate -->|product findings| Triage["Common triage and authorized planning path"]
+    Validate -->|required targets validated| Release["Release and scoped closeout"]
+    Review -. follow-up or planning change .-> Triage
 ```
 
-Important properties:
+A release can cover a subset of a larger Initiative. An Initiative may therefore have several releases before its own closeout. The order is not a demand to finish the entire Project's lifetime architecture before delivering anything; each Planning Record governs a bounded capability or change.
 
-- PriFly researches discoverable facts rather than turning every unknown into an owner question.
-- AI may propose applicability/classification, but Factory policy establishes effective authority.
-- Strategic/Constitutional or otherwise consequential choices use the correct Owner Action path.
-- Design Baselines are immutable released snapshots. Later semantic changes create Change Requests rather than editing history in place.
+---
 
-Canonical detail: [Planning architecture](planning.md), [Planning policy](../reference/planning-policy.md), [Pilot and owner interaction](pilot.md).
+## User stories and a worked journey
 
-## Design Baseline to executable delivery plan
+### Core user stories
 
-After design is complete, PriFly decomposes for early integrated/testable value first and parallelism second.
+| ID | Story | Completion visible to the owner |
+|---|---|---|
+| US-01 | As an owner, I describe an idea without knowing its implementation language. | Pilot records a draft requirements brief and open questions without starting project Workers or adopting examples as binding choices. |
+| US-02 | I want decisions explained with meaningful alternatives. | A decision package shows the question, evidence, recommendation, consequences, reversibility, and required authority. |
+| US-03 | I want control over when architecture, delivery planning, and execution start. | Three explicit owner releases identify exact packages and permitted scope; Design Completeness and Delivery Readiness independently show remaining engineering blockers. |
+| US-04 | I want several repositories and different harnesses to work together. | One Project can schedule role-appropriate jobs across its repositories with explicit dependencies and collision control. |
+| US-05 | I want ordinary work to proceed while I am absent. | Independent lanes continue; owner-gated work waits in a durable Attention Item. |
+| US-06 | I want a new Pilot whenever the old one becomes saturated. | The new session registers, receives orientation, and resumes queued discussions from Factory records. |
+| US-07 | I want tests reused when the evidence is adequate. | Reviewer records which Implementer evidence was accepted and which checks it actually reran. |
+| US-08 | I want a small review correction to be cheap. | Implementer inherits the worktree, dependencies, and permitted workspace services without a full environment rebuild. |
+| US-09 | I want discovered work preserved without endless churn. | Follow-ups have a home, history, size/criticality assessment, and hold or batch decisions. |
+| US-10 | I want to know whether the product actually works. | Validation Targets distinguish pending, failed, and validated integrated behavior. |
+| US-11 | I want product failures fixed through normal engineering controls. | Validator findings enter common triage, receive explicit precedence, and return their targets to pending only after blocking fixes land. |
+| US-12 | I want all code integrated through PRs. | GitHub records the merge; no Worker or Factory bypasses that route with a direct target-branch push. |
+| US-13 | I want to change direction without losing provenance. | A Change Request identifies affected work, preserves the old baseline, and publishes a reviewed replacement. |
+| US-14 | I want to recover after losing the machine. | Recovery restores published state, metrics, obligations, and retained code without the old local checkout. |
+| US-15 | I want to upgrade the factory without losing my way to repair it. | Health checks and a standalone repair path exist; rollback obeys an explicit publication cutoff. |
+| US-16 | I want to compare Routes using outcomes, not intuition. | Experiments include failures, rescue effort, review quality, delayed validation outcomes, and missing measurements. |
+| US-17 | I want consistent output every time. | CLI, Pilot, board projections, and future GUI are rendered from the same structured records and versioned templates. |
+| US-18 | I want a release and closeout to mean something. | Required acceptance evidence, validation, scoped findings, and operational handoff are complete or explicitly dispositioned under the governing scope. |
+| US-19 | I want to inspect and mark up a coherent design before decomposition. | The Review Package includes rendered documents, source files, baseline diffs, diagrams, review results, and a response to each annotation. |
+| US-20 | I want an existing-product feature to build on the current design. | A feature change package references the existing baseline and proposes focused document edits, additions, and ADRs instead of redesigning the whole product. |
+| US-21 | I want GitHub to show both the plan and how review progressed. | Enabled Initiative milestones, Epics, issues, labels, relationships, and board views reflect Factory state; issues and PRs show the configured review/correction history. |
+| US-22 | I want to use Pilot without interrupting Workers. | The owner session opens separately, Worker observation is read-only by default, and Worker creation does not steal focus. |
 
-```mermaid
-flowchart TD
-    Baseline[Design Baseline]
-    Slice[Walking-skeleton / integrated slice]
-    Decompose[Work proposals]
-    Impact[Impact + dependency analysis]
-    Items[Work Items]
-    Lanes[Lanes + repository/scope assignments]
-    VerifyDesign[Verification design]
-    PlanReview[Fresh Plan Review]
-    Gate{Delivery Readiness Gate}
-    Ready[Released delivery plan]
+### Worked example: an Archive project
 
-    Baseline --> Slice --> Decompose --> Impact --> Items --> Lanes
-    Items --> VerifyDesign --> PlanReview --> Gate
-    Lanes --> Gate
-    Gate -->|coverage / dependency / verification problem| Decompose
-    Gate -->|ready| Ready
-```
+The following example is illustrative. **Archive** is a hypothetical containerized backup application with a service repository and a CLI repository. Its names and detailed behavior are not PriFly product requirements.
 
-Each executable Work Item carries:
+**Idea.** The owner tells Pilot: “I need encrypted backups and a way to prove I can restore them.” Pilot records that need through Factory. “Maybe use object storage later” is stored as exploratory context, not as a requirement to use a particular protocol.
 
-```text
-Goal
-Required Outcomes
-Constraints
-Verification
-```
+**Intake and first release.** Pilot asks which files matter, who will restore them, what must be preserved, how keys are supplied, and what successful recovery means. Answers, suggestions, and unresolved questions remain distinguishable in the draft Planning Record. Pilot presents the requirements brief and asks, “Would you like to release these requirements to architecture?” Only the owner's confirmation authorizes architecture and supporting investigation within that scope.
 
-Tests and commands are evidence mechanisms for Verification; they are not substitutes for semantic Outcomes.
+**Design.** An Architect proposes the design outline. Authorized Scout and Researcher jobs supply existing-project and external facts respectively. Architect contributions define backup/restore behavior, interfaces, key handling, failure behavior, and verification intent; a synthesis job reconciles the complete package. An independent Reviewer evaluates the package and cross-document consistency. The owner receives a PRD, proposed canonical documentation, diagrams, decisions, review results, and open questions. Missing recovery behavior remains a Design Completeness gap.
 
-`SLICE` is the default Work Item kind. An `ENABLER` is exceptional and names the consumers that make it necessary.
+**Design approval and second release.** The owner marks up the package, sees the disposition of each correction, and confirms the exact revised design to release delivery planning. Passing Design Completeness alone does not start Planner jobs.
 
-Canonical detail: [Planning architecture](planning.md), [Schemas](../reference/schemas.md).
+**Planning.** Planner creates a small integrated path: create a backup, restore it into an empty instance, and compare the restored content. Estimator predicts execution time and, where supportable, token use for each proposed Work Item from its defined scope, predicted file footprint, Route, and comparable history. Planner owns decomposition and sequencing. Verification definitions describe the properties to prove; they do not stop at “run tests.”
 
-## Work Item to delivered code
+**Plan projection and third release.** Under the selected GitHub profile, Factory represents the backup-and-restore Initiative as a GitHub milestone, with any configured Epic tracking issues, Work Item issues, relationships, labels, and board entries. These remain proposed, not execution-ready. Reviewer evaluates the delivery plan. After Delivery Readiness passes, Pilot presents scope, dependencies, estimates, validation coverage, and provider links; the owner releases the exact delivery plan to execution.
 
-This is the normal autonomous delivery path for one ready Work Item.
+**Work.** Implementer receives one Work Item, not the whole planning conversation. It develops the change in its assigned workspace, writes tests, and submits a candidate SHA, verification evidence, and structured PR Draft. Factory pushes the candidate, confirms the remote head, and creates the review-ready PR before dispatching Reviewer. Reviewer inspects the code, tests, and applicable attack probes. Sufficient evidence can be reused without a duplicate test run.
 
-```mermaid
-flowchart TD
-    Ready[READY Work Item]
-    Schedule[Scheduler evaluates dependencies + Lane]
-    Route[Deterministic Route selection]
-    Attempt[Worker Job Attempt]
-    Worktree[Dedicated worktree + Implementation Envelope]
-    Commit[Exact Worker commit]
-    Checkpoint[Factory publishes namespaced job ref]
-    Candidate[Candidate subject]
-    Verification[Independent Verification Runner]
-    Review[Fresh independent Reviewer]
-    Fix{Accepted?}
-    Fixer[Fix / bounded reimplementation]
-    Evidence[Acceptance Evidence Manifest]
-    Certificate[Acceptance Certificate]
-    Integrate[Build + verify exact integration subject]
-    CAS[Exact target compare-and-update]
-    Delivered[DELIVERED]
+**Correction.** Reviewer identifies that a restore error is swallowed, violating the current Work Item. It files `CURRENT_CORRECTION`. Factory publishes the changes-requested review and dispatches a fresh Implementer in current-correction mode into the same workspace. It returns a new candidate, evidence, and a per-finding correction response. Factory publishes the response; a fresh Reviewer evaluates that subject and records a new verdict. The PR contains the detailed exchange, and the linked issue contains readable round summaries and links. A separate observation about an unrelated progress-display improvement is `FOLLOW_UP`; it does not block the restore PR.
 
-    Ready --> Schedule --> Route --> Attempt --> Worktree --> Commit --> Checkpoint --> Candidate
-    Candidate --> Verification --> Review --> Fix
-    Fix -->|no| Fixer --> Candidate
-    Fix -->|yes| Evidence --> Certificate --> Integrate --> CAS --> Delivered
-```
+**Merge.** Factory publishes the candidate branch and maintains its GitHub PR. If another PR has changed the base, the configured merge policy decides whether a conflict-free branch update is required. An actual conflict is routed to Rebaser. GitHub, not a direct push by Factory, merges the approved PR.
 
-The important identity chain is exact:
+**Validation.** Once the backup-and-restore slice is runnable, Factory schedules Validator against a fixed integrated version set. Validator uses a fresh representative stack and the normal documented configuration. The unit tests passed, but the real restore process cannot find its key file. Validator records the failure and a Finding. It does not patch the container interactively and declare success.
 
-```text
-Planning Baseline
-→ Work Item revision
-→ Worker Attempt
-→ candidate commit
-→ verification evidence
-→ Reviewer verdict
-→ Acceptance Certificate
-→ exact integration subject
-→ exact target update
-```
+**Triage.** Triage evaluates the product defect and its blocking relationship. Factory releases it to planning with increased precedence because it blocks a required Validation Target. It becomes an ordinary bug Work Item with requirements, evidence, implementation, review, and a PR. The unrelated display finding remains held until it can be grouped with related small improvements. A batch outside the owner-released product or maintenance scope waits for the appropriate new release.
 
-Any material change to the bound subject invalidates the relevant certificate rather than silently carrying approval forward.
+**Retest readiness.** When every known blocking fix for the restore target is integrated, Factory changes that target from `VALIDATION_FAILED` to `PENDING_VALIDATION`. This increases the normal pending-target count. The normal validation scheduler decides when to run it again; there is no separate fix-wave scheduler.
 
-Canonical detail: [Execution architecture](execution.md), [Review and validation](review-and-validation.md), [Acceptance contract](../reference/acceptance-contract.md), [Provider integration](providers.md).
-
-## Provider side-effect lifecycle
-
-External effects follow a separate durable obligation lifecycle. This is intentionally distinct from ordinary in-memory request/retry logic.
-
-```mermaid
-flowchart TD
-    Intent[Admitted provider operation intent]
-    Prepared[PREPARED]
-    Arm[SEND_ARMED published authoritatively]
-    Send[Provider network mutation]
-    Result{Outcome provable?}
-    Success[SUCCEEDED]
-    Failure[FAILED]
-    Unknown[UNKNOWN]
-    Reconcile[Operation-profile reconciliation]
-    Attention[Owner Attention if ambiguity cannot be proved]
-
-    Intent --> Prepared --> Arm --> Send --> Result
-    Result -->|yes: success| Success
-    Result -->|yes: non-execution/failure| Failure
-    Result -->|not provable| Unknown --> Reconcile
-    Reconcile -->|terminal proof| Success
-    Reconcile -->|terminal non-execution proof| Failure
-    Reconcile -->|still ambiguous| Attention
-```
-
-`SEND_ARMED` is the crash-safe possible-send boundary. A recovered unresolved SEND_ARMED operation is treated as possibly sent; PriFly does not blind-retry an operation merely because its result was not observed.
-
-Canonical detail: [Provider integration](providers.md), [Provider operation profiles](../reference/provider-operation-profiles.md), [State machines](../reference/state-machines.md).
-
-## Post-baseline change and impact flow
-
-A released baseline is not edited in place when the product/design changes. PriFly opens a Change Request and computes conservative blast radius.
-
-```mermaid
-flowchart TD
-    Change[New semantic change / Finding / owner request]
-    CR[Change Request]
-    Impact[Impact analysis]
-    Classify{Downstream classification}
-    Affected[AFFECTED]
-    Unknown[UNKNOWN]
-    Unaffected[PROVEN_UNAFFECTED]
-    Pause[Pause / invalidate / revalidate]
-    Continue[Continue]
-    Replan[Planning update + review]
-    NewBaseline[New immutable Baseline]
-
-    Change --> CR --> Impact --> Classify
-    Classify --> Affected --> Pause
-    Classify --> Unknown --> Pause
-    Classify --> Unaffected --> Continue
-    Pause --> Replan --> NewBaseline
-```
-
-`UNKNOWN` is conservative: absence of a discovered impact edge is not proof that downstream work is unaffected.
-
-The replacement baseline becomes the authority for newly released downstream work. Existing accepted evidence remains historical evidence for the exact subject it originally certified.
-
-Canonical detail: [Planning architecture](planning.md), [Context and code intelligence](context-and-code-intelligence.md).
-
-## Owner Attention and consequential authority
-
-PriFly's autonomy is bounded by durable Attention Items rather than by keeping the Owner continuously in the execution loop.
-
-```mermaid
-flowchart TD
-    Need[Factory detects owner-relevant need]
-    Item[Attention Item]
-    Urgency{Urgency}
-    Info[INFORMATIONAL / REVIEW_WHEN_CONVENIENT]
-    Action[ACTION_REQUIRED]
-    Blocking[BLOCKING]
-    Pilot[Pilot / Bridge explains context + options]
-    Routine{Standing delegation sufficient?}
-    Command[Normal typed Command]
-    OwnerAction[Immutable Owner Action]
-    Confirm[Owner-only confirmation capability]
-    Factory[Factory validates + applies]
-
-    Need --> Item --> Urgency
-    Urgency --> Info --> Pilot
-    Urgency --> Action --> Pilot
-    Urgency --> Blocking --> Pilot
-    Pilot --> Routine
-    Routine -->|yes| Command --> Factory
-    Routine -->|no / consequential| OwnerAction --> Confirm --> Factory
-```
-
-Silence, conversational ambiguity, or Pilot interpretation is never consequential confirmation. Pilot may draft and explain an Owner Action but cannot mint the owner-control proof.
-
-Canonical detail: [Pilot and owner interaction](pilot.md), [API contract](../reference/api-contract.md), [Schemas](../reference/schemas.md).
-
-## Local-host loss and recovery flow
-
-The Factory host is disposable; acknowledged authoritative state is not.
-
-```mermaid
-flowchart TD
-    Loss[Local PriFly host lost]
-    NewHost[Replacement host + PriFly release]
-    Kit[Recovery Kit / root material]
-    Discover[Discover coordination record]
-    Takeover[Explicit generation takeover CAS]
-    Restore[Restore exact Published Frontier]
-    Validate[SQLite + schema/domain validation]
-    Migrate[Apply required forward migrations]
-    Reconcile[Reconcile inherited SEND_ARMED / UNKNOWN obligations]
-    Replica[Establish successor replica + restorable frontier]
-    Activate[CAS publish ACTIVE]
-    Resume[Resume normal authoritative work]
-
-    Loss --> NewHost --> Kit --> Discover --> Takeover --> Restore --> Validate --> Migrate --> Reconcile --> Replica --> Activate --> Resume
-```
-
-Recovery restores the coordination-selected authoritative frontier, not merely the latest bytes that happen to exist remotely. Uploaded-but-unpublished tails are not promoted into history.
-
-Canonical detail: [Persistence and durability](persistence-and-durability.md), [Recovery and upgrades](recovery-and-upgrades.md), [State machines](../reference/state-machines.md).
-
-## Initiative closure and learning loop
-
-Delivery is not complete merely because all code merged. Initiative closure verifies that the delivered system and its external projections are in a known terminal state.
-
-```mermaid
-flowchart TD
-    Work[All required Work Items terminal + released]
-    Validate[Required initiative/system validation]
-    Findings{Blocking Findings / owner decisions?}
-    Provider[Provider projections reconciled]
-    Risks[Residual risks explicit]
-    Close[Close Initiative + freeze delivered baseline/as-built record]
-    Metrics[Compute deterministic delivery/planning metrics]
-    Lessons[Bounded lessons analysis]
-    Review[Fresh review of Lesson Candidates]
-    Evidence{Repeated evidence?}
-    Recommend[Recommendation]
-    Authority[Owner / policy decision]
-
-    Work --> Validate --> Findings
-    Findings -->|yes| Work
-    Findings -->|no| Provider --> Risks --> Close --> Metrics --> Lessons --> Review --> Evidence
-    Evidence -->|not yet| Metrics
-    Evidence -->|yes| Recommend --> Authority
-```
-
-The learning ladder remains:
-
-```text
-Observation
-→ Lesson Candidate
-→ reviewed Lesson
-→ repeated evidence
-→ Recommendation
-→ owner/policy decision
-```
-
-Factory may automate measurement and bounded experimentation; it does not autonomously rewrite Constitution or governing policy.
-
-Canonical detail: [Experiments, metrics, and learning](experiments-and-metrics.md), [Observability, retention, and replayability](observability-and-retention.md), [Planning architecture](planning.md).
-
-## How to read these flows
-
-The diagrams intentionally omit implementation mechanics that belong to lower-level contracts. In particular:
-
-- they do not define SQLite table layout;
-- they do not define HTTP paths or transport framing;
-- they do not replace the authoritative state machines;
-- they do not add new permissions or lifecycle states;
-- they do not imply every optional optimization is active in the first executable milestone.
-
-When a diagram and a subsystem/reference contract appear to disagree, the subsystem/reference contract and accepted ADRs are authoritative and this lifecycle document must be corrected.
+**Release and closeout.** The release record identifies the tested service image, CLI version, configuration, and validation evidence. Before Initiative closeout, the held display finding is either planned and completed with a coherent batch or explicitly found not to require action. Merely creating a future ticket does not satisfy closeout. Historical metrics then reveal how much work was spent reaching a working product, including the late restore defect.

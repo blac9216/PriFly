@@ -16,12 +16,16 @@ ROOT="$(cd "$ROOT" && pwd)"
 
 python3 - "$ROOT" <<'PY'
 from __future__ import annotations
-import pathlib, re, sys, urllib.parse
+import functools, os, pathlib, re, sys, urllib.parse
 
 root = pathlib.Path(sys.argv[1])
 findings: list[str] = []
 link_re = re.compile(r'(?<!!)\[[^\]]*\]\(([^)]+)\)')
 heading_re = re.compile(r'^(#{1,6})\s+(.+?)\s*$')
+# Stable custom anchors are used by the accepted PRD's section/figure/source IDs.
+# Match standalone empty anchors, not examples inside prose or inline code.
+custom_anchor_re = re.compile(r'''^ {0,3}<a\s+(?:id|name)=(['"])([^'"]+)\1\s*>\s*</a>\s*$''')
+fence_re = re.compile(r'^ {0,3}(`{3,}|~{3,})(.*)$')
 
 def slugify(text: str) -> str:
     text = re.sub(r'\s+#+\s*$', '', text.strip()).lower()
@@ -32,19 +36,28 @@ def slugify(text: str) -> str:
     text = re.sub(r'-+', '-', text)
     return text.strip('-')
 
+@functools.lru_cache(maxsize=None)
 def anchors(path: pathlib.Path) -> set[str]:
     result: set[str] = set()
     counts: dict[str, int] = {}
-    in_fence = False
+    fence: tuple[str, int] | None = None
     try:
         lines = path.read_text(encoding='utf-8').splitlines()
     except UnicodeDecodeError:
         return result
     for line in lines:
-        if line.lstrip().startswith('```'):
-            in_fence = not in_fence
+        marker = fence_re.match(line)
+        if fence:
+            if (marker and marker.group(1)[0] == fence[0]
+                    and len(marker.group(1)) >= fence[1] and not marker.group(2).strip()):
+                fence = None
             continue
-        if in_fence:
+        if marker:
+            fence = (marker.group(1)[0], len(marker.group(1)))
+            continue
+        custom = custom_anchor_re.match(line)
+        if custom:
+            result.add(custom.group(2))
             continue
         m = heading_re.match(line)
         if not m:
@@ -57,9 +70,17 @@ def anchors(path: pathlib.Path) -> set[str]:
         result.add(base if n == 0 else f'{base}-{n}')
     return result
 
-for md in sorted(root.rglob('*.md')):
-    if '.git' in md.parts:
-        continue
+def markdown_files():
+    def traversal_error(error: OSError):
+        findings.append(f'{error.filename}: LINK_TRAVERSAL_ERROR {error.strerror}')
+
+    for directory, dirs, files in os.walk(root, onerror=traversal_error):
+        dirs[:] = [name for name in dirs if name != '.git']
+        for name in files:
+            if name.endswith('.md'):
+                yield pathlib.Path(directory) / name
+
+for md in sorted(markdown_files()):
     rel = md.relative_to(root)
     text = md.read_text(encoding='utf-8')
     for line_no, line in enumerate(text.splitlines(), 1):
