@@ -73,4 +73,4 @@ it does not pretend that unimplemented commands can be run.
 
 - [Architecture Decision Records](adr/README.md) — read the generated status table and relevant amendments first.
 - `rationale/` — area files are introduced with code that needs a `# why:` pointer; none are invented before code exists.
-- `process/` — workflow setup is owned separately; no product delivery plan is implied by this design set.
+- [`process/`](process/work-tracking.md) — the repository-specific `github-workflow` facts (board/label IDs, worktrees, testing commands, live-validation meaning, maintenance, overnight limits, and observed failure modes); it records the workflow's operational setup, not a product delivery plan.
