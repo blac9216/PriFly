@@ -97,8 +97,8 @@ for what these values mean in practice.
 - **Bootstrap Implementer** owns one issue's delivery in its own worktree and never
   reviews or merges its own PR.
 - **Bootstrap Reviewer** (`github-pr-review`) is a fresh-context, producer-independent
-  role: it reviews and, on acceptance, merges the bootstrap PR. It never authors the
-  candidate it reviews.
+  role: it reviews in its own review worktree ([worktrees.md](worktrees.md)) and, on
+  acceptance, merges the bootstrap PR. It never authors the candidate it reviews.
 - **Factory's eventual product Provider Broker** is a distinct future authority that
   alone merges *product* candidates once Factory exists; this document grants it
   nothing — it is named here only so a bootstrap merge is never mistaken for that later
