@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Self-test for check-readiness.sh (issue-body mode). Every fixture is synthetic, built in
+# Self-test for check-readiness.sh (issue and PR modes). Every fixture is synthetic, built in
 # a throwaway copy of the repo's own template and docs, so mutating one never touches the
 # real files. Each case asserts both the exit code and the line naming WHICH check or
 # error fired, so a case cannot pass because some other check failed first. Fixture
@@ -16,6 +16,7 @@ labels='chore,area:workflow'
 mk_root() {
   mkdir -p "$1/.github/ISSUE_TEMPLATE" "$1/docs/process"
   cp "$REPO_ROOT/.github/ISSUE_TEMPLATE/work-item.md" "$1/.github/ISSUE_TEMPLATE/work-item.md"
+  cp "$REPO_ROOT/.github/PULL_REQUEST_TEMPLATE.md" "$1/.github/"
   cp "$REPO_ROOT/docs/process/work-tracking.md" "$REPO_ROOT/docs/process/labels.md" "$1/docs/process/"
 }
 
@@ -114,6 +115,12 @@ checkbox_case short-fence "$ac_h" $'````\n```\n- [ ] Quoted inside a fence.\n```
   'checkbox only inside a 4-backtick fence holding a shorter 3-backtick line fails'
 checkbox_case html-comment "$ac_h" $'<!--\n- [ ] Commented out.\n-->\n' \
   'checkbox only inside a multi-line HTML comment fails'
+# #155: a repeated Acceptance Criteria heading is checked in every copy, not only the first.
+dup_body="$fixture_root/dup-ac-body.md"; cp "$body" "$dup_body"
+replace "$dup_body" "$ac_h"$'\n' "$ac_h"$'\n\nEmpty first copy.\n\n'"$ac_h"$'\n'
+sha256sum "$dup_body"
+run_case 'repeated Acceptance Criteria heading: checkbox in a later copy passes' 0 \
+  'check-readiness: 5/5 as expected' --root "$root" --body "$dup_body" --labels "$labels"
 
 # labels.md anchors: rewording the Type row, the area:* heading or every area:* row fails loudly.
 # shellcheck disable=SC2016 # the backticks are literal labels.md text, not expansions
@@ -134,7 +141,10 @@ i=0
 for anchor in '## Readiness shape' \
   'a Work Item body carries every `## ` heading of' \
   'at least one acceptance-criteria checkbox (`- [ ]` or `- [x]`)' \
-  $'one type label from the Type row of [labels.md](labels.md) and at\n  least one label from its `area:*` table'; do
+  $'one type label from the Type row of [labels.md](labels.md) and at\n  least one label from its `area:*` table' \
+  'a PR body carries every `## ` heading of' \
+  'a `Closes #<N>` line or the partial-delivery form below' \
+  'the body carries a `Refs #<N>` line' 'body then carries no closing keyword anywhere'; do
   i=$((i + 1)); a_root="$fixture_root/anchor-$i-root"; mk_root "$a_root"
   replace "$a_root/docs/process/work-tracking.md" "$anchor" 'REWORDED RULE'
   sha256sum "$a_root/docs/process/work-tracking.md"
@@ -155,8 +165,70 @@ else
   run_case 'unreadable docs/process/labels.md fails loudly' 3 'FILE_UNREADABLE' \
     --root "$locked_root" --body "$body" --labels "$labels"
 fi
+# #154: a non-UTF-8 body is a named exit 2; a non-UTF-8 doc file is a named exit 3.
+printf '## Summary\n\xff\xfe bad\n' >"$fixture_root/not-utf8-body.md"
+run_case 'non-UTF-8 body fails with exit 2, named' 2 'FILE_NOT_UTF8' \
+  --root "$root" --body "$fixture_root/not-utf8-body.md" --labels "$labels"
+enc_root="$fixture_root/not-utf8-doc-root"; mk_root "$enc_root"
+printf '\xff\n' >>"$enc_root/docs/process/labels.md"
+run_case 'non-UTF-8 docs/process/labels.md fails with exit 3, named' 3 'FILE_NOT_UTF8' \
+  --root "$enc_root" --body "$body" --labels "$labels"
 run_case 'missing body file is a usage error' 2 'body file not found or not readable' \
   --root "$root" --body "$fixture_root/no-such-body.md"
 run_case '--root with no value is a usage error' 2 '--root requires a value' --root
+run_case '--mode with no value is a usage error' 2 '--mode requires a value' --root "$root" --mode
+run_case '--repo with no value is a usage error' 2 '--repo requires a value' --root "$root" --repo
+run_case '--mode other than issue or pr is a usage error' 2 '--mode must be issue or pr' \
+  --root "$root" --body "$body" --mode bogus
+run_case '--mode pr without --repo is a usage error' 2 '--mode pr requires --repo' \
+  --root "$root" --body "$body" --mode pr
+
+# PR mode (#152). pr_body NAME PREAMBLE: PREAMBLE, then every PR template heading with prose.
+pr_body() {
+  python3 - "$root/.github/PULL_REQUEST_TEMPLATE.md" "$fixture_root/pr-$1.md" "$2" <<'PY'
+import sys
+heads = [l[3:].rstrip() for l in open(sys.argv[1], encoding='utf-8') if l.startswith('## ')]
+with open(sys.argv[2], 'w', encoding='utf-8') as fh:
+    fh.write(sys.argv[3] + '\n' + ''.join(f"## {h}\n\nBody text for {h}.\n\n" for h in heads))
+PY
+  sha256sum "$fixture_root/pr-$1.md"
+}
+pr=(--mode pr --repo blac9216/PriFly)
+pr_body closes $'Closes #154\nCloses #155\n'
+run_case 'PR: Closes lines pass' 0 'check-readiness: 2/2 as expected' \
+  --root "$root" --body "$fixture_root/pr-closes.md" "${pr[@]}"
+pr_refs=$'Refs #57\n\nThe remaining AC2 work is delivered by #133.\n'
+pr_body refs "$pr_refs"
+run_case 'PR: Refs form passes' 0 'check-readiness: 3/3 as expected' \
+  --root "$root" --body "$fixture_root/pr-refs.md" "${pr[@]}"
+run_case 'PR: Refs remainder and closing issue are printed UNCHECKED' 0 \
+  'UNCHECKED: Refs #57 names the exact remainder and the issue whose PR will close #57' \
+  --root "$root" --body "$fixture_root/pr-refs.md" "${pr[@]}"
+pr_body neither $'Part of #42\n'
+run_case 'PR: neither a Closes nor a Refs line fails' 1 \
+  'MISSING: a Closes #<N> line or a Refs #<N> line present' \
+  --root "$root" --body "$fixture_root/pr-neither.md" "${pr[@]}"
+pr_add_root="$fixture_root/pr-heading-added-root"; mk_root "$pr_add_root"
+printf '\n## Extra PR Section\nText.\n' >>"$pr_add_root/.github/PULL_REQUEST_TEMPLATE.md"
+run_case 'PR: heading added to the PR template is required of the body' 1 'missing: Extra PR Section' \
+  --root "$pr_add_root" --body "$fixture_root/pr-closes.md" "${pr[@]}"
+# Every GitHub closing-keyword form for the Refs'd #57 is flagged, inside fenced code too.
+k=0
+fence=$'```\nfixes #57\n```'
+for kw in 'close #57' 'closes #57' 'closed #57' 'fix #57' 'fixes #57' 'fixed #57' 'resolve #57' \
+  'resolves #57' 'resolved #57' 'CLOSES #57' 'Closes: #57' 'resolves blac9216/PriFly#57' \
+  'Fixes BLAC9216/prifly#57' "$fence"; do
+  k=$((k + 1)); found="${kw#$'```\n'}"; found="${found%$'\n```'}"
+  pr_body "kw-$k" "$pr_refs"$'\nNote: '"$kw"$'\n'
+  run_case "PR: '${kw//$'\n'/ }' for a Refs'd issue fails" 1 \
+    "MISSING: no closing keyword for Refs #57 anywhere in the body (found: ['$found'])" \
+    --root "$root" --body "$fixture_root/pr-kw-$k.md" "${pr[@]}"
+done
+# Not a closing reference to #57: another repository, another number, a longer word.
+for kw in 'resolves other-org/other-repo#57' 'fixes #570' 'hotfixes #57'; do
+  k=$((k + 1)); pr_body "kw-$k" "$pr_refs"$'\nNote: '"$kw"$'\n'
+  run_case "PR: '$kw' is not a closing keyword for #57" 0 'check-readiness: 3/3 as expected' \
+    --root "$root" --body "$fixture_root/pr-kw-$k.md" "${pr[@]}"
+done
 
 echo "test-check-readiness: $passed cases passed"
