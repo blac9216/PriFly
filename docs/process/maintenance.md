@@ -2,9 +2,9 @@
 
 | Setting | Value |
 |---|---|
-| Worktree root | Sibling worktrees outside the main checkout — see [worktrees.md](worktrees.md); exact machine path in `*.local.md`. |
+| Worktree root | Exactly [worktrees.md](worktrees.md)'s "Root and naming": one root outside the main checkout, `${TMPDIR:-/tmp}/prifly-worktrees` unless `*.local.md` guidance overrides the exact machine path. |
 | Agent scratch dir | Machine-local scratch outside the repository tree, under a uniquely-named subdirectory per agent — see [worktrees.md](worktrees.md). |
-| Allowed write locations | The current issue's worktree, the acting agent's own scratch subdirectory, and explicitly authorized generated-output paths (e.g. the audit's own `--out` path). |
+| Allowed write locations | Exactly the per-role worktrees [worktrees.md](worktrees.md) assigns — the current issue's `issue-<N>` worktree for implementer/fix/rebase roles, a reviewer's or merge-verifier's own `review-pr<P>` worktree for their commits under the reviewer-applied/revert gates — plus the acting agent's own scratch subdirectory and explicitly authorized generated-output paths (e.g. the audit's own `--out` path). |
 | Test resource prefix | `prifly-<issue-or-attempt>-<run-id>` for any future container, volume, network, namespace, or remote test key. |
 | Host thresholds | No repository-wide numeric thresholds are declared yet beyond the DP4 shared-attempt resource reservations recorded in the [DP4 operating contract](https://github.com/blac9216/PriFly/issues/38#issuecomment-5702104540); machine-local guidance may add its own. |
 | Shared sequence resources | Timestamped forward-only migration filenames/IDs ([ADR-0020](../adr/0020-use-timestamped-forward-only-migrations.md)); serialize concurrent migration authorship until implementation proves collision-safe allocation. |
@@ -19,3 +19,7 @@ always serialized regardless of apparent path disjointness).
 Cleanup at the end of a run removes only resources the run itself created and named; a
 broad Docker prune, remote-namespace sweep, or process-name kill pattern is prohibited —
 never assume this host runs only this session's work.
+
+Reopened issues still shown as Done are returned to Triage by the `github-workflow`
+skill's maintenance pass (`references/maintenance.md` § 5, "State audit"); this
+repository adds no rule of its own.

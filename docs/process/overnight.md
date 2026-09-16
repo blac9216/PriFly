@@ -11,8 +11,45 @@ Standing rules for unattended runs in this repository:
   authorizes a named external environment; no live provisioning or product-dispatch
   action without a concrete, current owner authorization;
 - do not mutate production/provider systems, perform owner-confirmation actions, change
-  repository permissions/rulesets/Project fields, merge, or weaken a conformance oracle
-  unattended;
+  repository/Project **configuration** (permissions, rulesets, Project field and option
+  definitions, workflow settings), merge, or weaken a conformance oracle unattended.
+  Exactly two exceptions apply, at any hour, each under the record that authorizes it:
+  - **Bootstrap PR merge** (owner instruction,
+    [#38](https://github.com/blac9216/PriFly/issues/38#issuecomment-5703543813): "I want
+    you to be able to merge anything"). An approved bootstrap PR may be squash-merged
+    only by the independent reviewer or merge-verifier for that PR, never by the
+    orchestrator, implementer or fix agent, and only after independent review with no
+    blocking `FAIL` or unresolved `UNKNOWN`, green required checks, and an up-to-date
+    branch. Product and provider merges remain Factory Provider Broker authority and
+    stay prohibited unattended.
+  - **Board field values** (DP4 execution release,
+    [#38](https://github.com/blac9216/PriFly/issues/38#issuecomment-5702259082), which
+    assigns the orchestration's "claims, isolated worktrees, implementation/fix agents,
+    PRs, review rounds, reviewer merges, board state and evidence" to `github-workflow`).
+    Each role writes only the Project field values the `github-workflow` skill assigns
+    to that role, wherever in the skill the assignment is made; this exception grants
+    no write the skill does not assign. Those assignments are the skill's
+    `references/orchestration.md` "Column ownership" table and `references/claims.md`
+    and, for the orchestrator's triage and maintenance moves, its
+    `references/maintenance.md` § 1 "Triage drain" and § 5 "State audit" and
+    `references/orchestration.md` "The loop, per issue" step 1 and "Report-handling
+    checklist" `deferrals` item. By role (a summary; where it differs from the skill,
+    the skill's assignment governs):
+    - orchestrator: the Column ownership table's Triage → Backlog / Ready and
+      Backlog → Ready during triage, `Claimed by` per `references/claims.md`, and every
+      further Status write the maintenance and triage references above assign it,
+      among them returning a reopened issue still shown as Done to Triage (§ 5) and
+      re-adding an issue with `home-deferred.sh --readd --status Triage` (a sighting
+      reopen) or `home-deferred.sh --readd --status Ready` (a batch rider);
+    - implementer or fix-round agent, at its start: → In progress, assigning the issue
+      to the acting account in the same breath;
+    - reviewer, at its start, every round: → In review;
+    - reviewer on the ordinary merge path, or merge-verifier on the hand-back path:
+      `Verified` at merge (`n/a` / `pending-live`);
+    - validation agent: `Verified` → `live-verified` / `live-failed`;
+    - no role: → Done, which is board automation on close.
+
+    Field and option definitions remain configuration and stay prohibited;
 - do not invent credentials, owner decisions, security exceptions, quality thresholds,
   architecture changes, or vendor behavior to keep a run moving; missing environmental
   access holds the dependent item rather than being worked around;
