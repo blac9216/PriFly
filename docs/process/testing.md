@@ -9,11 +9,6 @@ The check is the always-reporting `design-docs` job in
 `.github/workflows/docs-checks.yml`. That workflow has no pull-request path filter, so
 the check is safe to require on every pull request, including a documentation-only one.
 
-`.github/workflows/go-checks.yml` adds an always-reporting `go` job (gofmt/vet/test/build)
-for the executables under `cmd/` and `internal/`, on the same no-path-filter basis. It is
-not yet in the required-checks ruleset above; whether it should become required is a
-repository-configuration decision left to the owner/orchestrator, not made by this change.
-
 ## Commands
 
 PriFly is still in its architecture-to-implementation transition. The current executable
@@ -30,23 +25,23 @@ verification surface is the canonical documentation suite, run from the reposito
 | Integration | No command exists until a runnable integration surface lands. | Not configured. |
 
 These are exactly the five `docs-checks.yml` steps plus the sanitize scan; a manifest's
-**Command** field for a docs-only round lists these, in this order, as the log actually
-ran them.
+**Command** field lists these (and the Go suite below, if Go changed) in the order the
+log actually ran them.
 
-The `cmd/prifly` CLI and `cmd/priflyd` controller (issue #57 / A06) add a Go suite, run
-from the repository root with a pinned toolchain (see `go.mod`'s `go` directive; do not
-rely on a system Go install matching it):
+Go suite (`cmd/`, `internal/`): exactly the steps of the always-reporting, not-yet-required
+`go` job in `.github/workflows/go-checks.yml`, same order and flags. Use the toolchain
+`go.mod`'s `go` directive pins: read the `sha256` of `go<version>.<os>-<arch>.tar.gz` from
+`https://go.dev/dl/?mode=json&include=all`, download `https://go.dev/dl/<that file>`, run
+`echo "<sha256>  <that file>" | sha256sum -c -`, extract it outside the checkout, put its
+`go/bin` first on `PATH`, and export `GOTOOLCHAIN=local` and `GOFLAGS=-mod=readonly`:
 
 | Suite | Command | Environment |
 |---|---|---|
-| Format | `gofmt -l .` (expect empty output) | Repository checkout; pinned `go` toolchain on `PATH`. |
+| Identity | `git rev-parse HEAD`, then `go version` | Checkout; pinned `go` first on `PATH`. |
+| Format | `test -z "$(gofmt -l .)"` | Same; exits 1 if any file is unformatted. |
 | Vet | `go vet ./...` | Same. |
-| Unit tests | `go test ./...` (add `-race` when the toolchain/platform supports the race detector) | Same. |
-| Build | `go build ./...` (or `go build -o <scratch-path>/bin/ ./...` to avoid writing binaries into the checkout) | Same. |
-
-These are exactly the four `go-checks.yml` steps; a manifest's **Command** field for a
-Go-touching round lists these, in this order the log actually ran them, alongside the
-docs suite above and the sanitize scan.
+| Unit tests | `go test -count=1 -race -v ./...` | Same; uncached; `-race` needs cgo. |
+| Build | `go build ./...` | Same; keeps no binaries (add `-o <dir>/` to keep them). |
 
 ## Lint state
 
@@ -74,7 +69,5 @@ Environment-specific recipes belong in untracked `*.local.md` guidance (for exam
 `docs/testing.local.md`); none is committed. The inputs a live check needs, and the
 blocker reported when one is missing, are in [validation.md](validation.md).
 
-Go unit tests, `go vet` and `gofmt` are now real (above) and mirrored in
-`.github/workflows/go-checks.yml`. Add exact Go integration and coverage commands in the
-same change that makes each real; keep this table and both
-`.github/workflows/docs-checks.yml` and `.github/workflows/go-checks.yml` in agreement.
+Add exact Go integration and coverage commands in the same change that makes each real;
+keep these tables, `docs-checks.yml` and `go-checks.yml` in agreement.

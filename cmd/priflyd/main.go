@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,21 +15,21 @@ import (
 )
 
 func main() {
-	os.Exit(mainImpl())
+	os.Exit(mainImpl(os.Stderr, shutdown))
 }
 
-func mainImpl() int {
-	fmt.Fprintf(os.Stderr, "priflyd starting: %s\n", buildinfo.Current().String())
-
+// mainImpl registers SIGINT/SIGTERM before printing the startup line (tests
+// rely on that order), then maps the bounded shutdown result to an exit code.
+func mainImpl(stderr io.Writer, hook func(context.Context) error) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	fmt.Fprintf(stderr, "priflyd starting: %s\n", buildinfo.Current().String())
 
-	err := controller.Run(ctx, controller.DefaultShutdownBound, shutdown)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "priflyd shutdown error: %v\n", err)
+	if err := controller.Run(ctx, controller.DefaultShutdownBound, hook); err != nil {
+		fmt.Fprintf(stderr, "priflyd shutdown error: %v\n", err)
 		return 1
 	}
-	fmt.Fprintln(os.Stderr, "priflyd stopped cleanly")
+	fmt.Fprintln(stderr, "priflyd stopped cleanly")
 	return 0
 }
 
