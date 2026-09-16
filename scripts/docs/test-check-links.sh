@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/prifly-link-tests.XXXXXX")"
 # This exact mktemp-owned directory contains only generated fixtures.
-trap 'rm -r -- "$fixture_dir"' EXIT
+trap 'if [[ -d "$fixture_dir/locked" ]]; then chmod 700 -- "$fixture_dir/locked"; fi; rm -r -- "$fixture_dir"' EXIT
 passed=0
 
 check_case() {
@@ -55,5 +55,20 @@ check_case 'tilde-fenced example does not create a target' 1
 
 printf '%s\n' '[example](#example)' '````html' '```' '<a id="example"></a>' '````' >"$fixture_dir/README.md"
 check_case 'shorter nested fence does not expose a target' 1
+
+printf '%s\n' '# Traversal fixture' >"$fixture_dir/README.md"
+mkdir "$fixture_dir/locked"
+printf '%s\n' '[broken](missing.md)' >"$fixture_dir/locked/README.md"
+chmod 000 "$fixture_dir/locked"
+if [[ -r "$fixture_dir/locked" && -x "$fixture_dir/locked" ]]; then
+  echo 'SKIP: unreadable directory (current user bypasses fixture permissions)'
+else
+  check_case 'unreadable directory fails rather than silently skipping documents' 1
+  if ! rg -q 'LINK_TRAVERSAL_ERROR' "$fixture_dir/output"; then
+    echo 'FAIL: missing explicit traversal diagnostic' >&2
+    exit 1
+  fi
+fi
+chmod 700 "$fixture_dir/locked"
 
 echo "test-check-links: $passed cases passed"

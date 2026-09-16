@@ -16,7 +16,7 @@ ROOT="$(cd "$ROOT" && pwd)"
 
 python3 - "$ROOT" <<'PY'
 from __future__ import annotations
-import functools, pathlib, re, sys, urllib.parse
+import functools, os, pathlib, re, sys, urllib.parse
 
 root = pathlib.Path(sys.argv[1])
 findings: list[str] = []
@@ -70,9 +70,17 @@ def anchors(path: pathlib.Path) -> set[str]:
         result.add(base if n == 0 else f'{base}-{n}')
     return result
 
-for md in sorted(root.rglob('*.md')):
-    if '.git' in md.parts:
-        continue
+def markdown_files():
+    def traversal_error(error: OSError):
+        findings.append(f'{error.filename}: LINK_TRAVERSAL_ERROR {error.strerror}')
+
+    for directory, dirs, files in os.walk(root, onerror=traversal_error):
+        dirs[:] = [name for name in dirs if name != '.git']
+        for name in files:
+            if name.endswith('.md'):
+                yield pathlib.Path(directory) / name
+
+for md in sorted(markdown_files()):
     rel = md.relative_to(root)
     text = md.read_text(encoding='utf-8')
     for line_no, line in enumerate(text.splitlines(), 1):
