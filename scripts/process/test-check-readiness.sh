@@ -144,7 +144,9 @@ for anchor in '## Readiness shape' \
   $'one type label from the Type row of [labels.md](labels.md) and at\n  least one label from its `area:*` table' \
   'a PR body carries every `## ` heading of' \
   'a `Closes #<N>` line or the partial-delivery form below' \
-  'the body carries a `Refs #<N>` line' 'body then carries no closing keyword anywhere'; do
+  'the body carries a `Refs #<N>` line' 'body then carries no closing keyword anywhere' \
+  'directly after it a `Remainder: <text>` line and then a `Closing issue: #<M>` line' \
+  'No closing keyword comes directly before an issue reference in those two lines'; do
   i=$((i + 1)); a_root="$fixture_root/anchor-$i-root"; mk_root "$a_root"
   replace "$a_root/docs/process/work-tracking.md" "$anchor" 'REWORDED RULE'
   sha256sum "$a_root/docs/process/work-tracking.md"
@@ -169,6 +171,9 @@ fi
 printf '## Summary\n\xff\xfe bad\n' >"$fixture_root/not-utf8-body.md"
 run_case 'non-UTF-8 body fails with exit 2, named' 2 'FILE_NOT_UTF8' \
   --root "$root" --body "$fixture_root/not-utf8-body.md" --labels "$labels"
+# #161: a non-UTF-8 stdin body names stdin, not the temp file the EXIT trap deletes.
+CASE_STDIN="$fixture_root/not-utf8-body.md" run_case 'non-UTF-8 stdin body is named body (stdin)' 2 \
+  'FILE_NOT_UTF8: body (stdin): invalid start byte' --root "$root" --body - --labels "$labels"
 enc_root="$fixture_root/not-utf8-doc-root"; mk_root "$enc_root"
 printf '\xff\n' >>"$enc_root/docs/process/labels.md"
 run_case 'non-UTF-8 docs/process/labels.md fails with exit 3, named' 3 'FILE_NOT_UTF8' \
@@ -182,6 +187,8 @@ run_case '--mode other than issue or pr is a usage error' 2 '--mode must be issu
   --root "$root" --body "$body" --mode bogus
 run_case '--mode pr without --repo is a usage error' 2 '--mode pr requires --repo' \
   --root "$root" --body "$body" --mode pr
+run_case '--labels with --mode pr is a usage error' 2 '--labels is not accepted with --mode pr' \
+  --root "$root" --body "$body" --labels x --mode pr --repo blac9216/PriFly
 
 # PR mode (#152). pr_body NAME PREAMBLE: PREAMBLE, then every PR template heading with prose.
 pr_body() {
@@ -197,13 +204,32 @@ pr=(--mode pr --repo blac9216/PriFly)
 pr_body closes $'Closes #154\nCloses #155\n'
 run_case 'PR: Closes lines pass' 0 'check-readiness: 2/2 as expected' \
   --root "$root" --body "$fixture_root/pr-closes.md" "${pr[@]}"
-pr_refs=$'Refs #57\n\nThe remaining AC2 work is delivered by #133.\n'
+run_case 'PR: --mode=pr and --repo=OWNER/NAME forms are accepted' 0 'check-readiness: 2/2 as expected' \
+  --root "$root" --body "$fixture_root/pr-closes.md" --mode=pr --repo=blac9216/PriFly
+pr_refs=$'Refs #57\nRemainder: the retry path and its tests\nClosing issue: #133\n'
 pr_body refs "$pr_refs"
-run_case 'PR: Refs form passes' 0 'check-readiness: 3/3 as expected' \
+run_case 'PR: Refs form passes' 0 'check-readiness: 8/8 as expected' \
   --root "$root" --body "$fixture_root/pr-refs.md" "${pr[@]}"
-run_case 'PR: Refs remainder and closing issue are printed UNCHECKED' 0 \
-  'UNCHECKED: Refs #57 names the exact remainder and the issue whose PR closes issue #57' \
-  --root "$root" --body "$fixture_root/pr-refs.md" "${pr[@]}"
+# #157 form: each part dropped or misplaced fails at its own named check.
+f=0
+form_case() {  # form_case NAME PREAMBLE EXPECTED_MISSING_LINE
+  f=$((f + 1)); pr_body "form-$f" "$2"
+  run_case "PR form: $1 fails" 1 "MISSING: Refs #57: $3" --root "$root" --body "$fixture_root/pr-form-$f.md" "${pr[@]}"
+}
+form_case 'missing Remainder line' $'Refs #57\nClosing issue: #133\n' "a 'Remainder: <text>' line directly after it"
+form_case 'empty Remainder text' $'Refs #57\nRemainder:  \nClosing issue: #133\n' 'the Remainder text is non-empty'
+form_case 'missing Closing issue line' $'Refs #57\nRemainder: the retry path\n' \
+  "a 'Closing issue: #<M>' line directly after the Remainder line"
+form_case 'Closing issue equal to the Refs issue' $'Refs #57\nRemainder: the retry path\nClosing issue: #57\n' \
+  'the Closing issue is not #57 itself'
+form_case 'Remainder not directly after Refs' $'Refs #57\n\nRemainder: the retry path\nClosing issue: #133\n' \
+  "a 'Remainder: <text>' line directly after it"
+form_case 'Closing issue not directly after Remainder' $'Refs #57\nRemainder: the retry path\n\nClosing issue: #133\n' \
+  "a 'Closing issue: #<M>' line directly after the Remainder line"
+for kw in 'fixes #99' 'resolves other-org/other-repo#99'; do
+  form_case "'$kw' in the Remainder line" $'Refs #57\nRemainder: a follow-up that '"$kw"$'\nClosing issue: #133\n' \
+    'no closing keyword before an issue reference in its Remainder and Closing issue lines'
+done
 pr_body neither $'Part of #42\n'
 run_case 'PR: neither a Closes nor a Refs line fails' 1 \
   'MISSING: a Closes #<N> line or a Refs #<N> line present' \
@@ -217,17 +243,19 @@ k=0
 fence=$'quoted below\n```\nfixes #57\n```'
 for kw in 'close #57' 'closes #57' 'closed #57' 'fix #57' 'fixes #57' 'fixed #57' 'resolve #57' \
   'resolves #57' 'resolved #57' 'CLOSES #57' 'Closes: #57' 'resolves blac9216/PriFly#57' \
-  'Fixes BLAC9216/prifly#57' "$fence"; do
+  'Fixes BLAC9216/prifly#57' 'fixes:#57' "$fence"; do
   k=$((k + 1)); found="${kw#*$'```\n'}"; found="${found%$'\n```'}"
   pr_body "kw-$k" "$pr_refs"$'\nNote: '"$kw"$'\n'
   run_case "PR: '${kw//$'\n'/ }' for a Refs'd issue fails" 1 \
     "MISSING: no closing keyword for Refs #57 anywhere in the body (found: ['$found'])" \
     --root "$root" --body "$fixture_root/pr-kw-$k.md" "${pr[@]}"
 done
-# Not a closing reference to #57: another repository, another number, a longer word.
-for kw in 'resolves other-org/other-repo#57' 'fixes #570' 'hotfixes #57'; do
+# Not a closing reference to #57: another repository (owner, name or both differ), another
+# number, a longer word.
+for kw in 'resolves other-org/other-repo#57' 'fixes other-org/PriFly#57' 'fixes blac9216/other-repo#57' \
+  'fixes #570' 'hotfixes #57'; do
   k=$((k + 1)); pr_body "kw-$k" "$pr_refs"$'\nNote: '"$kw"$'\n'
-  run_case "PR: '$kw' is not a closing keyword for #57" 0 'check-readiness: 3/3 as expected' \
+  run_case "PR: '$kw' is not a closing keyword for #57" 0 'check-readiness: 8/8 as expected' \
     --root "$root" --body "$fixture_root/pr-kw-$k.md" "${pr[@]}"
 done
 

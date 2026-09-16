@@ -160,16 +160,28 @@ against the committed templates, so the headings live in one place:
   a `Closes #<N>` line or the partial-delivery form below.
 
 A PR that deliberately delivers only part of an issue uses the partial-delivery form
-instead of `Closes #<N>`: the body carries a `Refs #<N>` line, names the exact
-remainder not delivered by this PR, and names the issue whose PR will close #<N>. The
+instead of `Closes #<N>`. The form is fixed by the
+[planning ruling on #157](https://github.com/blac9216/PriFly/issues/157#issuecomment-5705920335):
+the body carries a `Refs #<N>` line,
+directly after it a `Remainder: <text>` line and then a `Closing issue: #<M>` line,
+where `<text>` is non-empty and names what this PR does not deliver, and `#<M>` (M ≠ N)
+names the issue whose PR will close #<N>. For example (illustrative numbers):
+
+```text
+Refs #12
+Remainder: the retry path and its tests
+Closing issue: #34
+```
+
+No closing keyword comes directly before an issue reference in those two lines.
+Nothing else about their wording or position is part of the form. The
 body then carries no closing keyword anywhere — not on its own line and not inside
 prose, since GitHub treats a phrase like "closes #N" in prose as a closing reference
 the same as a dedicated line — for the referenced issue #<N>. The gate accepts this
 form in place of `Closes #<N>`, per the `github-workflow` skill's own convention
 (`references/templates/implementer.md`: "`Closes #<N>` on its own line in the PR
-**body** (or `Refs` + exact remainder)"). [PR #134](https://github.com/blac9216/PriFly/pull/134)
-is the worked example: its body opens with `Refs #57`, names AC2's remainder, and
-names #133 as the issue whose PR closes #57.
+**body** (or `Refs` + exact remainder)"). [PR #134](https://github.com/blac9216/PriFly/pull/134)'s
+merged body predates this form and is historical; it is not rewritten (same ruling).
 
 Each missing element is reported by name, and the gate stops and asks. Nothing missing is
 passed silently. The shape is necessary, not sufficient: owner release, dependency
@@ -186,17 +198,20 @@ unreadable or not UTF-8, if the template has no `## ` headings, or if the rule t
 or the `labels.md` rows it relies on have been reworded. Run
 `bash scripts/process/check-readiness.sh --root . --body <file|-> --labels a,b,c`, and
 `bash scripts/process/test-check-readiness.sh` to prove the checker still detects those
-regressions. With `--mode pr --repo blac9216/PriFly` instead of `--labels` it checks a
-**PR body**: every `## ` heading of `PULL_REQUEST_TEMPLATE.md`, a `Closes #<N>` or
-`Refs #<N>` line, and for each `Refs #<N>` no closing keyword for #<N> in the raw body.
+regressions. With `--mode pr --repo blac9216/PriFly` instead of `--labels` (passing both
+is a usage error) it checks a **PR body**: every `## ` heading of
+`PULL_REQUEST_TEMPLATE.md`, a `Closes #<N>` or `Refs #<N>` line, for each `Refs #<N>` no
+closing keyword for #<N> in the raw body, and the `Remainder:` and `Closing issue:` lines
+of the form above, each part reported by name.
 The keywords, their colon and uppercase forms, and the `#<N>` and
 `<owner>/<repository>#<N>` references are the ones GitHub's
 [Linking a pull request to an issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue)
-lists. That page does not say whether code or HTML comments are parsed, so keywords
-there are flagged too. The Refs form's remainder and closing issue are printed as
-`UNCHECKED`: the rule gives them no mechanically checkable form
-([#157](https://github.com/blac9216/PriFly/issues/157)). Neither script runs in CI yet,
-and this paragraph names a checker, not a new rule.
+lists. That page does not say whether code or HTML comments are parsed, or whether a
+colon with no following space (`fixes:#57`) links; keywords in all of those are flagged
+too, as unverified limits. The self-test `test-check-readiness.sh` runs `check-readiness.sh`,
+and it runs in CI as the "Readiness-shape checker regression tests" step of the required
+`design-docs` job in [`docs-checks.yml`](../../.github/workflows/docs-checks.yml). This
+paragraph names a checker, not a new rule.
 
 ## Optional configuration
 
