@@ -30,7 +30,7 @@ it does not pretend that unimplemented commands can be run.
 - [Planning policy](reference/planning-policy.md) — owner releases, engineering gates and applicability.
 - [Engineering quality rubrics](reference/quality-rubrics.md) — nineteen pinned profiles and criterion inventory.
 - [Standards registry](reference/standards-registry.md) — source versions and update/access rules.
-- [Product and dependency sources](reference/source-register.md) — provenance and official technical sources.
+- [Product and dependency sources](reference/source-register.md) — provenance, official technical sources, dependency inventory and update policy.
 - [Attack profiles](reference/attack-profiles.md) — adversarial review techniques and code traps.
 - [Acceptance contract](reference/acceptance-contract.md) — exact subjects, credible evidence and durable certificates.
 - [Provider operation profiles](reference/provider-operation-profiles.md) — possible-send safety and PR-only merge admission.

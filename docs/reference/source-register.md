@@ -265,7 +265,7 @@ identifier is the cited official source's classification, not legal advice. A fa
 verified is `UNKNOWN`.
 
 ### source-s53
-**S53 — Go toolchain go1.27.1.** [Official release index](https://go.dev/dl/?mode=json&include=all), [linux/amd64 archive](https://go.dev/dl/go1.27.1.linux-amd64.tar.gz), [license classification for `std@go1.27.1`](https://pkg.go.dev/std@go1.27.1?tab=licenses), [license at the tag](https://go.googlesource.com/go/+/refs/tags/go1.27.1/LICENSE) and [BoringCrypto license at the tag](https://go.googlesource.com/go/+/refs/tags/go1.27.1/src/crypto/internal/boring/LICENSE), read 16 September 2026. Supplies the toolchain identity, archive digest and licenses below. The index is a rolling page; the recorded digest, not a later read, identifies the pinned archive.
+**S53 — Go toolchain go1.27.1.** [Official release index](https://go.dev/dl/?mode=json&include=all), [linux/amd64 archive](https://go.dev/dl/go1.27.1.linux-amd64.tar.gz), [license classification for `std@go1.27.1`](https://pkg.go.dev/std@go1.27.1?tab=licenses), [license at the tag](https://go.googlesource.com/go/+/refs/tags/go1.27.1/LICENSE) and [BoringCrypto license at the tag](https://go.googlesource.com/go/+/refs/tags/go1.27.1/src/crypto/internal/boring/LICENSE), read 16 September 2026. Supplies the toolchain version, the go.dev archive digest and the licenses below. The index is a rolling page. The recorded digest identifies only the go.dev linux/amd64 archive, the one the local Go-suite recipe in [testing.md](../process/testing.md) downloads; that recipe checks the download against a live read of the index, not against this record. The digest does not identify the archive CI installs ([S58](#source-s58)).
 
 ### source-s54
 **S54 — govulncheck and the Go vulnerability database.** [`golang.org/x/vuln` v1.8.0](https://pkg.go.dev/golang.org/x/vuln@v1.8.0), its [license classification](https://pkg.go.dev/golang.org/x/vuln@v1.8.0?tab=licenses) and [checksum-database record](https://sum.golang.org/lookup/golang.org/x/vuln@v1.8.0), and the [database module index](https://vuln.go.dev/index/modules.json), read 16 September 2026. A clean result is bounded by the database's modification time and govulncheck's source-mode reachability analysis. It is not proof that no vulnerability exists.
@@ -279,11 +279,15 @@ verified is `UNKNOWN`.
 ### source-s57
 **S57 — Pinned GitHub Actions.** [`actions/checkout` license](https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/LICENSE) and [`actions/setup-go` license](https://github.com/actions/setup-go/blob/b7ad1dad31e06c5925ef5d2fc7ad053ef454303e/LICENSE) at the commits `.github/workflows/` pins, classified by the GitHub license API at those refs, read 16 September 2026.
 
+### source-s58
+**S58 — CI Go toolchain archive.** [`actions/setup-go` installer at the pinned commit](https://github.com/actions/setup-go/blob/b7ad1dad31e06c5925ef5d2fc7ad053ef454303e/src/installer.ts), [`versions-manifest.json` at `actions/go-versions` commit `98ce2ae5799f67db39142219d880a369fc6a4891`](https://github.com/actions/go-versions/blob/98ce2ae5799f67db39142219d880a369fc6a4891/versions-manifest.json), [release `1.27.1-33583469715`](https://github.com/actions/go-versions/releases/tag/1.27.1-33583469715) with its [release API record](https://api.github.com/repos/actions/go-versions/releases/tags/1.27.1-33583469715), and the `go` job log of [go-checks run 35162949684](https://github.com/blac9216/PriFly/actions/runs/35162949684), read 16 September 2026. At that commit the installer first looks in the runner's tool cache. On a miss it reads `versions-manifest.json` from the `main` branch of `actions/go-versions`, downloads the listed asset and computes no digest of it; its only SHA-256 use names a cache directory for a custom download URL. The run's log reads "Acquiring 1.27.1 from https://github.com/actions/go-versions/releases/download/1.27.1-33583469715/go-1.27.1-linux-x64.tar.gz". The manifest entry lists `filename`, `arch`, `platform` and `download_url` and publishes no digest. The release API record publishes a `digest` for the asset.
+
 ### Current dependency inventory
 
 | Component | Exact identity | Pinned by | License | Vulnerability disposition |
 |---|---|---|---|---|
-| Go toolchain and standard library | `go1.27.1`; `go1.27.1.linux-amd64.tar.gz` SHA-256 `63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445` ([S53](#source-s53)). Other platform archives' digests: `UNKNOWN`, not recorded. | `go` directive in `go.mod`; CI `setup-go` reads `go-version-file: go.mod`; `GOTOOLCHAIN=local` | BSD-3-Clause ([S53](#source-s53)); BoringCrypto note below | No known vulnerability found; see below |
+| Go toolchain and standard library — local Go suite | `go1.27.1`; `go1.27.1.linux-amd64.tar.gz` from go.dev, SHA-256 `63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445` ([S53](#source-s53)), checked locally with `sha256sum -c` on the read date. Other platform archives' digests: `UNKNOWN`, not recorded. | Version: `go` directive in `go.mod`; `GOTOOLCHAIN=local`. Archive: this digest is recorded here only; the [testing.md](../process/testing.md) recipe checks a download against a live read of the go.dev index, not against this record. | BSD-3-Clause ([S53](#source-s53)); BoringCrypto note below | No known vulnerability found; see below |
+| Go toolchain — CI (`go-checks.yml`) | `go1.27.1`; `go-1.27.1-linux-x64.tar.gz`, the `actions/go-versions` release asset at `https://github.com/actions/go-versions/releases/download/1.27.1-33583469715/go-1.27.1-linux-x64.tar.gz`, SHA-256 `6f00fbc5b337fbf00581b7ced382fecdc4fa9493aef971277652a25f7aa14c6e`. That digest was computed locally from a download on the read date and equals the release API's published `sha256:` digest; `versions-manifest.json` publishes none ([S58](#source-s58)). It is a different archive from the go.dev one. In a one-time local comparison, every regular file of the go.dev archive's `go/` tree was present with the same SHA-256, plus one extra file, `setup.sh`; modes, symlinks and directories were not compared. | Version only: `setup-go` reads `go-version-file: go.mod` and resolves it through the mutable `main` branch of `versions-manifest.json`, or uses a runner tool-cache hit, whose identity is `UNKNOWN`. **Not verified in CI**: no CI step checks the archive digest ([#170](https://github.com/blac9216/PriFly/issues/170)). | `UNKNOWN` for the repackaged archive; its go.dev files are those classified in the row above | Same go1.27.1 version as the row above; the archive itself has no separate disposition |
 | Third-party Go modules | None. `go list -m all` lists only `github.com/blac9216/PriFly`; `go.mod` has no `require` and no `go.sum` exists. | `go.mod`; `GOFLAGS=-mod=readonly` | Not applicable | Not applicable |
 | `actions/checkout`, `actions/setup-go` (CI only; not in the build output) | Full commit SHAs on the `uses:` lines of `.github/workflows/` | Those `uses:` lines | MIT ([S57](#source-s57)) | `UNKNOWN`; govulncheck does not scan Actions and no other disposition is recorded |
 
@@ -296,6 +300,11 @@ mutable `ubuntu-latest` runner image (its disposition is the header comment of
 `.github/workflows/go-checks.yml`), and `gitleaks`, Python 3 and Bash used by the documentation
 checks. Their inventory and dispositions are `UNKNOWN` here
 ([#165](https://github.com/blac9216/PriFly/issues/165)). The govulncheck tool is identified below.
+
+CI toolchain gap: CI installs its toolchain by Go version, not by a pinned archive identity. V13's
+"no mutable tools/containers" is therefore not met for that archive. The CI toolchain row above
+records the archive's identity as read, marks it not verified in CI, and routes the fix to
+[#170](https://github.com/blac9216/PriFly/issues/170).
 
 ### Vulnerability disposition
 
@@ -325,8 +334,11 @@ C3 and [profile](https://github.com/blac9216/PriFly/issues/38#issuecomment-57015
 here admits either candidate. P4 fixes the path to admission: "Pin transitive SQLite/Go module
 versions and hashes after compatibility build" and "V03/V10/V12 are admission evidence".
 Qualification is owned by Q02 ([#110](https://github.com/blac9216/PriFly/issues/110), V03/V10/V12)
-and Q13 ([#121](https://github.com/blac9216/PriFly/issues/121), V03/V12), under the live gates in
-[validation.md](../process/validation.md). Release SBOM and license/vulnerability dispositions
+and Q13 ([#121](https://github.com/blac9216/PriFly/issues/121), V03/V12). Q02 is a planned
+qualification item, not one of the live gates [validation.md](../process/validation.md) names.
+Its live run is governed by its own issue body: "Live-run/admission predicates (separate from PR
+authoring): Q01:authorized-full-environment", with its verified expectation `pending-live`. Q13 is
+one of the two live gates validation.md names. Release SBOM and license/vulnerability dispositions
 belong to U04 ([#105](https://github.com/blac9216/PriFly/issues/105)).
 
 `UNKNOWN` for both candidates: the transitive module closure with its versions, hashes and
@@ -340,9 +352,13 @@ disposition of either closure.
 This policy restates the governing rules; it adds no threshold.
 
 1. **Exact pins only.** V13 requires "no mutable tools/containers"; C3 puts "Qualified exact
-   versions and binary hashes" in the release profile with "no mutable `latest` images"; the P4
-   profile record says "Rolling pages must not replace pinned release manifests automatically". `GOTOOLCHAIN=local` and
-   `GOFLAGS=-mod=readonly` keep a build from switching toolchains or rewriting `go.mod`/`go.sum`.
+   versions and binary hashes" in the release profile with "no mutable `latest` images"; the
+   "Evidence inventory and limits" section of the D3 profile record, outside the P4 row
+   ([profile comment](https://github.com/blac9216/PriFly/issues/38#issuecomment-5701521177)), says
+   "Rolling pages must not replace pinned release manifests automatically". `GOTOOLCHAIN=local`
+   and `GOFLAGS=-mod=readonly` keep a build from switching toolchains or rewriting
+   `go.mod`/`go.sum`. Current exception: CI's toolchain archive is pinned by version only (the CI
+   toolchain row above, [#170](https://github.com/blac9216/PriFly/issues/170)).
 2. **No silent in-attempt update.** V13: "required maintenance gets a new manifest and smoke
    qualification rather than silent in-attempt update". The DP4
    [operating contract](https://github.com/blac9216/PriFly/issues/38#issuecomment-5702104540):
