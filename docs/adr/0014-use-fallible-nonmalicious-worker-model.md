@@ -1,7 +1,7 @@
 # ADR-0014: Use a fallible non-malicious Worker threat model in v1
 
 Status: Accepted
-Amended-by: 0025
+Amended-by: 0025, 0030
 Date: 2026-09-13
 
 ## Context

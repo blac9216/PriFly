@@ -105,4 +105,4 @@ Executable JSON Schemas and tests must exist when a real producer/consumer for t
 
 ## Initial execution profile bindings
 
-Bundle inspection/import stages an immutable proposal, checks complete references/evaluations/authority and never directly launches work. The owner transport authenticates local peer identity and binds confirmation to exact package/source/rendered digest, permitted phase, scope and envelope. Pilot/Worker transports cannot confirm those operations.
+Bundle inspection/import stages an immutable proposal, checks complete references/evaluations/authority and never directly launches work. The owner transport authenticates local peer identity and binds confirmation to exact package/source/rendered digest, permitted phase, scope and envelope. Pilot/Worker transports cannot confirm those operations. Attempt results bind current generation, run, role/job, subject/revisions, prompt/tool/schema manifests and immutable evidence; replay, wrong head and late results fail.

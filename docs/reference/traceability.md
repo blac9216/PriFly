@@ -482,4 +482,4 @@ Implementation traces and executable test results are added with their actual pr
 
 ## Initial execution-handover refinements
 
-[ADR-0029](../adr/0029-admit-external-reviewed-execution-packages.md) refines PF-PLN/PF-PLAN/PF-API authority and artifact ingestion without changing their engineering gates.
+[ADR-0029](../adr/0029-admit-external-reviewed-execution-packages.md) refines PF-PLN/PF-PLAN/PF-API authority and artifact ingestion without changing their engineering gates. [ADR-0030](../adr/0030-own-attempts-behind-herdr-launcher.md) refines PF-RUN/PF-SEC/PF-SCH process, socket, Docker and workspace ownership.

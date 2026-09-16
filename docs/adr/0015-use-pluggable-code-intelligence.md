@@ -1,7 +1,7 @@
 # ADR-0015: Use pluggable code intelligence with exact provenance
 
 Status: Accepted
-Amended-by: 0025
+Amended-by: 0025, 0030
 Date: 2026-09-13
 
 ## Context

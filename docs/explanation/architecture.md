@@ -128,12 +128,23 @@ These selections reduce reinvention while leaving replaceable adapter boundaries
 
 ### Initial execution profile: container and capability refinement
 
-The initial profile admits external reviewed execution packages. These refinements preserve the modular-monolith component ownership above.
+The initial profile admits external reviewed execution packages and uses controller-owned HerdR with a trusted launcher attaching disposable attempt containers. Only that launcher holds stack-engine lifecycle control; Workers use a separate build/test Docker daemon through a scoped proxy. Retained Work Item workspaces outlive fresh attempts; isolated review uses separate mutable resources. These refinements preserve the modular-monolith component ownership above.
 
 ```mermaid
 flowchart TB
   Owner[Owner CLI: separate local identity] --> API[Factory Go monolith]
   Pilot[Disposable Pilot] -->|routine API only| API
+  API --> HR[Private HerdR server]
+  HR --> LA[Trusted lifecycle launcher]
+  LA --> W1[Attempt container: Codex]
+  LA --> W2[Attempt container: Claude]
+  W1 --> WS1[Work Item workspace A]
+  W2 --> WS2[Work Item workspace B]
+  W1 --> DP[Scoped Worker Docker proxy]
+  W2 --> DP
+  DP --> WD[Dedicated Worker Docker daemon]
+  W1 -->|attempt result capability| API
+  W2 -->|attempt result capability| API
 ```
 
-See [ADR-0029](../adr/0029-admit-external-reviewed-execution-packages.md) and the subsystem contracts ([planning admission](planning.md#external-reviewed-package-admission), [API bindings](../reference/api-contract.md#initial-execution-profile-bindings)) for the exact authority, failure and qualification rules. This is the proposed topology.
+See [ADR-0029](../adr/0029-admit-external-reviewed-execution-packages.md), [ADR-0030](../adr/0030-own-attempts-behind-herdr-launcher.md) and the subsystem contracts ([planning admission](planning.md#external-reviewed-package-admission), [API bindings](../reference/api-contract.md#initial-execution-profile-bindings), [execution runtime](execution-runtime.md#initial-container-owned-attempt-profile), [security](security.md#initial-execution-capability-boundary)) for the exact authority, failure and qualification rules. This is the proposed topology; actual socket/mount/container/host tuple qualification remains required.

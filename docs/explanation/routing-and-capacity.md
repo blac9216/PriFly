@@ -71,3 +71,9 @@ An exhausted envelope creates a durable Attention Item with consumed effort, fai
 | PF-SCH-05 | Repeated retries and corrections consume the same cumulative scope budget. |
 | PF-SCH-06 | Every blocked admission has an inspectable reason and a condition that would unblock it. |
 | PF-SCH-07 | Maintenance/security updates are not held indefinitely for better performance on an obsolete harness. |
+
+### Initial subscription-only execution profile
+
+Initial Routes use ordinary interactive Codex and Claude Code through qualified HerdR/launcher manifests. Each pins model, effort, account reference, auth mode, tool/prompt/schema versions and actual capacity observations. Paid API fallback is not eligible. Exhaustion waits or uses an explicitly authorized subscription Route; unknown quota/reset/token/billing observations remain separate and unknown. Pilot usage is accounted for as well. Auth refresh concurrency and overage settings are qualification requirements, not assumptions from installed binaries.
+
+Two Worker slots are the initial qualification floor/configuration, with publication/cancellation/repair headroom reserved separately. Waiting review/correction/validation takes priority over new implementation when capacity frees. All descendants, retries and rescues consume the owning cumulative envelope; no role change resets it. Concrete bounds are selected in [deployment parameters](../reference/deployment-parameters.md).
