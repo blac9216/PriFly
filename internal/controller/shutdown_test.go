@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -88,26 +89,37 @@ func TestRunTimesOutWhenHookIgnoresContext(t *testing.T) {
 }
 
 // TestRunTimesOutDeterministicallyAtDeadline is the regression oracle for
-// the deadline race: when a hook honours its context and returns at (or
-// fractionally after) the deadline, Run's internal select must not
-// nondeterministically choose between the hook's own result and
-// ErrShutdownTimedOut depending on which channel happens to ready first.
-// The test loops the same 1us-bound shape 2000 times in a single run
-// (itself executed once under -race, per docs/process/testing.md's Go
-// suite) to give the race many chances to reappear if the fix regresses.
+// the deadline tie: when a hook honours its context and its result is
+// already waiting at the moment the deadline has also elapsed, Run must
+// report ErrShutdownTimedOut, never the hook's own result. The test hook
+// holds Run until both outcomes are ready before it selects, so a select
+// that picks between them at random fails this test with probability
+// 1-2^-iterations at any GOMAXPROCS, with or without -race.
 func TestRunTimesOutDeterministicallyAtDeadline(t *testing.T) {
-	const iterations = 2000
+	const iterations = 100
+	calls := 0
+	testHookBeforeSelect = func(shutdownCtx context.Context, done <-chan error) {
+		calls++
+		<-shutdownCtx.Done()
+		for len(done) == 0 {
+			runtime.Gosched()
+		}
+	}
+	t.Cleanup(func() { testHookBeforeSelect = nil })
+
 	for i := 0; i < iterations; i++ {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		bound := time.Microsecond
-		err := Run(ctx, bound, func(shutdownCtx context.Context) error {
+		err := Run(ctx, time.Millisecond, func(shutdownCtx context.Context) error {
 			<-shutdownCtx.Done()
 			return shutdownCtx.Err()
 		})
 		if !errors.Is(err, ErrShutdownTimedOut) {
 			t.Fatalf("iteration %d: Run() error = %v, want ErrShutdownTimedOut", i, err)
 		}
+	}
+	if calls != iterations {
+		t.Fatalf("test hook ran %d times, want %d: Run no longer reaches the tie under test", calls, iterations)
 	}
 }

@@ -24,6 +24,12 @@ const DefaultShutdownBound = 10 * time.Second
 // complete within the bound.
 var ErrShutdownTimedOut = fmt.Errorf("controller: shutdown did not complete within bound")
 
+// testHookBeforeSelect, when non-nil, runs just before Run waits for the
+// shutdown result or the deadline. Tests use it to make both outcomes ready
+// at the same moment, so the tie is exercised deterministically instead of
+// depending on goroutine scheduling. It is always nil outside tests.
+var testHookBeforeSelect func(shutdownCtx context.Context, done <-chan error)
+
 // Run blocks until ctx is done (for example, cancelled by a SIGINT/SIGTERM
 // signal.NotifyContext), then calls shutdown with a context bounded by
 // `bound`. It returns ErrShutdownTimedOut if shutdown does not return before
@@ -38,6 +44,10 @@ func Run(ctx context.Context, bound time.Duration, shutdown func(context.Context
 	go func() {
 		done <- shutdown(shutdownCtx)
 	}()
+
+	if testHookBeforeSelect != nil {
+		testHookBeforeSelect(shutdownCtx, done)
+	}
 
 	select {
 	case err := <-done:
