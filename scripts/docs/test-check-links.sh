@@ -44,4 +44,16 @@ check_case 'custom anchor case must match' 1
 printf '%s\n' '[bad](#bad)' '<a id="bad></a>' >"$fixture_dir/README.md"
 check_case 'malformed anchor does not create a target' 1
 
+printf '%s\n' '[example](#example)' '    <a id="example"></a>' >"$fixture_dir/README.md"
+check_case 'space-indented code does not create a target' 1
+
+printf '%s\n' '[example](#example)' $'\t<a id="example"></a>' >"$fixture_dir/README.md"
+check_case 'tab-indented code does not create a target' 1
+
+printf '%s\n' '[example](#example)' '~~~html' '<a id="example"></a>' '~~~' >"$fixture_dir/README.md"
+check_case 'tilde-fenced example does not create a target' 1
+
+printf '%s\n' '[example](#example)' '````html' '```' '<a id="example"></a>' '````' >"$fixture_dir/README.md"
+check_case 'shorter nested fence does not expose a target' 1
+
 echo "test-check-links: $passed cases passed"

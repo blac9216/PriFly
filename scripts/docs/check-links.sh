@@ -24,7 +24,8 @@ link_re = re.compile(r'(?<!!)\[[^\]]*\]\(([^)]+)\)')
 heading_re = re.compile(r'^(#{1,6})\s+(.+?)\s*$')
 # Stable custom anchors are used by the accepted PRD's section/figure/source IDs.
 # Match standalone empty anchors, not examples inside prose or inline code.
-custom_anchor_re = re.compile(r'''^\s*<a\s+(?:id|name)=(['"])([^'"]+)\1\s*>\s*</a>\s*$''')
+custom_anchor_re = re.compile(r'''^ {0,3}<a\s+(?:id|name)=(['"])([^'"]+)\1\s*>\s*</a>\s*$''')
+fence_re = re.compile(r'^ {0,3}(`{3,}|~{3,})(.*)$')
 
 def slugify(text: str) -> str:
     text = re.sub(r'\s+#+\s*$', '', text.strip()).lower()
@@ -39,16 +40,20 @@ def slugify(text: str) -> str:
 def anchors(path: pathlib.Path) -> set[str]:
     result: set[str] = set()
     counts: dict[str, int] = {}
-    in_fence = False
+    fence: tuple[str, int] | None = None
     try:
         lines = path.read_text(encoding='utf-8').splitlines()
     except UnicodeDecodeError:
         return result
     for line in lines:
-        if line.lstrip().startswith('```'):
-            in_fence = not in_fence
+        marker = fence_re.match(line)
+        if fence:
+            if (marker and marker.group(1)[0] == fence[0]
+                    and len(marker.group(1)) >= fence[1] and not marker.group(2).strip()):
+                fence = None
             continue
-        if in_fence:
+        if marker:
+            fence = (marker.group(1)[0], len(marker.group(1)))
             continue
         custom = custom_anchor_re.match(line)
         if custom:
