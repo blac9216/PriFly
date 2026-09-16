@@ -1,0 +1,48 @@
+// Package controller implements priflyd's bounded-shutdown lifecycle: run
+// until a cancellation signal, then stop within a fixed deadline rather than
+// hanging indefinitely or being killed uncleanly.
+package controller
+
+import (
+	"context"
+	"fmt"
+	"time"
+)
+
+// DefaultShutdownBound is the maximum duration priflyd allows its shutdown
+// hook to run after SIGINT/SIGTERM before giving up and returning an error.
+//
+// D3 fixes no controller-shutdown threshold: profile P9b (governing issue
+// #38 comment 5701521177) only bounds the trusted launcher's HerdR
+// attempt-container lifecycle (10s grace / 30s forced-stop), not this
+// process. This value is therefore UNKNOWN against D3; it is a conservative
+// default flagged for planning, reusing P9b's grace figure as the nearest
+// documented analogue, not a D3-derived guarantee.
+const DefaultShutdownBound = 10 * time.Second
+
+// ErrShutdownTimedOut is returned by Run when the shutdown hook did not
+// complete within the bound.
+var ErrShutdownTimedOut = fmt.Errorf("controller: shutdown did not complete within bound")
+
+// Run blocks until ctx is done (for example, cancelled by a SIGINT/SIGTERM
+// signal.NotifyContext), then calls shutdown with a context bounded by
+// `bound`. It returns ErrShutdownTimedOut if shutdown does not return before
+// the bound elapses, or shutdown's own error otherwise.
+func Run(ctx context.Context, bound time.Duration, shutdown func(context.Context) error) error {
+	<-ctx.Done()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), bound)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- shutdown(shutdownCtx)
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-shutdownCtx.Done():
+		return ErrShutdownTimedOut
+	}
+}

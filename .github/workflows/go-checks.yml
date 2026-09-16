@@ -1,0 +1,30 @@
+# Trusted Go build/vet/test/fmt check for the minimal CLI and controller
+# executables (issue #57 / A06). Always-report (no path filter) so a Go
+# regression cannot hide behind an unrelated docs-only PR, mirroring
+# docs-checks.yml's own rationale. Actions are pinned by full commit SHA per
+# the DP4 operating contract's trusted-CI expectations.
+name: go-checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the exact tested commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up pinned Go toolchain
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: go.mod
+      - name: gofmt (no unformatted files)
+        run: test -z "$(gofmt -l .)"
+      - name: go vet
+        run: go vet ./...
+      - name: go test (race)
+        run: go test -race ./...
+      - name: go build
+        run: go build ./...
