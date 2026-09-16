@@ -294,8 +294,8 @@ following applies." No committed build or workflow sets `GOEXPERIMENT`.
 Outside this inventory: host and CI tools that are not in the module's build closure — the
 mutable `ubuntu-latest` runner image (its disposition is the header comment of
 `.github/workflows/go-checks.yml`), and `gitleaks`, Python 3 and Bash used by the documentation
-checks. Their inventory and dispositions are `UNKNOWN` here. The govulncheck tool is identified
-below.
+checks. Their inventory and dispositions are `UNKNOWN` here
+([#165](https://github.com/blac9216/PriFly/issues/165)). The govulncheck tool is identified below.
 
 ### Vulnerability disposition
 
