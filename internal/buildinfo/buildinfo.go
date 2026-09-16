@@ -18,10 +18,12 @@ var Version = "dev"
 // via -ldflags -X. Defaults to "unknown" when not injected.
 var Commit = "unknown"
 
-// SchemaVersion is the supported canonical data-schema identity this binary
-// was built against. It is a fixed source constant, not build-injected: D3
-// (ADR-0018/0020, docs/reference/deployment-parameters.md RP-18) ties schema
-// identity to reviewed contracts, not to an ad hoc build flag.
+// SchemaVersion is a placeholder identity: no canonical record family has an
+// executable schema or migration baseline yet (docs/reference/schemas.md
+// "Common identity and reference rules"; ADR-0020's pre-v1 baseline). It
+// will be replaced once the first schema/migration baseline lands, at which
+// point it must track that baseline's real identity rather than this fixed
+// constant.
 const SchemaVersion = "v1"
 
 // Info is the subject identity reported by "version" commands and startup

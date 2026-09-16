@@ -25,7 +25,12 @@ func main() {
 // returns the process exit code, so it is unit testable without a
 // subprocess.
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 1 && args[0] == "version" {
+	if len(args) >= 1 && args[0] == "version" {
+		if len(args) > 1 {
+			fmt.Fprintf(stderr, "prifly: version takes no arguments (got %q)\n\n", args[1:])
+			fmt.Fprint(stderr, usage)
+			return 2
+		}
 		fmt.Fprintln(stdout, buildinfo.Current().String())
 		return 0
 	}

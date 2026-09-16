@@ -41,6 +41,14 @@ func Run(ctx context.Context, bound time.Duration, shutdown func(context.Context
 
 	select {
 	case err := <-done:
+		// shutdown returned around the same instant the deadline elapsed.
+		// Report the timeout deterministically in that case rather than
+		// racing against the shutdownCtx.Done() branch below: whichever
+		// channel this select happened to observe first must not change
+		// the caller-visible result.
+		if shutdownCtx.Err() != nil {
+			return ErrShutdownTimedOut
+		}
 		return err
 	case <-shutdownCtx.Done():
 		return ErrShutdownTimedOut
