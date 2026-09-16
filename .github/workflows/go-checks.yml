@@ -1,0 +1,34 @@
+# Trusted Go checks (#57 / A06): always-report, SHA-pinned actions (DP4). Keep the
+# commands identical to docs/process/testing.md's Go suite.
+name: go-checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
+      GOFLAGS: -mod=readonly
+    steps:
+      - name: Check out the PR head commit (not the synthetic merge ref)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Set up pinned Go toolchain
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: go.mod
+      - name: Record tested commit and toolchain
+        run: git rev-parse HEAD && go version
+      - name: gofmt (no unformatted files)
+        run: test -z "$(gofmt -l .)"
+      - name: go vet
+        run: go vet ./...
+      - name: go test (race, uncached)
+        run: go test -count=1 -race -v ./...
+      - name: go build
+        run: go build ./...
