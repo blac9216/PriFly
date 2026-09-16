@@ -1,0 +1,4 @@
+# Machine-local guidance (per docs/process/worktrees.md, testing.md, validation.md):
+# environment paths, live-account/environment/authorization pointers, and other
+# machine-specific process notes never belong in this public repository.
+*.local.md

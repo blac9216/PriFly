@@ -24,6 +24,10 @@ Project: [PriFly #8](https://github.com/users/blac9216/projects/8) — owner `bl
 Bootstrap sessions act as the owner account `blac9216` (repository role `admin`) or the
 automation account `machine-blac9216` (repository role `read`), per
 `gh api repos/blac9216/PriFly/collaborators/<login>/permission`, read live 2026-09-16.
+`machine-blac9216`'s `read` role is intentional, not an oversight: no bootstrap role in
+this workflow ever acts as `machine-blac9216`, so there is no escalation to make for a
+generic skill fixture that expects it to hold a `project`/admin grant — see
+[#125](https://github.com/blac9216/PriFly/issues/125).
 No distinct reviewer account is provisioned, so implementer, reviewer, and merge-verifier
 sessions all act through the same active `gh` identity. See "Known identity limitation"
 below. Which account a given machine has signed in belongs in `*.local.md` guidance.
@@ -79,8 +83,14 @@ The Project's seven built-in workflows (`gh api graphql` `projectV2.workflows`, 
 | Pull request linked to issue | no |
 | Pull request merged | no |
 
-No workflow moves a reopened item back to Triage. The API does not expose a workflow's
-target Status or auto-add filter. Before relying on "item added → Triage" or
+No workflow moves a reopened item back to Triage: the built-in "Item reopened" Project
+workflow is not enabled, and the GitHub API exposes no way to enable it — only the
+Project's own Workflows settings UI can, and no bootstrap session has been given that
+UI action to perform. Until an owner enables it there (harmless and optional whenever
+it happens), a reopened item returns to Triage through the maintenance pass described in
+[maintenance.md](maintenance.md) instead, not through automation. See
+[#125](https://github.com/blac9216/PriFly/issues/125). The API also does not expose a
+workflow's target Status or auto-add filter. Before relying on "item added → Triage" or
 "item closed → Done", confirm the target in the Project's Workflows settings; the
 refresh command below shows only names and enabled state.
 

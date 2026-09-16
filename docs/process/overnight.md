@@ -10,9 +10,17 @@ Standing rules for unattended runs in this repository:
 - use local or explicitly disposable test resources unless `*.local.md` guidance
   authorizes a named external environment; no live provisioning or product-dispatch
   action without a concrete, current owner authorization;
-- do not mutate production/provider systems, perform owner-confirmation actions, change
-  repository permissions/rulesets/Project fields, merge, or weaken a conformance oracle
-  unattended;
+- do not perform product/provider merges (Factory Provider Broker authority), owner-
+  confirmation actions, repository/Project **configuration** changes (permissions,
+  rulesets, field/option definitions, workflow settings), or weaken a conformance oracle
+  unattended. Two things stay permitted at any hour under the owner's explicit session
+  authority ([owner instruction](https://github.com/blac9216/PriFly/issues/38#issuecomment-5703543813):
+  "I want you to be able to merge anything"): an independent reviewer's or merge-
+  verifier's squash-merge of an approved bootstrap PR (never a self-merge — the
+  independent-review and blocking-criteria rules in
+  [work-tracking.md](work-tracking.md) and [validation.md](validation.md) stay intact),
+  and a role's own board field **value** updates (Status, Verified, Claimed by,
+  assignment) for work it owns — never a field's configuration;
 - do not invent credentials, owner decisions, security exceptions, quality thresholds,
   architecture changes, or vendor behavior to keep a run moving; missing environmental
   access holds the dependent item rather than being worked around;
