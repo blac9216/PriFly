@@ -25,7 +25,7 @@ func TestRunVersionPrintsSubjectIdentity(t *testing.T) {
 
 // TestRunVersionRejectsExtraArguments guards against "version" with extra
 // arguments being reported as an unknown command: it must instead name the
-// unexpected argument(s) and print usage, per #139.
+// unexpected argument(s) and print usage.
 func TestRunVersionRejectsExtraArguments(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"version", "extra"}, &stdout, &stderr)
@@ -41,6 +41,9 @@ func TestRunVersionRejectsExtraArguments(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "version takes no arguments") {
 		t.Fatalf("stderr = %q, want a message naming the unexpected argument(s)", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "extra") {
+		t.Fatalf("stderr = %q, want the unexpected argument %q named", stderr.String(), "extra")
 	}
 	if !strings.Contains(stderr.String(), "Usage:") {
 		t.Fatalf("stderr = %q, want usage text", stderr.String())

@@ -88,14 +88,13 @@ func TestRunTimesOutWhenHookIgnoresContext(t *testing.T) {
 }
 
 // TestRunTimesOutDeterministicallyAtDeadline is the regression oracle for
-// the race described in #138: when a hook honours its context and returns
-// at (or fractionally after) the deadline, Run's internal select must not
+// the deadline race: when a hook honours its context and returns at (or
+// fractionally after) the deadline, Run's internal select must not
 // nondeterministically choose between the hook's own result and
-// ErrShutdownTimedOut depending on which channel happens to ready first. A
-// reviewer probe at a 1us bound observed the wrong result (a bare
-// context.DeadlineExceeded instead of ErrShutdownTimedOut) in 3 of 2000
-// runs before the fix in shutdown.go; this test re-runs the same shape at
-// -count=2000 under -race to prove the fix holds.
+// ErrShutdownTimedOut depending on which channel happens to ready first.
+// The test loops the same 1us-bound shape 2000 times in a single run
+// (itself executed once under -race, per docs/process/testing.md's Go
+// suite) to give the race many chances to reappear if the fix regresses.
 func TestRunTimesOutDeterministicallyAtDeadline(t *testing.T) {
 	const iterations = 2000
 	for i := 0; i < iterations; i++ {
