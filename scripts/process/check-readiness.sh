@@ -13,13 +13,21 @@ LABELS=""
 
 while (($#)); do
   case "$1" in
-    --root) ROOT="${2:-}"; shift 2 ;;
+    --root)
+      [[ $# -ge 2 ]] || { echo "check-readiness: --root requires a value" >&2; exit 2; }
+      ROOT="$2"; shift 2 ;;
     --root=*) ROOT="${1#*=}"; shift ;;
-    --mode) MODE="${2:-}"; shift 2 ;;
+    --mode)
+      [[ $# -ge 2 ]] || { echo "check-readiness: --mode requires a value" >&2; exit 2; }
+      MODE="$2"; shift 2 ;;
     --mode=*) MODE="${1#*=}"; shift ;;
-    --body) BODY="${2:-}"; shift 2 ;;
+    --body)
+      [[ $# -ge 2 ]] || { echo "check-readiness: --body requires a value" >&2; exit 2; }
+      BODY="$2"; shift 2 ;;
     --body=*) BODY="${1#*=}"; shift ;;
-    --labels) LABELS="${2:-}"; shift 2 ;;
+    --labels)
+      [[ $# -ge 2 ]] || { echo "check-readiness: --labels requires a value" >&2; exit 2; }
+      LABELS="$2"; shift 2 ;;
     --labels=*) LABELS="${1#*=}"; shift ;;
     -h|--help)
       echo "usage: $0 --root R --mode issue|pr --body FILE|- [--labels a,b,c]"
@@ -52,8 +60,15 @@ import sys
 root, mode, body_path, labels_arg = sys.argv[1:5]
 
 def read(path):
-    with open(path, encoding='utf-8') as fh:
-        return fh.read()
+    # A missing doc/template file fails loudly with a distinct exit code (3, the same
+    # family as DOC_ANCHOR_MISSING/TEMPLATE_EMPTY below), not a Python traceback under
+    # a generic exit 1.
+    try:
+        with open(path, encoding='utf-8') as fh:
+            return fh.read()
+    except FileNotFoundError:
+        sys.stderr.write(f"check-readiness: FILE_NOT_FOUND: {path} does not exist\n")
+        sys.exit(3)
 
 work_tracking = read(f"{root}/docs/process/work-tracking.md")
 
@@ -70,6 +85,8 @@ ANCHORS = [
     "and either\n  a `Closes #<N>` line or the partial-delivery form below",
     "the body carries a `Refs #<N>` line, names the exact\n"
     "remainder not delivered by this PR, and names the issue whose PR will close #<N>",
+    "body then carries no closing keyword anywhere — not on its own line and not inside\n"
+    "prose",
 ]
 missing_anchors = [a for a in ANCHORS if a not in work_tracking]
 if missing_anchors:
@@ -80,22 +97,36 @@ if missing_anchors:
         )
     sys.exit(3)
 
+FENCE_RE = re.compile(r'^(`{3,}|~{3,})')
+
 def clean_lines(text):
-    # Lines outside HTML comments and fenced code, in document order.
-    out, in_comment, in_fence = [], False, False
+    # Lines outside HTML comments and fenced code, in document order. Fence open/close
+    # follows CommonMark: a closing fence must use the same character as the one that
+    # opened it, and be at least as long; a differently-fenced line inside an open
+    # fence (e.g. a ``` line inside a ~~~ fence) is fence content, not a delimiter, so
+    # it must not flip the state.
+    out, in_comment = [], False
+    fence_char, fence_len = None, 0
     for line in text.splitlines():
         stripped = line.strip()
         if in_comment:
             if '-->' in line:
                 in_comment = False
             continue
-        if stripped.startswith('<!--') and '-->' not in stripped:
+        if fence_char is None and stripped.startswith('<!--') and '-->' not in stripped:
             in_comment = True
             continue
-        if stripped.startswith('```') or stripped.startswith('~~~'):
-            in_fence = not in_fence
-            continue
-        if in_fence:
+        m = FENCE_RE.match(stripped)
+        if m:
+            char, length = m.group(1)[0], len(m.group(1))
+            if fence_char is None:
+                fence_char, fence_len = char, length
+                continue
+            if char == fence_char and length >= fence_len:
+                fence_char, fence_len = None, 0
+                continue
+            # wrong character or too short to close: fence content, fall through
+        if fence_char is not None:
             continue
         out.append(line)
     return out
@@ -106,6 +137,24 @@ def heading_list(text):
 
 def strip_noise(text):
     return '\n'.join(clean_lines(text))
+
+def section_text(text, heading):
+    # The cleaned lines from the start of the named "## " heading (exclusive) up to the
+    # next "## " heading or end of document. Empty string if the heading is absent.
+    lines = clean_lines(text)
+    start = None
+    for i, l in enumerate(lines):
+        if l.startswith('## ') and l[3:].rstrip() == heading:
+            start = i + 1
+            break
+    if start is None:
+        return ''
+    end = len(lines)
+    for j in range(start, len(lines)):
+        if lines[j].startswith('## '):
+            end = j
+            break
+    return '\n'.join(lines[start:end])
 
 results = []  # (ok: bool, name: str, detail: str)
 
@@ -135,9 +184,12 @@ if mode == "issue":
           "" if ac_heading else "no '## Acceptance Criteria*' heading in work-item.md")
 
     checkbox_re = re.compile(r'^\s*-\s\[[ xX]\]\s+\S', re.MULTILINE)
-    has_checkbox = bool(checkbox_re.search(strip_noise(body)))
-    check(has_checkbox, "acceptance-criteria checkbox list present",
-          "" if has_checkbox else "no '- [ ]' / '- [x]' checkbox line found in body")
+    ac_section = section_text(body, ac_heading) if ac_heading else ''
+    has_checkbox = bool(checkbox_re.search(ac_section))
+    check(has_checkbox, "acceptance-criteria checkbox present in the Acceptance Criteria section",
+          "" if has_checkbox
+          else f"no '- [ ]' / '- [x]' checkbox line found under '## {ac_heading}'" if ac_heading
+          else "no Acceptance Criteria heading to scope the search to")
 
     labels_path = f"{root}/docs/process/labels.md"
     labels_doc = read(labels_path)
@@ -202,15 +254,53 @@ elif mode == "pr":
     elif refs_matches and not closes_matches:
         n = refs_matches[0]
         cleaned = strip_noise(body)
-        cleaned = re.sub(r'^Refs #\d+\s*$', '', cleaned, flags=re.MULTILINE)
-        cleaned = re.sub(r'^#{1,6}\s.*$', '', cleaned, flags=re.MULTILINE)
-        remainder_prose = ' '.join(cleaned.split())
-        has_remainder = len(remainder_prose) >= 40
-        check(has_remainder, f"Refs #{n} partial-delivery form names a remainder",
-              "" if has_remainder
-              else f"Refs #{n} present but no remainder/closing-issue prose found beyond template headings")
-        # The closing keyword must not appear anywhere else, including in prose.
-        stray_close = re.search(r'\bcloses?\s+#\d+\b', cleaned, re.IGNORECASE)
+
+        # work-tracking.md's Readiness shape requires the body to (a) name the exact
+        # remainder not delivered by this PR, and (b) name the issue whose PR will
+        # close #<N> (the PR #134 worked example: "Refs #57" then a paragraph naming
+        # AC2's remainder and "#133, whose PR closes issue #57"). Both are checked in
+        # the preamble — the text between the "Refs #<N>" line and the first "## "
+        # heading — rather than over the whole body, so filled-in template sections
+        # elsewhere in the PR (Summary, Risk, ...) cannot substitute for either.
+        refs_line_re = re.compile(rf'^Refs #{n}\s*$', re.MULTILINE)
+        refs_m = refs_line_re.search(cleaned)
+        after_refs = cleaned[refs_m.end():] if refs_m else cleaned
+        heading_m = re.search(r'^#{1,6}\s', after_refs, re.MULTILINE)
+        preamble = after_refs[:heading_m.start()] if heading_m else after_refs
+
+        closer_matches = [m for m in re.findall(r'#(\d+)', preamble) if m != n]
+        names_closer = bool(closer_matches)
+        names_remainder = bool(re.search(r'remainder', preamble, re.IGNORECASE))
+        has_remainder = names_closer and names_remainder
+        if has_remainder:
+            detail = f"closing issue #{closer_matches[0]}"
+        elif not names_closer and not names_remainder:
+            detail = (f"Refs #{n} present but the text before the first heading names "
+                       "neither a closing issue (a different '#M') nor the word "
+                       "'remainder'")
+        elif not names_closer:
+            detail = (f"Refs #{n} names a remainder but not a closing issue: no '#M' "
+                       f"(M != {n}) found before the first heading")
+        else:
+            detail = (f"Refs #{n} names a closing issue (#{closer_matches[0]}) but not "
+                       "a remainder: no 'remainder' wording found before the first heading")
+        check(has_remainder,
+              f"Refs #{n} partial-delivery form names a remainder and closing issue",
+              "" if has_remainder else detail)
+
+        # The closing keyword set matches GitHub's own ("Linking a pull request to an
+        # issue": close/closes/closed, fix/fixes/fixed, resolve/resolves/resolved,
+        # optional colon, #N or owner/repo#N), case-insensitively, and must not appear
+        # anywhere in the body for #<N> itself — not on its own line, not in prose.
+        # Limit: fenced code is stripped by strip_noise/clean_lines before this search,
+        # so a closing phrase quoted inside a code block is not flagged; that is a
+        # deliberate false-negative, not an oversight, since GitHub itself does not
+        # parse fenced code for closing references either.
+        keyword = r'(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)'
+        stray_close_re = re.compile(
+            rf'\b{keyword}\b:?\s+(?:[\w.-]+/[\w.-]+)?#{n}\b', re.IGNORECASE
+        )
+        stray_close = stray_close_re.search(cleaned)
         check(not stray_close, f"no stray closing keyword for #{n} outside the Refs form",
               "" if not stray_close else f"found: {stray_close.group(0)!r}")
     else:

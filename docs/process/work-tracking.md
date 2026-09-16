@@ -179,7 +179,8 @@ The rules above are otherwise checked only by hand-run commands quoted in a PR's
 Suggested Test Steps ([#126](https://github.com/blac9216/PriFly/issues/126)), so
 [`scripts/process/check-readiness.sh`](../../scripts/process/check-readiness.sh) is a
 retained, committed, deterministic checker that derives its required section list from
-this file's committed templates instead of hard-coding it, and its own self-test
+the templates named above (`work-item.md`, `PULL_REQUEST_TEMPLATE.md`) and its label
+sets from `labels.md`'s own anchors, instead of hard-coding either, and its own self-test
 (`scripts/process/test-check-readiness.sh`) proves the check's result changes under the
 template-heading and doc-anchor mutations named in #126. Run
 `bash scripts/process/check-readiness.sh --root . --mode issue --body <file|-> --labels

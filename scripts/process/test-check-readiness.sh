@@ -112,9 +112,102 @@ run_case 'PR body with Refs but no remainder fails' 1 --root "$pr_root" --mode p
 
 pr_refs_full_body="$fixture_root/pr-refs-full-body.md"
 gen_body "$pr_template" "$pr_refs_full_body" \
-  $'Refs #126\n\nThis PR delivers only checker AC1 of #126; AC2 (the CI wiring) is the\nexact remainder, deferred to a follow-up issue whose PR will close issue #126.\n\n' \
+  $'Refs #126\n\nThis PR delivers only checker AC1 of #126; AC2 (the CI wiring) is the\nexact remainder, delivered by #133, whose PR will close issue #126.\n\n' \
   full
 sha256sum "$pr_refs_full_body"
-run_case 'PR body with Refs and a named remainder passes' 0 --root "$pr_root" --mode pr --body "$pr_refs_full_body"
+run_case 'PR body with Refs, a named remainder and closing issue passes' 0 \
+  --root "$pr_root" --mode pr --body "$pr_refs_full_body"
+
+# F1 self-test negatives: closer named but no remainder wording, remainder wording but
+# no closer, and neither (the reviewer's stripped-PR-#134 shape).
+pr_refs_closer_only_body="$fixture_root/pr-refs-closer-only-body.md"
+gen_body "$pr_template" "$pr_refs_closer_only_body" \
+  $'Refs #126\n\nSee #133 for the follow-up.\n\n' full
+sha256sum "$pr_refs_closer_only_body"
+run_case 'PR body naming a closing issue but no remainder wording fails' 1 \
+  --root "$pr_root" --mode pr --body "$pr_refs_closer_only_body"
+
+pr_refs_remainder_only_body="$fixture_root/pr-refs-remainder-only-body.md"
+gen_body "$pr_template" "$pr_refs_remainder_only_body" \
+  $'Refs #126\n\nAC2 is the exact remainder, not delivered by this PR.\n\n' full
+sha256sum "$pr_refs_remainder_only_body"
+run_case 'PR body naming a remainder but no closing issue fails' 1 \
+  --root "$pr_root" --mode pr --body "$pr_refs_remainder_only_body"
+
+pr_refs_stripped_body="$fixture_root/pr-refs-stripped-body.md"
+gen_body "$pr_template" "$pr_refs_stripped_body" \
+  $'Refs #126\n\nThis PR delivers only checker AC1 of #126; AC2 is the CI wiring.\n\n' full
+sha256sum "$pr_refs_stripped_body"
+run_case 'PR body with neither remainder wording nor a closing issue (stripped PR #134 shape) fails' 1 \
+  --root "$pr_root" --mode pr --body "$pr_refs_stripped_body"
+
+# F2 self-test: every GitHub closing-keyword variant, case-insensitive, colon-optional,
+# must be caught as a stray closing reference to the Refs'd issue.
+for variant in 'Fixes #126' 'Resolves #126' 'closed #126' 'fixed #126' 'Closes: #126' 'FIXES #126'; do
+  variant_body="$fixture_root/pr-refs-keyword-$(echo "$variant" | tr -cd 'A-Za-z').md"
+  gen_body "$pr_template" "$variant_body" \
+    $"Refs #126\n\nAC2 is the exact remainder, delivered by #133. ${variant} in the release notes.\n\n" \
+    full
+  sha256sum "$variant_body"
+  run_case "PR body with stray closing keyword variant '$variant' fails" 1 \
+    --root "$pr_root" --mode pr --body "$variant_body"
+done
+
+# F2 false-positive guard: the same keyword+#N pattern inside a fenced code block must
+# not be flagged (documented limit: fenced code is not parsed for closing keywords,
+# matching GitHub's own behaviour).
+pr_refs_fenced_keyword_body="$fixture_root/pr-refs-fenced-keyword-body.md"
+gen_body "$pr_template" "$pr_refs_fenced_keyword_body" \
+  $'Refs #126\n\nAC2 is the exact remainder, delivered by #133.\n\n```\nFixes #126\n```\n\n' \
+  full
+sha256sum "$pr_refs_fenced_keyword_body"
+run_case 'PR body with a closing keyword only inside a fenced code block passes' 0 \
+  --root "$pr_root" --mode pr --body "$pr_refs_fenced_keyword_body"
+
+# Note 3 self-test: a checkbox outside the Acceptance Criteria section must not count.
+ac_checkbox_elsewhere_body="$fixture_root/ac-checkbox-elsewhere-body.md"
+gen_body "$valid_root/.github/ISSUE_TEMPLATE/work-item.md" "$ac_checkbox_elsewhere_body" '' full
+python3 - "$ac_checkbox_elsewhere_body" <<'PY'
+import re, sys
+path = sys.argv[1]
+text = open(path, encoding='utf-8').read()
+# Acceptance Criteria section: plain bullets, no checkbox.
+text = re.sub(
+    r'## Acceptance Criteria\n\n[^\n]*\n',
+    '## Acceptance Criteria\n\n- A criterion, as plain prose with no checkbox.\n',
+    text, count=1,
+)
+# A different heading's section gets the only checkbox in the body.
+text, n = re.subn(
+    r'(## (?!Acceptance Criteria)[^\n]+\n\n)([^\n]*\n)',
+    r'\1- [ ] Not an acceptance criterion.\n\2',
+    text, count=1,
+)
+assert n == 1, "fixture setup assumption broken: no other heading found"
+open(path, 'w', encoding='utf-8').write(text)
+PY
+sha256sum "$ac_checkbox_elsewhere_body"
+run_case 'checkbox present only outside the Acceptance Criteria section fails' 1 \
+  --root "$valid_root" --mode issue --body "$ac_checkbox_elsewhere_body" --labels 'chore,area:workflow'
+
+# Note 6 self-test: a ``` fence line nested inside an open ~~~ fence must not close it
+# (CommonMark: closing fence needs the same character, at least as long).
+nested_fence_body="$fixture_root/nested-fence-body.md"
+gen_body "$pr_template" "$nested_fence_body" \
+  $'Refs #126\n\nAC2 is the exact remainder, delivered by #133.\n\n~~~\n```\nFixes #126\n```\n~~~\n\n' \
+  full
+sha256sum "$nested_fence_body"
+run_case 'a ``` line inside an open ~~~ fence does not flip fence state' 0 \
+  --root "$pr_root" --mode pr --body "$nested_fence_body"
+
+# Note 4 self-test: a missing doc file fails loudly with exit 3, not a traceback/exit 1;
+# --root with no value is a usage error, exit 2.
+missing_file_root="$fixture_root/missing-file-root"
+mk_root "$missing_file_root"
+rm -f "$missing_file_root/docs/process/work-tracking.md"
+run_case 'missing docs/process/work-tracking.md fails loudly (FILE_NOT_FOUND, exit 3)' 3 \
+  --root "$missing_file_root" --mode issue --body "$valid_body" --labels 'chore,area:workflow'
+
+run_case '--root with no value is a usage error (exit 2)' 2 --root
 
 echo "test-check-readiness: $passed cases passed"
