@@ -132,4 +132,8 @@ Changing a mechanism in a way that changes the required semantic result is an ar
 
 ## Initial handover profile qualification
 
-Required additional profile observations: (1) externally imported stale/forged/incomplete packages never dispatch. These are required future tests, not claimed PASS evidence.
+Required additional profile observations: (1) externally imported stale/forged/incomplete packages never dispatch; (2) real interactive Codex and Claude attempts cannot access controller sockets/other workspaces and all sentinels/Docker writers stop before handoff. These are required future tests, not claimed PASS evidence.
+
+Adversarial lifecycle qualification delays Create/Start across cancellation, retirement, successor lease and takeover. A stopped-only control must fail; retired IDs cannot write.
+
+Repeat delayed lifecycle-operation probes through Worker Docker/Compose.

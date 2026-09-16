@@ -1,7 +1,7 @@
 # ADR-0019: Bound autonomous work with cumulative execution envelopes
 
 Status: Accepted
-Amended-by: 0025
+Amended-by: 0025, 0030
 Date: 2026-09-13
 
 ## Context

@@ -60,3 +60,9 @@ flowchart TD
 | PF-SEC-04 | Required evidence/recovery dependencies survive ordinary retention and credential rotation. |
 | PF-SEC-05 | Replayability reports availability and prerequisites honestly; hashes alone are not recoverable content. |
 | PF-SEC-06 | Admission preserves control-plane recovery, publication, and cancellation headroom. |
+
+### Initial execution capability boundary
+
+The launcher is trusted and may control attempt containers on the stack engine; the Worker-facing build/test daemon is separate. A Worker receives only its own workspace, bounded scratch/auth material and attempt-scoped API/tool capabilities. Factory state, owner controls, HerdR socket, lifecycle engine, other workspaces and R2/GitHub keys are excluded. The proxy rejects global prune, privileged/host-namespace containers and unapproved mounts/ports/resources. Engine authority is not described as harmless or as hostile-code containment. Mount/identity/resource enforcement requires real qualification; failure cannot be repaired by widening Worker privilege.
+
+External planning import explicitly trusts registered external evaluator provenance and owner-bound identities. It validates exact subject/evidence relationships without claiming cryptographic proof of model independence. Secret rotation and subscription refresh have a trusted credential owner; private conversations/mutable user configuration never become independent review context. Selected quality overlays and proposed operating bounds are in [deployment parameters](../reference/deployment-parameters.md).

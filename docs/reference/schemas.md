@@ -89,3 +89,5 @@ A valid schema is necessary but insufficient. Factory also validates that a corr
 ## Initial execution-profile representations
 
 The initial representation uses exact versioned JSON artifact bytes plus relational identity/revision/state indexes with uniqueness/foreign-key constraints. Typed opaque random 128-bit IDs, monotonic record revisions and SHA-256 byte digests are separate identities. A planning bundle records exact baseline/package kind/scope, requirement/design/risk artifacts, reviewed Work Item graph, selected criteria/probes, estimates/envelopes, validation/projection relationships, external reviewer provenance and actual owner releases. Imported external evaluations cannot invent Factory Attempt IDs.
+
+Launch binding includes generation, attempt/run, immutable prompt/command digest, server/pane incarnation and container/process inventory. Runtime possible-send records identify CREATE_ARMED/CREATE_OBSERVED/START_ARMED and exact engine/container identity.

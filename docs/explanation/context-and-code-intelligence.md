@@ -30,3 +30,7 @@ flowchart LR
 ```
 
 A tool returning “no references found” is not proof that runtime configuration, reflection, generated code, or cross-repository consumers are unaffected. Missing coverage remains a reason for conservative impact analysis.
+
+### Initial Go tool binding
+
+The initial profile uses workspace/attempt-scoped Serena over local stdio with the Go `gopls` backend, alongside exact Git facts. Commit, backend, language/tool settings and material downloads/configuration are pinned before admission. Definition/reference/edit fixtures, dirty-tree invalidation, unsupported coverage and absence of incidental dashboard/telemetry are checked. Shared caches never override candidate identity. Each cold-start job receives concrete readers/tool/result bindings plus mandatory criteria/probes; missing, stale or oversized required input blocks rather than truncates. Review excludes mutable producer memory/home/configuration. [Deployment parameters](../reference/deployment-parameters.md) identifies exact tuple qualification.

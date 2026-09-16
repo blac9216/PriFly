@@ -105,3 +105,7 @@ sequenceDiagram
         Factory-->>Owner: Package for design approval and delivery-planning release
     end
 ```
+
+### Initial supported control surface
+
+The initial CLI provides bundle inspect/import, separate exact owner confirmation, work and Attention list/detail, attempt observation/cancellation, validation request/detail, command reconciliation, recovery inspection/takeover and upgrade inspection/activation. Human and versioned JSON output distinguish published facts from provisional diagnostics and integrated work from validated targets. Pilot wraps routine scoped operations and can be replaced without private conversation state. Setup/diagnose/recover/upgrade recipes are only delivered as executable guidance after an independent operator exercises them without undocumented repairs.

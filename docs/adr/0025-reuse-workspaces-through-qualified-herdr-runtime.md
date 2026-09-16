@@ -1,6 +1,7 @@
 # ADR-0025: Reuse workspaces through a qualified HerdR runtime
 
 Status: Proposed
+Amended-by: 0030
 Amends: 0014, 0015, 0019
 Date: 2026-09-16
 
