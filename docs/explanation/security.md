@@ -1,41 +1,62 @@
-# Security and trust model
+# Security, privacy and resource safety
 
 Kind: explanation
 
-This document states the actual v1 threat model. It deliberately avoids claiming hostile-agent containment that v1 does not provide, while preserving least-privilege workflow boundaries and explicit owner authority.
+## Security, privacy, resource safety, and data retention
 
-## v1 threat model
+### v1 trust model
 
-PriFly v1 is a **personal autonomous software factory**, not a hostile-code execution platform, enterprise disaster-recovery product, or multi-user hosted control plane.
+Workers and configured harnesses are assumed fallible, not intentionally hostile. They can misinterpret instructions, run overly broad commands, write the wrong path, or create conflicting resources. PriFly must guard against these ordinary failures. It does not claim containment of a compromised kernel, malicious Docker client, deliberately exploitative Worker, or stolen cloud-account administrator.
 
-### Worker threat model
+This is an explicit engineering boundary, not permission to omit basic credential hygiene. Least privilege, clear paths, assigned branches, separate control-state permissions, role tooling, and observable lifecycle ownership remain required.
 
-Workers and configured harnesses are treated as fallible, capable of misunderstanding instructions, modifying the wrong file if not constrained, producing bad code or reasoning, accidentally conflicting with another Worker, and issuing overly broad Docker commands within the Worker Docker environment; they are **not assumed malicious or actively compromised**.
+### Privilege separation
 
-v1 promises strong guardrails against ordinary operational mistakes, but it does **not** promise containment of an intentionally malicious Worker/harness that attempts privilege escalation, kernel/container escape, direct Factory tampering, or deliberate secret theft. Stronger adversarial isolation remains a future `SandboxProvider` concern.
+Factory retains canonical database access, provider mutation credentials, recovery publication credentials, and owner-action enforcement. Workers receive only their scoped client capability and approved job tools. The owner-control credential/interface is not mounted into ordinary Pilot or Worker execution.
 
-### Recovery threat model
+Root or equivalent administration needed to provision Linux identities and resources is exercised by the packaged lifecycle mechanism, not given to every harness. The implementation must minimize the privileged boundary while still supporting the selected containerized runtime. A shared runtime API with unrestricted pane creation cannot be treated as a Worker-safe tool just because it is local.
 
-v1 primarily promises recovery from **loss/corruption of the local PriFly host** while Cloudflare R2, configured Git remotes, the owner's cloud/provider accounts, and the Recovery Kit/root recovery material remain available.
+Hooks and harness permission modes are useful accident-prevention controls. Shell and Docker access can bypass some tool-level path restrictions. Documentation, UI, and release claims must preserve this distinction rather than advertising a security sandbox that does not exist.
 
-v1 does **not** promise survival of permanent R2 account loss, permanent Git hosting account loss, simultaneous loss of every external dependency, hostile cloud-credential deletion of every remote recovery copy, or malicious corruption of every retained recovery root. PriFly still protects at least one known-good checkpoint from ordinary cleanup mistakes.
+### Data leaving the Factory
 
-## Worker execution boundary
+Configured model/harness providers are permitted to receive the context necessary for their jobs. Enterprise DLP, multi-tenant customer-data governance, and a substantial egress-policy subsystem are not v1 scope. PriFly nevertheless avoids raw secrets in prompts/logs, unbounded environment dumps, unnecessary diagnostics exports, and dynamically invented third-party upload destinations.
 
-PriFly v1 uses ephemeral attempt-scoped Worker identities, dedicated worktrees, root-owned Factory state, Factory-owned provider credentials, and a Worker-only Docker daemon to prevent ordinary workflow mistakes from becoming control-plane mutations. The shared Worker Docker daemon is not an adversarial security boundary. Stronger hostile-code containment is intentionally deferred behind `SandboxProvider`.
+A Project can choose local-model routes for experiments or sensitivity, but model location does not itself prove privacy. Runtime logs, context tools, telemetry, and external verification actions also require consideration under the selected deployment profile.
 
-Attempt identity retirement is part of that accidental-isolation guarantee: after an attempt ends, its OS identity/UID cannot be reused for a later attempt while surviving resources from the earlier attempt could become accessible through that reuse. Uncertain cleanup quarantines the identity until resources are removed/safely isolated or the disposable execution environment is reset. The concrete UID allocation mechanism is an implementation detail; safe non-inheritance is not.
+### Retention classes
 
-## Privileged operations
+Compact semantic history and historical decision/measurement evidence are retained as canonical state. Required artifact evidence is pinned for acceptance/recovery obligations. Optional diagnostics have bounded retention. Derived code indexes, caches, and terminal tails can be discarded and regenerated or lost.
 
-Provider credentials remain with Factory. Workers do not normally receive protected-ref authority. The trusted Branch Publisher imports exact Worker commits into a controlled Git context rather than performing privileged pushes from a Worker-owned checkout.
+A retained hash does not mean the original bytes can still be retrieved. Each historical execution has a replayability classification: required inputs retained; conditionally reproducible with specified external prerequisites; or not replayable. Even fully retained inputs do not promise deterministic model output.
 
-## Owner authority
+Secrets are referenced by identity/generation, not copied into ordinary JSON records. Retaining an old supported recovery root may require retaining compatible decryption material or a valid rewrap path. Rotation and cleanup must not silently make the root unusable.
 
-Consequential owner approval uses the separate owner-confirmation capability defined in [Pilot and owner interaction](pilot.md). Pilot may draft and explain but cannot mint the confirmation proof.
+### Control headroom and disk pressure
 
-## Data egress and privacy scope
+Factory needs capacity to publish state, cancel jobs, reconcile operations, and recover. It must not admit so much worker storage or compute that its own control path cannot function. Admission considers actual CPU/memory/disk/WAL/replication pressure and per-scope resource envelopes.
 
-v1 does **not** attempt enterprise DLP. Configured model/harness services are permitted to receive the project context necessary to perform their jobs.
+Under severe pressure, new work stops first; caches and safely expired optional artifacts can be cleaned; required evidence remains protected. Factory never deletes a currently required recovery dependency to make room for another speculative agent run. Uncertain cleanup can quarantine a workspace or reset the disposable Worker Docker environment.
 
-PriFly still avoids needless leakage: raw secrets do not belong in Worker packets; raw environment dumps are not normal logs; diagnostics are not exported unnecessarily; and unknown third-party destinations are not invented dynamically by Workers. Stronger per-Project destination classification, egress firewalling, and customer-data governance are deferred until the use case requires them.
+### Figure 41 — Resource-pressure response
+
+```mermaid
+flowchart TD
+    Observe["Factory observes compute, disk, WAL, and replication pressure"] --> Severity{"Operational pressure"}
+    Severity -->|manageable| Admit["Continue eligible work within envelopes"]
+    Severity -->|elevated| Reduce["Reduce admission and prioritize control progress"]
+    Severity -->|critical| Stop["Stop new work; preserve publication and cancellation headroom"]
+    Stop --> Cleanup["Clean only disposable or safely expired resources"]
+    Cleanup --> Safe{"Control health restored?"}
+    Safe -->|yes| Reassess["Reassess admission and resume safely"]
+    Safe -->|no| Attention["Owner attention or restricted repair mode"]
+```
+
+| ID | Requirement |
+|---|---|
+| PF-SEC-01 | v1 security claims are limited to the declared fallible/non-malicious execution model. |
+| PF-SEC-02 | Worker capabilities exclude normal canonical-state, provider-mutation, and owner-confirmation authority. |
+| PF-SEC-03 | Secrets remain scoped and absent from ordinary context, logs, and canonical payloads. |
+| PF-SEC-04 | Required evidence/recovery dependencies survive ordinary retention and credential rotation. |
+| PF-SEC-05 | Replayability reports availability and prerequisites honestly; hashes alone are not recoverable content. |
+| PF-SEC-06 | Admission preserves control-plane recovery, publication, and cancellation headroom. |

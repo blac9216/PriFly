@@ -1,422 +1,104 @@
-# Local application API contract
+# Application API contract
 
 Kind: reference
 
-This document defines PriFly's **semantic local API contract**. It intentionally does not freeze HTTP resource paths, Go handler layout, database tables, or a specific local IPC implementation. The initial transport may use HTTP/JSON semantics over an OS-protected Unix socket or platform-equivalent local transport, but every supported transport must preserve the authority, idempotency, consistency, and versioning rules below.
+## Application API, canonical records, and deterministic presentation
 
-The contract is consumed by Pilot, future Bridge, CLI/admin tooling, Worker runtime adapters, and Factory subsystems. These clients may present different UX, but they do not get different workflow semantics.
+### One semantic boundary, several clients
 
-## Contract principles
+The **Application API** is Factory's interface for Commands, Queries, and Events. Pilot normally uses the CLI as its client. The owner can use the CLI directly, and Bridge can later consume the same semantics. A graphical approval button must not implement a separate authority rule from the CLI's owner-control operation.
 
-1. **Commands express intent.** They are the only authoritative mutation path.
-2. **Queries observe state.** They never mutate canonical state.
-3. **Events report facts.** Event delivery is notification/audit, not authority.
-4. **Actor identity is authenticated, not self-asserted.** The transport/runtime adapter stamps the canonical actor from the authenticated capability.
-5. **Authoritative success means released.** A mutation is not successful merely because SQLite committed locally or remote bytes exist.
-6. **Retries preserve command identity.** A client that does not know whether a command completed retries the same `command_id`; it does not manufacture a new operation.
-7. **Unknown publication outcome is nonfinal.** Failure to determine whether publication succeeded is never converted into authoritative rejection.
-8. **Schema identity is explicit.** Envelopes and logical operations are independently versioned.
-9. **Transport is replaceable.** Endpoint paths, socket names, HTTP status mappings, and serialization framing may evolve without changing the semantic contract.
+A **Command** requests an authoritative mutation. A **Query** reads state without changing it. An **Event** records or announces a semantic fact. Events do not confer authority on the receiver, and reconnecting clients query current canonical state rather than assuming they received every notification.
 
-## Common scalar and reference conventions
+Concrete HTTP paths, socket filenames, and Go type names are implementation decisions. The semantic envelopes, authority, idempotency, exact references, and error behavior are product contracts.
 
-These conventions apply across Commands, Queries, Events, and canonical schema families.
+### Identity and admission
 
-| Concept | Contract |
-|---|---|
-| ID | Opaque, stable string. Callers must not infer time, type, ordering, or storage layout from its encoding. |
-| Revision | Positive monotonic integer scoped to one mutable canonical object. Revision equality is meaningful; revision values across objects are not ordered. |
-| Time | RFC 3339 UTC timestamp when a timestamp is semantically useful. Timestamps do not establish workflow ordering. |
-| Schema | String identity in `<family>/vN` form, for example `command/v1` or `work-item/v1`. |
-| Logical operation/event type | String identity in `<domain>.<verb>/vN` or `<domain>.<fact>/vN` form, for example `work.pause/v1` or `work.paused/v1`. |
-| Object reference | Kind + opaque ID; exact revision is included when correctness depends on a specific revision. |
-| Content identity | Cryptographic content hash plus algorithm when bytes must be immutable/reconstructible. |
-| Correlation | Opaque ID grouping related work across Commands/Events/jobs. It is diagnostic/tracing context, not authority. |
-| Causation | The immediate Command/Event/job identity that caused a semantic fact, when applicable. |
+Commands identify the command ID, versioned operation type, authenticated actor, correlation/causation, target and expected revision where relevant, and typed payload. Actor identity comes from the actual capability, not from an arbitrary `actor` field submitted by a model.
 
-## Actor and capability model
+Factory authenticates, validates structure, checks for an existing command identity, validates authority and current state, executes the domain operation, and publishes its authoritative transaction. Reusing an ID for different intent fails. Retrying the same admitted intent resolves to the same published result or its still-unresolved status.
 
-The canonical `actor` is established by the authenticated connection/capability. A client cannot gain authority by placing a different actor in its JSON payload.
+Request equality concerns client intent and identity. Server-generated admission timestamps and ephemeral transport metadata cannot make an otherwise identical retry appear to be a new request. A caller whose permissions have been revoked does not regain data access merely by guessing an old command ID.
 
-Minimum actor kinds are:
+### Result finality and uncertainty
 
-| Actor kind | Meaning | Typical authority |
+A terminal **Command Result** is either `RELEASED` or a provably final `REJECTED`. A **Command Status** can instead report that the outcome is unresolved. If remote publication succeeded but the response was lost, Factory must not manufacture a rejection just because it cannot immediately prove success.
+
+| Condition | Client interpretation | Required behavior |
 |---|---|---|
-| `owner_control` | Human owner using the protected owner-control surface. | Consequential confirmation plus normal owner commands. |
-| `pilot` | Conversational owner client. | Query/explain, draft actions, routine delegated commands; never human-only confirmation. |
-| `bridge` | Future graphical owner client. | Same semantic authority model as Pilot unless using a separately authenticated owner-control action. |
-| `worker_attempt` | One exact Worker Job Attempt. | Only capabilities granted to that attempt. |
-| `factory` | Deterministic internal Factory subsystem. | Internal lifecycle/state commands allowed by policy. |
-| `provider_observer` | Provider Broker/reconciler observation principal. | Submit external facts/observations; cannot retroactively create PriFly approval. |
-| `recovery_operator` | Restricted pre-ACTIVE recovery/admin surface. | Recovery-only operations; no normal project delivery authority. |
+| Released result known | The semantic action took effect authoritatively. | Return result, changed object references, and published frontier. |
+| Definitive rejection | The command cannot take effect under this admission/result. | Return structured reason and appropriate next action. |
+| Outcome unresolved | The caller does not yet know whether authoritative publication occurred. | Resolve/retry with the same command identity; do not create a second intent. |
+| Provisional progress | Work is locally pending or waiting on durability. | Keep separate from terminal success and canonical evidence. |
 
-An actor may carry an applicable `delegation_id`, `worker_attempt_id`, or subsystem identity. Those references explain the authority path; they do not replace policy validation.
+An idempotency conflict, stale revision, insufficient authority, unsupported schema, absent capacity, and provider ambiguity are different errors. Their retry guidance must be typed, not inferred from human message text. Once a terminal result is fixed, repeating it is not a way to obtain a different state-dependent decision; genuinely changed intent uses a new command after the necessary refresh.
 
-## Command envelope
+### Figure 31 — Command outcome and same-ID resolution
 
-Every authoritative mutation becomes a canonical Command with this minimum semantic shape:
-
-| Field | Required | Meaning |
-|---|---:|---|
-| `schema` | yes | `command/v1`. |
-| `command_id` | yes | Globally unique idempotency identity for this intent. |
-| `type` | yes | Versioned logical operation, e.g. `work.pause/v1`. |
-| `actor` | yes | Factory-stamped authenticated actor reference. |
-| `issued_at` | yes | Time the Factory admitted the command envelope; not an ordering primitive. |
-| `correlation_id` | yes | Groups the command with its wider workflow/owner interaction. |
-| `causation_id` | no | Immediate cause when the command is derived from another canonical fact. |
-| `target` | operation-specific | Exact object reference when the command acts on one canonical object. |
-| `expected_revision` | operation-specific | Required whenever stale-object protection matters. |
-| `payload` | yes | Command-specific JSON object governed by the command `type`. |
-
-Representative shape:
-
-```json
-{
-  "schema": "command/v1",
-  "command_id": "opaque-command-id",
-  "type": "work.pause/v1",
-  "actor": {
-    "kind": "pilot",
-    "principal_id": "opaque-principal-id",
-    "delegation_id": "opaque-delegation-id"
-  },
-  "issued_at": "2026-09-13T18:00:00Z",
-  "correlation_id": "opaque-correlation-id",
-  "target": {
-    "kind": "work-item",
-    "id": "opaque-work-item-id"
-  },
-  "expected_revision": 7,
-  "payload": {
-    "reason": "owner-requested pause"
-  }
-}
+```mermaid
+sequenceDiagram
+    participant Client as Pilot or CLI
+    participant API as Factory API
+    participant Domain as Domain and publication lane
+    Client->>API: Command ID C, intent, expected revision
+    API->>API: Authenticate and validate, inspect existing C
+    API->>Domain: Apply admitted intent
+    Domain->>Domain: Commit, make remote-durable, publish frontier
+    alt Published result is observable
+        Domain-->>API: Released result for C
+        API-->>Client: RELEASED and exact references
+    else Publication outcome cannot yet be established
+        API-->>Client: OUTCOME_UNRESOLVED, resolve C
+        Client->>API: Resolve or retry the same C
+        API->>Domain: Inspect authoritative command history
+        Domain-->>API: Original result or still unresolved
+        API-->>Client: Same command disposition
+    end
 ```
 
-The API transport may omit client-supplied `actor` and `issued_at`; Factory stamps them into the canonical Command. If a transport accepts those fields for diagnostics, they cannot override authenticated identity or server time.
+### Logical operation families
 
-## Command admission and idempotency
+The following are semantic operations the product must expose, not a frozen list of HTTP endpoints. Some operations are Factory-internal; their existence does not make them available to a Worker capability.
 
-Factory evaluates a Command in this order conceptually:
+| Family | Representative operations | Normal authority |
+|---|---|---|
+| Project/configuration | register Project/repository; select profile; inspect capabilities | Owner or scoped configuration authority |
+| Planning | record Intake; prepare/confirm phase release; submit outline/contribution/package/annotation; propose Decision; publish baseline; open change | Pilot/owner input, scoped role output, exact-package owner-control, and Factory gates |
+| Work | request pause/resume/cancel; inspect dependencies; release planned work | Owner/delegation and Factory scheduler |
+| Worker | submit result/finding/blocker; request scope; inspect assigned context | Exact current Worker Attempt |
+| Review/correction | record round/verdict/probes; admit correction submission and PR Draft; append conversation entry; record acceptance | Factory with exact-subject Reviewer/Implementer evidence |
+| Triage | list findings; submit assessment; hold; group; release to planning; record disposition | Triage proposal and Factory/owner policy |
+| Validation | request run; reserve targets; submit run result; recompute target status | Owner/Pilot request, Validator evidence, Factory policy |
+| Release/closeout | request readiness; record decision; publish release; close scope | Factory and required owner authority |
+| Attention | list; defer attention; discuss; prepare Owner Action; confirm exact package | Pilot for discussion/delegation; owner-control for consequential confirmation |
+| Provider | prepare, arm, observe, reconcile obligation | Provider Broker and Factory internal authority |
+| Runtime/recovery | inspect; drain; diagnose; recover; rotate access; activate generation | Runtime subsystem or restricted recovery operator |
+| Measurement | query metrics; propose experiment; record assignment; recommend policy change | Factory measurement, bounded Auditor, required policy authority |
 
-1. authenticate the caller/capability;
-2. validate envelope schema and command-specific payload schema;
-3. resolve an existing `command_id`, if any;
-4. validate actor authority/delegation;
-5. validate target existence/revision/current lifecycle state;
-6. validate Factory generation/policy/domain invariants;
-7. execute the local authoritative transaction;
-8. satisfy remote durability and Published Frontier publication;
-9. return a definitive command result only when Factory can prove the terminal disposition.
+Queries must support progressively bounded reads: a summary should return references for detail, not serialize the whole Factory history. A `command.status` query/operation is necessary to resolve ambiguous responses. Exact naming/versioning is finalized in executable contracts before their producer and consumer are implemented.
 
-### Duplicate command IDs
+### Rendering and template reliability
 
-- Same `command_id`, same authenticated actor, same logical type, and semantically identical request returns the original **definitive** command result when one exists.
-- Reuse of a `command_id` with a different actor, type, target, expected revision, or payload is rejected as `IDEMPOTENCY_CONFLICT`.
-- A transport timeout or nonfinal publication/durability status after submission is resolved by retrying the **same** `command_id`.
-- Clients must not generate a new command merely because the prior response was lost or the publication outcome is unresolved.
-- A nonfinal status is not cached as the command's idempotent terminal disposition. Resolution may later prove the same command `RELEASED` or establish a definitive `REJECTED` result under the then-authoritative state.
+Canonical Worker output is structured JSON validated structurally and semantically. Factory renderers turn the same record into Markdown, CLI output, Pilot context, GitHub comments, and future GUI views. A model must not be asked to reproduce the authoritative template from memory.
 
-Canonical request equality may be implemented using a deterministic request digest; the digest algorithm/storage is an implementation detail so long as the semantic rule above is preserved.
+For example, every review rendering draws from the same subject, profile, criterion results, findings, evidence, verdict, and next-action fields. The owner can change the Markdown renderer later without changing the historical meaning of review data. Human display labels can be improved without retroactively altering schema enums.
 
-## Command result envelope
+Large raw logs or binaries are external artifacts, not embedded in every JSON response. References identify their location, content identity, access conditions, and retention treatment. Prompt serialization is a projection and can be measured experimentally; no claim that XML or another format is universally cheapest is part of the product definition.
 
-A **definitive authoritative command disposition** has this minimum shape:
+### Events, ordering, and schema evolution
 
-| Field | Required | Meaning |
-|---|---:|---|
-| `schema` | yes | `command-result/v1`. |
-| `command_id` | yes | Command whose disposition this is. |
-| `type` | yes | Mirrors the command logical type. |
-| `status` | yes | `RELEASED` or `REJECTED`. Both are terminal dispositions. |
-| `result` | on release when operation returns data | Operation-specific result object. |
-| `resulting_objects` | no | Exact object refs/revisions changed or created. |
-| `event_refs` | no | Ledger Event refs emitted by the transaction. |
-| `published_frontier` | on release | Factory Generation + application sequence proving the release point; the transport need not expose storage-private restore internals. |
-| `error` | on rejection | Structured terminal error object. |
+Events carry a stable ID, type/version, subject, actor, causation, and ordered Ledger position. Delivery may be repeated, so clients deduplicate. History order comes from the published transaction sequence and event index, not wall-clock timestamps. Stream cursors are opaque and versioned as needed.
 
-`RELEASED` means the authoritative transaction is represented by the Published Frontier. `REJECTED` means Factory can prove that this command has no authoritative released mutation under that terminal disposition. A command must not be presented or persisted as definitively `REJECTED` merely because Factory cannot determine whether a publication CAS succeeded.
+Canonical schemas are closed by default. Unknown semantic fields and unsupported enum values do not silently create new behavior. Historical immutable records remain interpretable under their original schema. API envelope, operation, Worker protocol, artifact, database, and execution-manifest versions are separately identified.
 
-`LOCAL_PENDING`, `REMOTE_DURABLE`, and `FRONTIER_PUBLISHED` are internal lifecycle states, not authoritative success responses.
+Executable JSON Schemas and tests must exist when a real producer/consumer for that family is implemented. Until then, these semantic definitions are requirements, not fabricated working endpoints.
 
-## Nonfinal command status
-
-When Factory cannot yet establish a terminal command disposition, it may expose an explicitly **non-authoritative** status, semantically `command-status/v1`. This is diagnostic/resolution state, not a `command-result/v1`.
-
-Minimum semantics:
-
-| Field | Required | Meaning |
-|---|---:|---|
-| `schema` | yes | `command-status/v1`. |
-| `command_id` | yes | Command being resolved. |
-| `type` | yes | Mirrors the command logical type. |
-| `status` | yes | `OUTCOME_UNRESOLVED`. |
-| `reason` | yes | Typed reason such as `DURABILITY_UNAVAILABLE` or `PUBLICATION_OUTCOME_UNRESOLVED`. |
-| `retry` | yes | `SAME_COMMAND`. |
-| `observed_at` | yes | Diagnostic observation time. |
-
-Required behavior:
-
-- if local/remote durability cannot currently progress, Factory may return `OUTCOME_UNRESOLVED`; it does not manufacture terminal rejection;
-- if publication CAS may have succeeded but its response was lost and exact read-back is unavailable, Factory returns no definitive disposition and resolves/retries using the same command identity;
-- if later recovery/read-back proves the command was published, the definitive result is `RELEASED` and retries return that result;
-- if takeover or another authoritative fact proves the unpublished attempt cannot become part of authoritative history, Factory may continue resolving/re-executing the same command according to idempotency and current-state rules until a definitive result exists;
-- transport/network failure to deliver a response is not itself a semantic command status.
-
-A client, gate, or downstream workflow must never consume `command-status/v1` as authoritative success or rejection.
-
-## Structured terminal error contract
-
-Errors carried by definitive `REJECTED` command results are semantic, transport-neutral objects:
-
-```json
-{
-  "code": "STALE_REVISION",
-  "message": "work item revision no longer matches the command precondition",
-  "retry": "AFTER_STATE_CHANGE",
-  "details": {
-    "expected_revision": 7,
-    "current_revision": 8
-  }
-}
-```
-
-`message` is for humans and must not be parsed by clients. Clients branch on `code` and, where useful, typed `details`.
-
-### Retry classes
-
-| Retry value | Meaning |
+| ID | Requirement |
 |---|---|
-| `NEVER` | Repeating the same request without changing intent/state cannot succeed. |
-| `SAME_COMMAND` | Resolve/retry the same `command_id`; creating a new command would be unsafe or incorrect. Used by nonfinal command status rather than a definitive rejection. |
-| `AFTER_STATE_CHANGE` | The caller must refresh/reconcile state, then decide whether to issue a new command. |
-| `AFTER_CAPACITY` | Retry only after capacity/resource pressure changes; same logical intent may keep the same command only when the operation contract permits. |
-
-### Core terminal error codes
-
-| Code | Typical retry | Meaning |
-|---|---|---|
-| `SCHEMA_INVALID` | `NEVER` | Envelope/payload does not match the declared schema. |
-| `SEMANTIC_INVALID` | `NEVER` | Structurally valid request violates a domain invariant. |
-| `UNAUTHENTICATED` | `AFTER_STATE_CHANGE` | No acceptable caller identity/capability. |
-| `UNAUTHORIZED` | `AFTER_STATE_CHANGE` | Authenticated actor lacks required authority/delegation. |
-| `OWNER_CONFIRMATION_REQUIRED` | `AFTER_STATE_CHANGE` | Consequential action needs the owner-only confirmation path. |
-| `NOT_FOUND` | `AFTER_STATE_CHANGE` | Required canonical target does not exist in authoritative state. |
-| `STALE_REVISION` | `AFTER_STATE_CHANGE` | Target revision does not match the command precondition. |
-| `INVALID_STATE` | `AFTER_STATE_CHANGE` | Operation is not allowed from the target's current lifecycle state. |
-| `POLICY_BLOCKED` | `AFTER_STATE_CHANGE` | Current planning/security/routing/etc. policy forbids the transition. |
-| `UNKNOWN_BLOCKING` | `AFTER_STATE_CHANGE` | Required applicability/impact/provider fact is unresolved and conservatively blocks progress. |
-| `IDEMPOTENCY_CONFLICT` | `NEVER` | Command ID was reused for different intent. |
-| `CONFLICT` | `AFTER_STATE_CHANGE` | Another active obligation/operation owns an incompatible conflict scope. |
-| `CAPACITY_UNAVAILABLE` | `AFTER_CAPACITY` | No eligible Route/capacity can currently admit the work. |
-| `EXECUTION_ENVELOPE_EXHAUSTED` | `AFTER_STATE_CHANGE` | Work Item cumulative autonomy envelope is exhausted and requires policy/owner disposition. |
-| `FACTORY_NOT_ACTIVE` | `AFTER_STATE_CHANGE` | Normal project mutation is unavailable during recovery/quiesce/initialization. |
-| `PROVIDER_AMBIGUOUS` | `AFTER_STATE_CHANGE` | External operation remains UNKNOWN; blind retry/new conflicting intent is forbidden. |
-| `UNSUPPORTED` | `NEVER` | Requested schema/operation/profile is not admitted by this Factory version/configuration. |
-
-`DURABILITY_UNAVAILABLE` and `PUBLICATION_OUTCOME_UNRESOLVED` are intentionally **not terminal rejection codes**. They belong to nonfinal command resolution status because the same command may later resolve to `RELEASED`.
-
-Individual operations may define additional typed terminal error codes, but they must preserve these finality/retry semantics.
-
-## Query envelope
-
-Queries are non-mutating and have this minimum semantic shape:
-
-| Field | Required | Meaning |
-|---|---:|---|
-| `schema` | yes | `query/v1`. |
-| `query_id` | yes | Correlation identity for the read; not an idempotency key. |
-| `type` | yes | Versioned logical query type. |
-| `actor` | yes | Factory-stamped authenticated actor. |
-| `issued_at` | yes | Admission timestamp. |
-| `consistency` | yes | `AUTHORITATIVE` for canonical clients; provisional admin queries use a distinct explicitly diagnostic contract. |
-| `parameters` | yes | Query-specific filters/refs. |
-
-### Query result
-
-Every authoritative Query result includes:
-
-- `schema: query-result/v1`;
-- `query_id` and query `type`;
-- `snapshot_frontier` containing at least Factory Generation + published application sequence;
-- operation-specific `data`;
-- optional opaque collection cursor metadata when that query defines pagination.
-
-A collection cursor, if used, is opaque and bound to the query type/filter/snapshot semantics that created it. Clients must not construct or interpret cursors. The exact cursor encoding and transport pagination parameters remain implementation details.
-
-## Read consistency
-
-Owner-facing and workflow-relevant Queries read the latest **released Published Frontier**, not arbitrary LOCAL_PENDING rows.
-
-Factory may implement that contract by blocking behind publication, maintaining a released read view, or another mechanism. A diagnostic view of provisional state must be visibly separate and must never satisfy a gate, authority check, or client assumption of authoritative success.
-
-## Event envelope
-
-A Ledger Event records a semantic fact committed in the same authoritative transaction as current state.
-
-Minimum shape:
-
-| Field | Required | Meaning |
-|---|---:|---|
-| `schema` | yes | `event/v1`. |
-| `event_id` | yes | Stable opaque event identity. |
-| `type` | yes | Versioned semantic fact type, e.g. `work.paused/v1`. |
-| `position` | yes | Published Ledger position: application sequence plus event index within that transaction. |
-| `occurred_at` | yes | Fact timestamp; position, not time, establishes order. |
-| `actor` | yes | Actor responsible for the authoritative transition. |
-| `subject` | yes | Primary object ref/revision the fact concerns. |
-| `correlation_id` | yes | Wider workflow correlation. |
-| `causation_id` | no | Immediate Command/Event/job cause. |
-| `payload` | yes | Event-specific immutable data. |
-
-Historical Ledger Events are immutable. A newer event schema does not rewrite an old Event merely to modernize its shape.
-
-## Event stream semantics
-
-- Delivery is **at least once**; clients must tolerate duplicate Event delivery by `event_id`/position.
-- Released Events are ordered by Ledger position.
-- A stream cursor is an opaque representation of the last processed Ledger position.
-- Reconnect may resume after a cursor when the endpoint supports replay; clients still query canonical state after reconnect because Events are notification, not authority.
-- No consumer may mutate canonical state by editing/replaying an Event object; resulting actions must enter through Commands.
-
-## Initial logical command catalog
-
-The following catalog defines v1 semantic operation families. It is not a promise that every operation is implemented in the first executable milestone; unsupported operations return `UNSUPPORTED` rather than inventing ad hoc semantics.
-
-### Owner/Pilot/Bridge workflow commands
-
-| Logical type | Authority | Semantic effect |
-|---|---|---|
-| `planning.start/v1` | owner or delegated Pilot/Bridge | Create/open a Planning Record for an owner goal/change. |
-| `research.request/v1` | owner or delegated Pilot/Bridge | Ask Factory to schedule bounded research; client does not perform research itself. |
-| `lane.pause/v1` | owner or allowed delegation | Prevent new work admission in a Lane while preserving state. |
-| `lane.resume/v1` | owner or allowed delegation | Re-enable a paused Lane if blockers/policy allow. |
-| `work.pause/v1` | owner or allowed delegation | Stop new progress on one Work Item and drain/cancel according to runtime policy. |
-| `work.resume/v1` | owner or allowed delegation | Return a paused Work Item to scheduling when eligible. |
-| `work.cancel/v1` | owner or policy-authorized action | Terminate future execution; already SEND_ARMED external obligations remain subject to reconciliation. |
-| `change-request.open/v1` | owner, Factory, or authorized planning role | Create a typed post-baseline semantic change request. |
-| `decision.select/v1` | authority determined by Decision class/policy | Select one Decision option; Strategic/Constitutional paths may require Owner Action confirmation. |
-| `risk.accept/v1` | owner-control when policy says consequential | Record explicit accepted residual risk. |
-| `attention.act/v1` | authority encoded by Attention Item action | Execute one currently permitted action on an Attention Item. |
-| `owner-action.confirm/v1` | **owner_control only** | Confirm the exact immutable Owner Action package/digest. Pilot/Worker credentials cannot call it. |
-
-### Worker-attempt commands
-
-| Logical type | Authority | Semantic effect |
-|---|---|---|
-| `worker-result.submit/v1` | exact active Worker Job Attempt | Submit typed output for that attempt; submission is not self-acceptance. |
-| `finding.submit/v1` | exact active Worker Job Attempt | Submit a structured Finding for Factory triage. |
-| `scope-expansion.request/v1` | exact active Worker Job Attempt | Request a larger Implementation Envelope; Worker cannot grant itself scope. |
-| `worker-blocker.report/v1` | exact active Worker Job Attempt | Report a semantic blocker requiring Factory disposition. |
-
-Progress/heartbeat/stdout telemetry is EPHEMERAL operational telemetry, not automatically a Command or Ledger Event.
-
-### Factory-internal commands
-
-| Logical type | Typical issuer | Semantic effect |
-|---|---|---|
-| `baseline.publish/v1` | planning subsystem | Publish a Design/Delivery baseline only after its gate passes. |
-| `job.dispatch/v1` | scheduler | Create/admit an exact Worker Job Attempt under a Route and execution envelope. |
-| `job.cancel/v1` | scheduler/runtime controller | Begin bounded cancellation/drain of an attempt. |
-| `job.complete/v1` | scheduler/result processor | Record terminal attempt result after validation. |
-| `review.record/v1` | review processor | Record independent Review Result and Findings. |
-| `verification.record/v1` | Verification Runner/processor | Record machine-observed verification evidence. |
-| `acceptance.release/v1` | acceptance subsystem | Release an exact Acceptance Certificate after all required evidence and review predicates hold. |
-| `provider.prepare/v1` | Provider Broker | Create a durable provider obligation in PREPARED. |
-| `provider.arm/v1` | Provider Broker | Publish SEND_ARMED before any provider mutation byte may be sent. |
-| `provider.observe/v1` | provider observer/reconciler | Record provider facts under the admitted operation profile's observation rules. |
-| `recovery-root.retire/v1` | retention/recovery subsystem with policy authority | Authoritatively retire a supported recovery root before cleanup may drop its last dependency. |
-
-Adding a logical operation that changes authority, idempotency, acceptance, conflict, or side-effect semantics is a contract/design change. Adding an internal transport route for an existing operation is not.
-
-## Initial logical query catalog
-
-At minimum the local API must support query semantics for:
-
-| Logical type | Purpose |
-|---|---|
-| `factory.status/v1` | Active/recovery/upgrade state, generation, published application sequence, health summary. |
-| `project.get/v1` / `project.list/v1` | Canonical Project state. |
-| `planning-record.get/v1` | Planning graph summary, current baselines, gaps, questions, Decisions, and traceability references. |
-| `work.get/v1` / `work.list/v1` | Work Item contract/status/dependencies/Lane/attempt summary. |
-| `attention.list/v1` | Durable pending Attention Items and permitted actions. |
-| `owner-action.get/v1` | Exact immutable package/digest and confirmation state. |
-| `job.get/v1` | Worker Job/attempt, Route, envelope, terminal result summary. |
-| `finding.list/v1` | Findings by subject/status/severity/disposition. |
-| `route.list/v1` | Admitted Routes, capability metadata, Capacity Pool/pressure state. |
-| `provider-obligation.list/v1` | Outstanding PREPARED/SEND_ARMED/UNKNOWN provider obligations and conflicts. |
-| `acceptance.get/v1` | Acceptance Certificate plus evidence/recovery-root references. |
-| `metrics.query/v1` | Authoritative historical metrics available under retained metric schemas. |
-
-Large artifact bytes are retrieved through an artifact mechanism/reference rather than embedded indiscriminately in Query results.
-
-## Worker job capability boundary
-
-A Worker Attempt receives only the capabilities its job requires. Typical allowed operations are:
-
-- retrieve its approved Context Packet and Work Item/Implementation Envelope;
-- read allowed repository/worktree state;
-- submit typed Worker Result;
-- submit Finding/blocker/scope-expansion requests;
-- access job-scoped runtime/tooling capabilities.
-
-It does **not** receive:
-
-- owner confirmation capability;
-- authority to create arbitrary Factory jobs;
-- protected target-ref/provider credentials;
-- another attempt's worktree/capability;
-- direct canonical SQLite mutation authority.
-
-## Owner confirmation capability
-
-Consequential Owner Actions are confirmed through a separate owner-control capability unavailable to Pilot and Worker credentials.
-
-`owner-action.confirm/v1` binds at least:
-
-- Owner Action ID;
-- immutable package digest;
-- exact target revision(s);
-- scope;
-- confirmation command ID;
-- owner-control principal.
-
-A stale/changed/expired package is rejected. Conversational text, including an apparent "yes", is not a confirmation proof.
-
-## Attention actions
-
-An Attention Item carries the exact state-dependent action descriptors currently available to the owner. Pilot/Bridge may render and discuss them, but execution becomes a typed Command subject to normal authority/revision rules.
-
-An action disappearing because state changed is not a client error; a stale attempted action is rejected with the appropriate state/revision error and the client refreshes the Attention Item.
-
-## Compatibility and negotiation
-
-Factory binary version, DB schema, local API envelope versions, logical operation versions, Worker protocol, canonical object schemas, and execution manifests evolve independently.
-
-A connection/session exposes enough capability metadata for a client to determine supported envelope and operation/query versions. The exact handshake endpoint/transport is implementation-specific.
-
-Rules:
-
-- unknown major schema/operation version is rejected as `UNSUPPORTED`;
-- clients do not silently reinterpret one operation version as another;
-- backward-compatible additions inside a schema version are allowed only when the schema contract explicitly permits unknown optional fields; otherwise bump the version;
-- a breaking semantic change requires a new logical operation/schema version even if the transport route stays the same;
-- unsupported combinations fail admission rather than weakening authority/durability guarantees.
-
-## Deliberately not fixed yet
-
-This contract does **not** decide:
-
-- concrete HTTP paths or verbs;
-- Unix-socket/Windows IPC path names;
-- REST-resource versus command-bus route layout;
-- Go package/type names;
-- SQLite table layout;
-- JSON Schema file/package directory layout;
-- cursor encoding;
-- compression/framing;
-- implementation-specific timeout values;
-- API pagination defaults before a concrete query needs them.
-
-Those decisions may be made during implementation so long as they preserve this semantic contract.
+| PF-API-01 | All authoritative mutations use typed, authenticated, idempotent Commands. |
+| PF-API-02 | Unresolved publication is nonfinal and resolves using the same command identity. |
+| PF-API-03 | Canonical Queries and released Events expose published state, not uncommitted or unpublished projections. |
+| PF-API-04 | Worker capabilities cannot invoke owner-only, arbitrary-job, provider-mutation, or direct database operations. |
+| PF-API-05 | Record identity, schema version, exact subject, and provenance remain explicit across interfaces. |
+| PF-API-06 | Deterministic renderers own output structure; model prose does not become canonical merely because it looks like a template. |
+| PF-API-07 | Schema/operation compatibility is explicit; unsupported combinations fail admission. |

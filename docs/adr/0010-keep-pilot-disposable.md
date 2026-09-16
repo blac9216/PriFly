@@ -1,6 +1,7 @@
 # ADR-0010: Keep Pilot disposable and separate owner confirmation
 
 Status: Accepted
+Amended-by: 0022
 Date: 2026-09-13
 
 ## Context

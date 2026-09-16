@@ -1,205 +1,130 @@
-# Persistence and durability
+# Canonical persistence and published durability
 
 Kind: explanation
 
-PriFly uses SQLite as canonical local state and R2/Litestream as the off-host durability path. The core rule is stronger than “the bytes were uploaded”: authoritative state is released only after its exact recoverable frontier is published through the coordination record.
+## Canonical persistence, published durability, and retention
 
-### SQLite is canonical Factory state
+### SQLite and the semantic Ledger
 
-SQLite stores compact authoritative state and semantic history, including:
+SQLite holds canonical current state and the compact semantic **Ledger** explaining meaningful transitions. A current-state mutation and its Ledger Events are written in the same transaction. PriFly is not fully event-sourced: recovery need not replay every historical event to rebuild all current state.
 
-- Projects;
-- Planning Records and graph objects;
-- baselines and Change Requests;
-- Work Items, dependencies, and lanes;
-- Worker jobs and attempts;
-- Findings/reviews;
-- Owner Actions and Attention Items;
-- provider objects/outbox obligations;
-- routing/experiment state;
-- historical metrics;
-- artifact references;
-- semantic Ledger Events.
+Authoritative history includes owner intent and phase releases, package/annotation revisions, decisions, baselines, estimates, Findings/dispositions, review/correction conversation, accepted results, validation outcomes, projection profiles/mappings, provider obligations, execution accounting used for learning, release/closeout state, and governing policy/prompt versions. Ephemeral data includes heartbeats, live stdout tails, process liveness samples, and disposable indexes.
 
-Current-state rows and semantic Ledger Events change in the same SQLite transaction.
+Git is for code history and recoverable candidate refs. The SQLite file and a stream of workflow JSON files are not committed into Git as PriFly's database strategy.
 
-PriFly does not require full event sourcing.
+### Why local commit is not enough
 
-### Authoritative versus ephemeral data
+The local host is disposable. Therefore an owner-visible authoritative success must survive destruction of that host. A local SQLite commit alone does not establish that property. Uploading database bytes alone also does not establish which state a successor is required to recover.
 
-PriFly distinguishes ephemeral data from authoritative semantic state.
+A **Published Frontier** identifies the remotely restorable state Factory has made authoritative. It includes a monotonic application sequence and the corresponding remote database position/lineage. One R2 coordination record publishes that frontier together with the active Factory generation.
 
-#### EPHEMERAL
+### Figure 33 — Authoritative publication
 
-Examples:
-
-- heartbeats;
-- live progress;
-- transient process identifiers;
-- cache/index state;
-- stdout tails;
-- temporary scheduler telemetry.
-
-EPHEMERAL data may be lost on host destruction.
-
-#### AUTHORITATIVE
-
-Examples:
-
-- owner decisions;
-- Constitution changes;
-- actionable Attention Items;
-- Findings and review verdicts;
-- baseline state;
-- accepted Work Item/result state;
-- scope grants;
-- real experiment assignments;
-- routing-policy changes;
-- consequential provider obligations;
-- historical metrics that PriFly intends to use for long-term planning/routing analysis.
-
-AUTHORITATIVE mutations must satisfy the durable acknowledgement protocol below before Factory publishes them as authoritative success or releases dependent authoritative work.
-
-### Large artifacts
-
-Large diagnostic/evidence objects live outside SQLite, normally in R2, with hashes/metadata/references in SQLite.
-
-Code artifacts use Git as described in [Git artifact recovery](execution.md#git-artifact-recovery).
-
-## Single mutation path
-
-All authoritative mutations enter Factory through typed, versioned Commands.
-
-Commands carry a unique command ID, actor identity, expected object/revision where relevant, and a versioned payload. Factory validates authority, state/revision, Factory generation, domain invariants, and relevant policy.
-
-A successful local transaction updates current state, appends Ledger Events, records any outbox obligation, and records the transaction's durability sequence/marker. Command IDs are idempotent; reuse with a materially different actor or payload is rejected.
-
-Queries inspect state without mutation. Events notify clients that state changed; reconnecting clients query canonical state rather than treating event delivery as authority.
-
-## Durable acknowledgement and published recovery frontier
-
-PriFly binds authoritative acknowledgement to both **remote database durability** and an **R2-published authoritative frontier**.
-
-### Local commit is not acknowledgement
-
-An AUTHORITATIVE command progresses:
-
-```text
-RECEIVED
-→ validated
-→ SQLite committed (LOCAL-PENDING)
-→ Litestream remotely durable through transaction marker N / remote TXID T
-→ coordination publication CAS succeeds for N/T
-→ RELEASED/DURABLE
+```mermaid
+sequenceDiagram
+    participant Domain as Factory Domain
+    participant SQLite
+    participant Replica as Litestream durability adapter
+    participant R2
+    participant Client
+    Domain->>SQLite: Commit transaction N, current state, and Ledger Events
+    SQLite-->>Domain: Local commit complete
+    Domain->>Replica: Synchronize through application transaction N
+    Replica->>R2: Persist required replica data
+    R2-->>Replica: Remote data durable at restorable position T
+    Replica-->>Domain: Position T proven to contain N
+    Domain->>R2: CAS publish generation, sequence N, and position T
+    alt Publication succeeds or exact read-back proves success
+        R2-->>Domain: Published frontier established
+        Domain-->>Client: Authoritative result released
+    else Publication is unresolved
+        Domain-->>Client: Outcome unresolved, use same command ID
+    end
 ```
 
-Until final coordination publication succeeds, the mutation is not returned as authoritative success, exposed as a released authoritative Query result, emitted as a final owner-visible success Event, used to release dependent authoritative scheduling, or allowed to dispatch consequential provider effects. Uploaded-but-unpublished database tails are recoverable bytes but are **not authoritative history**.
+The application sequence and Litestream's transaction identifiers are not assumed numerically equal. The adapter must prove their mapping and the exact restore behavior. Litestream documents blocking synchronization and transaction-position restore facilities, but those API features alone do not establish PriFly's complete recovery invariant [S34](../reference/source-register.md#source-s34), [S35](../reference/source-register.md#source-s35).
 
-If Factory cannot determine whether the publication CAS succeeded, the command has **no definitive disposition yet**. It must be resolved/read back/retried using the same command identity as defined by the [API contract](../reference/api-contract.md#nonfinal-command-status); publication uncertainty is not authoritative rejection.
+### Single publication lane and visibility
 
-### Application sequence and remote position
+v1 serializes authoritative commit/synchronize/publish/release ordering for simplicity. It may batch logically compatible events only when the same acknowledgement semantics are preserved. High-volume stdout and heartbeat data do not use this lane.
 
-Every authoritative SQLite transaction receives a monotonic Factory application sequence `N`. The durability adapter proves that the replica contains SQLite state through `N` and records the concrete remote restore position `T` required by the pinned Litestream integration.
+Canonical reads must not expose locally pending mutations as final state. The implementation may block a read behind publication or maintain a published read projection. Provisional diagnostic views are visibly separate and cannot satisfy gates or authorize provider sends.
 
-```text
-SyncThrough(N) -> RemotePosition T
+If R2 is unavailable, Factory cannot claim new authoritative success. It can retain local-pending work and expose degraded diagnostics, but no downstream consequential action may depend on that unpublished state. Scheduling admission and resource pressure determine whether already-running workers may finish a bounded attempt while publication is blocked; no result becomes accepted merely because it is locally available.
+
+### Coordination, generations, and explicit takeover
+
+A **Factory Generation** is an ownership epoch, not a software version. The coordination record contains Factory identity, generation, lifecycle state, published application sequence, concrete restore position, and replica identity. Conditional updates compare the exact prior object version.
+
+An explicit takeover races against old-generation publication using that same coordination object. If the old publication wins first, a stale takeover must reread and inherit the newer frontier. If takeover wins first, the old generation cannot publish further authoritative work through its outdated object version. This fences new authority; it does not cancel requests already armed and dispatched.
+
+R2's consistency behavior is relevant, but the precise chosen conditional-write interface must be qualified rather than inferred from generic object-storage terminology [S36](../reference/source-register.md#source-s36).
+
+### Figure 34 — Takeover and predecessor frontier
+
+```mermaid
+sequenceDiagram
+    participant Old as Generation G
+    participant R2 as Coordination record in R2
+    participant New as Recovery generation G+1
+    Old->>R2: Observe version V with frontier N
+    New->>R2: Observe version V with frontier N
+    alt Old publishes N+1 first
+        Old->>R2: CAS V to frontier N+1
+        New->>R2: Attempt takeover using stale V
+        R2-->>New: CAS rejected, reread N+1
+    else Takeover wins first
+        New->>R2: CAS V to G+1 INITIALIZING with predecessor N
+        Old->>R2: Attempt publication using stale V
+        R2-->>Old: CAS rejected, no new authoritative release
+    end
+    New->>R2: Restore the selected published predecessor position
+    Note over Old,New: Inherited SEND_ARMED obligations remain possibly sent
 ```
 
-The implementation must demonstrate that restoring through `T` contains transaction `N`. PriFly does not assume its application sequence and Litestream's internal transaction identifiers are numerically identical.
+No automatic clock/TTL expiry launches a successor. Recovery does not treat “cannot read the bucket” as permission to create an empty Factory.
 
-The durability adapter must also preserve an **exactly reconstructible** published frontier for the entire period that the coordination record or any supported Recovery Root Manifest depends on that frontier. Passing an immediate restore test or recording a synced remote transaction identifier is insufficient if compaction, retention, chain expiry, or interrupted initialization can later make the published position unreconstructible. Retention/compaction policy therefore participates in the recovery guarantee.
+### Exact restore lifetime
 
-### Coordination publication
+A published remote position must remain exactly reconstructible for as long as the active coordination record or a supported recovery root depends on it. A single successful restore immediately after upload is insufficient.
 
-R2 holds one CAS-protected coordination object:
+Litestream's documented retained LTX boundaries and compaction/retention behavior affect which past states are reconstructible [S35](../reference/source-register.md#source-s35). The pinned adapter configuration must preserve the chosen frontier and reject a setting that cannot honor it. The implementation may use a compatible retention/checkpoint mechanism, but it may not quietly restore later unpublished state or an older state that loses acknowledged history.
 
-```json
-{
-  "generation": 44,
-  "state": "ACTIVE",
-  "factory_instance": "...",
-  "published_sequence": 101,
-  "published_remote_position": "T101",
-  "recoverable_replica": "epochs/44/..."
-}
+This is a focused conformance obligation for the selected persistence implementation. The PRD does not assert that a stock default configuration automatically satisfies it.
+
+### Large evidence and dependency closure
+
+Required external artifacts are uploaded and their identity verified before the authoritative record that depends on them is accepted. **Acceptance Evidence Manifest** lists required evidence, optional diagnostics, and code recovery roots. **Recovery Root Manifest** lists the database checkpoint and external Git/evidence/key references needed to honor that supported checkpoint.
+
+Manifests are immutable. A separate lifecycle records whether a root remains supported or is retired. Cleanup protects both current required pins and every supported recovery root. Root retirement is itself authoritative before the final dependency can be deleted. Uncertain reachability favors retaining data over destructive cleanup.
+
+### Figure 35 — Evidence before acceptance, pins before cleanup
+
+```mermaid
+flowchart TD
+    Evidence["Required evidence produced"] --> Upload["Upload durable artifact"]
+    Upload --> Verify["Verify content identity and availability"]
+    Verify --> Manifest["Create immutable Evidence Manifest"]
+    Manifest --> Publish["Publish acceptance and required dependency pins"]
+    Publish --> Root["Supported recovery roots retain dependency closure"]
+    Root --> Cleanup{"Referenced by any active or supported root?"}
+    Cleanup -->|yes or uncertain| Keep["Retain"]
+    Cleanup -->|no, and retention permits| Delete["Eligible for controlled cleanup"]
 ```
 
-For the active generation, Factory may acknowledge sequence `N` only after SQLite transaction `N` commits, the generation replica is remotely durable through `N`, Factory obtains `T`, and Factory CAS-updates the exact prior coordination-object version to publish `N/T`. A lost CAS response may be treated as success only when read-back proves the exact intended state. If the CAS fails because ownership/generation changed, the old Factory must not acknowledge `N` even if bytes exist in its abandoned replica.
+### Cost and recovery trade-off
 
-Coordination publication is the linearization point for authoritative semantic release.
+R2 is the selected off-host store. Its published pricing distinguishes storage/operations from egress, so “no egress charge” is not the same as “free backup” [S37](../reference/source-register.md#source-s37). PriFly records storage and request observations where available, bounds diagnostic retention, and avoids treating every log line as authoritative state.
 
-### Serialized publication lane in v1
+Historical compact metrics and semantic outcomes have higher retention value than disposable terminal tails. Required acceptance/recovery evidence cannot be deleted merely to satisfy a cosmetic storage target. A budget-pressure condition should stop new expensive work or request attention before it violates retention guarantees.
 
-v1 uses one authoritative publication lane:
-
-```text
-authoritative transaction N
-→ remote sync through N
-→ publish N/T via coordination CAS
-→ release N
-→ next authoritative transaction
-```
-
-Ephemeral telemetry/logging do not use this lane.
-
-### Crash semantics
-
-- Crash before SQLite commit: the command did not occur.
-- Crash after local commit but before remote durability: no authoritative success exists.
-- Remote bytes exist but coordination publication did not occur: the tail is non-authoritative and may be discarded during recovery.
-- Coordination publication succeeds but the publication/client response is lost: the command remains nonfinal to the caller until read-back/recovery proves the published result; recovery restores through the published position and a same-command retry returns the original `RELEASED` result.
-- Authoritative success returned: every permitted successor must restore at least the published frontier containing that result.
-
-No recursive receipt transaction is required; the CAS-published remote frontier is itself the recovery authorization.
-
-### Query and event visibility
-
-Internally, Factory may know about LOCAL_PENDING state, but owner-facing canonical reads and downstream authoritative workflow operate on the latest Published Frontier. Implementations may block an authoritative query behind the publication lane or expose an explicitly provisional diagnostic view; provisional state must never be confused with authoritative state.
-
-## Factory ownership, generations, and authoritative takeover cutover
-
-PriFly uses one CAS-protected R2 coordination record as both ownership state and authoritative recovery-frontier publication.
-
-### Coordination record
-
-The object carries generation, state, Factory instance, published sequence, published remote position, and recoverable replica. Its object version/ETag is part of every CAS.
-
-### Active-generation publication rule
-
-Every AUTHORITATIVE semantic release in generation `G` must CAS-publish its remote frontier through that object. Therefore a transaction uploaded after a successor changes the coordination object cannot later become acknowledged by the old generation; if the old Factory's publication CAS fails, its uploaded tail is non-authoritative; if the old Factory publishes first, a successor acquisition based on an older object version fails and must reread the newer frontier.
-
-### Takeover initiation
-
-v1 has no timer-based leader election. Takeover is explicit through the Recovery Kit/owner recovery workflow. The replacement CAS-transitions:
-
-```text
-generation G / ACTIVE / published frontier N/T
-        ↓ CAS
-generation G+1 / INITIALIZING / predecessor frontier N/T
-```
-
-The successful takeover CAS fences further authoritative publication by generation `G`. Uploaded-but-unpublished tails are not authoritative. Already-published SEND_ARMED obligations are part of the predecessor Published Frontier and are inherited.
-
-### Recovery source
-
-The successor restores **exactly through the predecessor's CAS-published remote position `T`**, not the latest bytes present in the old epoch. The restore is validated to contain published application sequence `N`.
-
-### Interrupted INITIALIZING
-
-While generation `G+1` is `INITIALIZING`, no normal new authoritative project work is accepted. If it dies, the coordination object still records the predecessor Published Frontier. A later recovery advances generation again and restarts from the last published authoritative frontier unless activation had already completed. Missing or inaccessible recovery data never means initialize a fresh empty Factory.
-
-### Reconciliation during initialization
-
-The successor restores the complete published obligation set, including every SEND_ARMED/UNKNOWN operation in the frontier. Before ACTIVE, provider reconciliation is read-only with respect to new project effects; unresolved conflict scopes remain reserved and conflicting successor operations are not authorized.
-
-### Activation
-
-After restore, validation, reconciliation, and establishment of the new replica, Factory CAS-publishes generation `G+1` as ACTIVE with its restorable Published Frontier. Only after that succeeds may new authoritative project Commands be released.
-
-### Lost CAS responses
-
-A lost publication/takeover CAS response is resolved by exact read-back of generation, Factory instance, state, and published sequence/position. If exact read-back is temporarily unavailable, Factory does not assert success **or rejection** for the affected command/transition. It fails closed operationally and resumes resolution from the newly observed authoritative record once available.
-
-### Scope of fencing
-
-Generation coordination fences authoritative semantic release, new Worker dispatch, transition to SEND_ARMED, and new consequential provider authorization. It does not cancel a request already SEND_ARMED/sent; those obligations are handled by [Provider integration](providers.md).
+| ID | Requirement |
+|---|---|
+| PF-DUR-01 | Current state and semantic Ledger Events change transactionally in SQLite. |
+| PF-DUR-02 | Authoritative success requires remote durability and CAS publication of the recoverable frontier. |
+| PF-DUR-03 | Unpublished state cannot satisfy canonical queries, gates, released events, or consequential dispatch. |
+| PF-DUR-04 | Takeover inherits every acknowledged frontier and published possible-send obligation. |
+| PF-DUR-05 | Exact restore positions remain reconstructible throughout their supported lifetime. |
+| PF-DUR-06 | Required external evidence exists and is verified before dependent acceptance is published. |
+| PF-DUR-07 | Active and supported historical roots prevent deletion of their last required dependency. |
+| PF-DUR-08 | Historical learning metrics are authoritative; ephemeral runtime telemetry may be lost. |

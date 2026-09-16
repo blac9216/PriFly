@@ -1,6 +1,7 @@
 # ADR-0021: Use standards-backed quality rubrics for engineering work
 
 Status: Accepted
+Amended-by: 0023
 Date: 2026-09-14
 
 ## Context

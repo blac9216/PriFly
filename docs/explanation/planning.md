@@ -1,127 +1,181 @@
-# Planning architecture
+# Requirements, design and owner phase releases
 
 Kind: explanation
 
-Planning is PriFly's highest-leverage subsystem. The design intentionally spends more rigor before decomposition, when the project trajectory is still cheap to change, and treats delivery feedback as evidence for future planning rather than allowing policy to rewrite itself.
+## Idea refinement, research, architecture, and Design Completeness
 
-The Planning Record is a graph of typed objects: Goal, Requirement, Constraint, Assumption, Question, Research Claim, Option, Decision, Design, Risk, Dependency, Impact, and Work Proposal.
+### The Planning Record is a graph, not a giant prompt
 
-```text
-owner need
-→ Goal
-→ Requirement
-→ Question
-→ Research Claim
-→ Decision
-→ Design
-→ Work Item
-→ candidate code
-→ Verification
-→ Evidence
+The Planning Record must preserve both the content and the relationships of engineering decisions. A **Requirement** is a condition the product must satisfy. A **Constraint** restricts acceptable solutions. An **Assumption** is an explicitly unproven premise. A **Question** is an unresolved information or decision need. An **Option** is a potential answer. A **Decision** is a choice made under identified authority. A **Design** describes the chosen solution. A **Risk** connects an uncertain event to consequences and treatment.
+
+Factory stores those objects and exact trace links. Architect develops the meaning; Factory checks structure and controls publication. A natural-language explanation may summarize the graph, but it cannot replace it.
+
+### Figure 10 — Planning traceability
+
+```mermaid
+flowchart LR
+    Need["Stakeholder need"] --> Goal
+    Goal --> Requirement
+    Requirement --> Question
+    Question --> Claim["Research Claim and evidence"]
+    Claim --> Options
+    Options --> Decision
+    Decision --> Design
+    Requirement --> Design
+    Design --> WorkItem["Work Item"]
+    WorkItem --> Outcome["Required Outcome"]
+    Outcome --> Verification["Verification definition"]
+    Verification --> Evidence
+    Evidence --> Acceptance
+    Need --> Target["Validation Target: intended use"]
+    Target --> Evidence
 ```
 
-Changing an upstream object can invalidate downstream objects and Acceptance Certificates.
+A small change may have a small graph. It still needs the same relationships; smaller work does not get a different meaning of “complete.”
 
-## Quality, project conformance, and workflow policy
+### Intake and three owner-controlled phase releases
 
-PriFly deliberately separates three different questions that AI systems often blur together:
+Pilot and the owner first develop a draft requirements brief in `INTAKE`. It records the problem, users, goals, required behavior, priorities, constraints, exclusions, success measures, and unresolved questions. Owner requirements, Pilot suggestions, examples, and assumptions have distinct provenance. A saved musing is not a work order.
 
-```text
-INDUSTRY QUALITY
-Is this Requirement/plan/architecture/verification/etc. good engineering?
+The owner releases three exact packages. Each release is an Owner Action through [Section 8.4](pilot.md#attention-and-confirmation), binding the package ID/revision/digest, Planning Record revision, scope, permitted phase, applicable budget, and any explicit limitations. Pilot may explain or draft the action but cannot confirm it with model authority.
 
-PROJECT CONFORMANCE
-Does it obey this Project's owner needs, Requirements, Design, Constraints and baseline?
+| Owner release | Inspectable package | Confirmation prompt | Permitted work |
+|---|---|---|---|
+| Requirements to architecture | Requirements brief, existing baseline references, acknowledged unknowns, proposed architecture scope and resource envelope. | “Would you like to release these requirements to architecture?” | Technical design, supporting discovery/research, design contributions, synthesis, and design review within the released scope. |
+| Design approval and delivery-planning release | PRD or feature brief, coherent design-document package, diagrams, decision records, review results, annotation responses, and remaining nonblocking obligations. | “Approve this design and release it to delivery planning?” | Decomposition, dependency/validation planning, execution estimation, plan review, and enabled proposed-plan provider projections. |
+| Delivery plan to execution | Work hierarchy/contracts, dependencies, per-item estimates and forecast basis, concurrency proposal, validation coverage, review results, and provider links/synchronization state. | “Release this delivery plan for execution?” | The specified implementation, review, current correction, PR, and validation work, subject to each operation's remaining gates and authority. |
 
-PRIFLY WORKFLOW POLICY
-Is it allowed to advance now?
+Design Completeness and Delivery Readiness are engineering gates. They supply evidence that a package is ready; they never supply the owner's release. Conversely, owner confirmation does not override a failing gate. Factory publishes a Design Baseline when the same package passes Design Completeness and receives design approval; it publishes a Delivery Baseline and execution eligibility only when the same delivery package passes Delivery Readiness and receives execution release.
+
+Within a released phase, Factory can coordinate bounded jobs and ordinary in-scope corrections without requesting approval for every dispatch. Material scope expansion, changed governing requirements, or a replaced package must return to the appropriate release and revalidation path. An unchanged, previously released scope does not become unapproved merely because a Worker attempt is replaced.
+
+An owner-authorized Intake investigation has its own exact question, allowed role/job kind, budget, and output. Its result enriches the draft but does not release architecture. Existing unrelated authorized work can continue while this request remains in Intake. A previously released maintenance scope can cover routine triage-driven work only within its recorded boundaries and applicable gates; it is not blanket permission for a new product direction.
+
+### Research Claims and freshness
+
+A **Research Claim** is an explicit assertion with source and derivation, not a whole research essay treated as indivisible truth. It records the question answered; the source identity and locator; publication/version and retrieval time where available; what was directly observed versus inferred; conflicts; limitations; and `valid_as_of` or a recheck condition.
+
+Claim freshness depends on use. Current provider behavior needs current evidence; a language feature may need an exact version; local code facts need a repository commit; a stable engineering standard needs a pinned edition. A broken link or inaccessible document is not automatically proof that an established claim is false, but unresolved source ambiguity cannot support a blocking judgment.
+
+W3C PROV-DM supplies the entity/activity/agent and derivation vocabulary for this provenance [S24](../reference/source-register.md#source-s24). It is a provenance model, not a guarantee that a cited source is correct. Credibility and relevance still require judgment.
+
+### Mandatory concerns and the Gap Register
+
+Factory instantiates the Project's versioned concern inventory for each Planning Record. The initial concern families cover stakeholder behavior, functions, product qualities, data/persistence, migration/compatibility, security/trust, external contracts, failure/recovery, operations/observability, verification/validation, rollout, documentation/support, and dependencies/risks.
+
+Architect may propose `APPLICABLE` or `NOT_APPLICABLE`. Factory establishes **effective applicability** under the declared policy and review path. An observable protected change, such as a persisted schema change, cannot be waived by a producer's N/A label. Missing policy or detector coverage becomes **Applicability UNKNOWN**.
+
+The Gap Register is a query over unsatisfied obligations. Every gap includes the affected object, the reason it blocks or does not block, evidence needed to resolve it, the responsible role, and the earliest lifecycle gate where it matters. An unimplemented Work Item is not automatically a Design Completeness gap: completeness is phase-specific.
+
+| Gap example | Normal next role/action |
+|---|---|
+| Existing interface behavior not known | Scout investigates the exact code version. |
+| Third-party API capability unclear | Researcher checks official version-specific documentation or qualifies it empirically. |
+| Recovery behavior not designed | Architect develops the missing behavior and alternatives. |
+| Owner's acceptable trade-off missing | Pilot presents a decision package; owner supplies authority. |
+| Design's evidence is contradictory | Reviewer challenges it; Arbiter may analyze an unresolved dispute. |
+| Decomposition is not executable | Planner revises it after Design Completeness, not an Implementer improvising scope. |
+
+### Authority and the Constitution
+
+A **Constitution** is a set of explicit owner-approved Project invariants. Conversation, examples, repeated historical decisions, and inferred preferences cannot create constitutional rules. A Worker may challenge a rule, but only the owner can amend or override it through the authorized path.
+
+Decision authority is classified as Local, Project, Strategic, or Constitutional. Local choices can be delegated inside a bounded design/work scope. Material changes to product direction, trust boundaries, destructive behavior, public contracts, or cross-project architecture require the corresponding higher authority. The classification is a proposal subject to policy, not a label that grants its own permission.
+
+A **Delegation Grant** identifies the grantee, allowed actions, exact scope, prohibited/protected surfaces, expiry/version, and review requirements. Exceeding it creates a blocker or authority request, not an opportunity to reinterpret the grant.
+
+### Gate 1 — Design Completeness and owner design approval
+
+Gate 1 applies to the bounded capability represented by the Planning Record. Before decomposition is released, the design must provide a sufficient basis for planning useful work without leaving fundamental behavior to the Implementer.
+
+Architect submits exact requirements, designs, decisions, risks, and supporting claims. Factory checks structural completeness and assembles the required quality profiles. A fresh Reviewer evaluates requirements and design quality, intended need coverage, consistency, feasibility, and the declared project constraints. The Reviewer may ask Factory for more context or run a bounded technical check during the same review.
+
+Factory marks the exact design package eligible for owner approval only when required decisions have valid authority; relevant blocking gaps are closed; applicability is resolved; required quality evaluations pass or have valid N/A; and project conformance passes. Publishing the Design Baseline and starting delivery planning additionally require the owner's approval/release of that same package. A material unmet requirement is not turned into N/A because an owner accepts a risk. Either the requirement remains blocking or an authorized change explicitly changes the baseline expectation.
+
+### Figure 11 — Design review and release
+
+```mermaid
+sequenceDiagram
+    actor Owner
+    participant Pilot
+    participant Factory
+    participant Architect
+    participant Evidence as Scout or Researcher jobs
+    participant Reviewer
+    Owner->>Pilot: Clarify requirements and inspect Intake brief
+    Pilot->>Factory: Prepare exact architecture-release Owner Action
+    Owner->>Factory: Confirm release through owner-control interface
+    Factory->>Architect: Propose design outline and assignment contracts
+    Architect-->>Factory: Concerns, dependencies, shared interfaces, expected outputs
+    Factory->>Factory: Validate phase, scope, dependencies, and budget
+    opt Authorized supporting facts required
+        Factory->>Evidence: Dispatch typed evidence requests
+        Evidence-->>Factory: Version-bound facts and limitations
+    end
+    Factory->>Architect: Dispatch bounded design contributions
+    Architect-->>Factory: Structured contributions and unresolved conflicts
+    Factory->>Architect: Synthesize complete package
+    Architect-->>Factory: PRD or feature brief and coherent proposed documentation
+    Factory->>Reviewer: Evaluate whole package and cross-document behavior
+    Reviewer-->>Factory: Criterion results, conformance, findings
+    alt Design Completeness or owner corrections remain
+        Factory->>Architect: Revise and resubmit affected material
+    else Exact package passes and owner approves
+        Owner->>Factory: Confirm design approval and delivery-planning release
+        Factory->>Factory: Publish Design Baseline and phase release
+    end
 ```
 
-General engineering quality is evaluated with the reusable standards-backed profiles in [Quality rubrics](../reference/quality-rubrics.md), whose pinned sources live in [Standards registry](../reference/standards-registry.md). Project conformance is evaluated against the actual Planning Baseline. PriFly workflow policy then applies authority, applicability, traceability, blocking-state, review independence and lifecycle rules.
+**PF-PLN-01:** Design can outline possible delivery seams, but delivery-planning jobs and proposed-plan provider materialization require Design Completeness plus owner design approval/release; no implementation is released from an unapproved design. **PF-PLN-02:** Passing percentages never override a remaining blocking criterion. **PF-PLN-03:** Historical baselines retain their content and decision provenance after replacement.
 
-This prevents two opposite failure modes:
+### New-project and existing-product Review Packages
 
-- a work product cannot pass merely because it conforms to a weak/incomplete Design; general engineering quality is evaluated separately;
-- a generally high-quality solution cannot pass if it violates this Project's governing Requirements/Design.
+A Review Package is the owner-facing design product, not a collection of Worker transcripts. Its manifest identifies exact record revisions, repository baseline commits, document paths/content digests, generated views, evaluated criteria, unresolved questions, and feedback dispositions. Required package artifacts use the durability and retention rules in [Section 23](persistence-and-durability.md#canonical-persistence-published-durability-and-retention) so a replacement Pilot or recovered Factory can present the same package.
 
-Where an industry standard defines a quality dimension but leaves the acceptable threshold context-dependent, the Planning Baseline fixes the target/range before affected Work Items are released. Reviewers do not invent thresholds after seeing the implementation.
+For a **new Project**, the package includes a PRD using a flexible content-coverage pattern: problem/users, goals, scope/exclusions, stories/workflows, functional behavior, quality expectations, acceptance/validation intent, risks/dependencies, and open decisions. Headings and depth fit the product; coverage matters more than forcing every PRD into one rigid template. The package also contains the proposed canonical design set and an integrated review summary tracing requirements to the design and its major trade-offs.
 
-## Planning Policy Envelope and effective authority
+The default canonical set follows the adopted `design-docs` framework [P5](../reference/source-register.md#source-p5). Existing `docs/doc-manifest.md` controls actual paths and applicable document kinds. A new project proposes adoption explicitly; an existing project changes its manifest only through reviewed design change. The following are defaults and coverage obligations, not instructions to invent empty files:
 
-PriFly separates **proposed semantic classification** from **effective authorization**.
+| Artifact | Default location and content |
+|---|---|
+| Documentation manifest and index | `docs/doc-manifest.md` names the design set, adopted paths, rationale areas, and kinds; `docs/README.md` indexes the set. |
+| Glossary | Root `CONTEXT.md`, terms and canonical spelling only; a context map where the product genuinely has multiple vocabularies. |
+| Architecture | `docs/explanation/architecture.md` with C4 Context, Container, and Component views, each with an inline Mermaid diagram and explanatory prose. |
+| Domain model | `docs/explanation/domain-model.md`, or the manifest's adopted equivalent, describing relationships, rules, and states using the glossary. |
+| Security and external contracts | Applicable security model in explanation; API, CLI, configuration, and machine contracts in reference. Required content is named in the manifest. |
+| Subsystem explanations and roadmap | Focused explanations of significant behavior and dependencies, including a product/delivery roadmap rather than a copied issue ledger. |
+| Decisions and rationale | `docs/adr/NNNN-<slug>.md` using MADR, generated `docs/adr/README.md` status index, and applicable `docs/rationale/<area>.md` entries. |
+| User and operator material | Relevant `docs/tutorials/`, `docs/how-to/`, `docs/reference/`, and `docs/explanation/` content; later delivery obligations are explicit when the product cannot yet be exercised. |
 
-### Mandatory concern inventory
+MADR decisions include Context, Decision Drivers, Considered Options, Decision, and Consequences with status and amend/supersede relationships. Accepted decision history is preserved; a changed design proposes an amendment or superseding ADR rather than rewriting the original choice. Diátaxis kind markers and the framework's ADR/rationale exemptions follow the manifest and source standard.
 
-Factory owns a versioned mandatory concern inventory including product/user behavior, functional requirements, quality attributes, persisted data, migration/compatibility, security/trust, public/external contracts, recovery/destructive behavior, operations/observability, verification/testing, rollout/rollback, documentation/support, and dependency/risk. A concern family not covered by active policy remains `UNKNOWN` and cannot clear a blocking gate.
+For an **existing-product feature**, the package is a focused change package: feature requirements; exact current baseline references; design delta and deliberately unchanged behavior; proposed added/edited/deleted documents as a patch; necessary ADR proposals; affected capabilities, data, interfaces, repositories, and active work; and a verification/validation impact summary. It contains both the rendered resulting documents and the diff, so a small-looking patch cannot hide a contradictory resulting design.
 
-### Applicability state
+PRDs, deliberation, research results, and planning records remain Factory-retained review artifacts. Durable design outcomes become proposed canonical repository files. Package approval does not itself push them to the target branch: the delivery plan identifies the reviewed documentation Work Items and PRs that will land them, ordered before dependent implementation where necessary. The adopted documentation framework is reused; its old reliance on GitHub threads as planning authority is not inherited.
 
-Each concern has `proposed_applicability` and `effective_applicability`, each one of APPLICABLE, NOT_APPLICABLE, or UNKNOWN. A Worker may propose the first; only Factory policy establishes the second. UNKNOWN is conservative.
+### Partition design work and synthesize the result
 
-### Initial effective authority
+The first Architect job after architecture release produces a **Design Outline**: concern coverage, shared vocabulary, interfaces/constraints, bounded design assignments, dependencies, required input/output artifacts, output ownership, and proposed synthesis/review scope. These are assignments to the Architect role, not new standing roles.
 
-- Constitution changes are owner-gated and cannot be suppressed by Worker classification.
-- Security/trust-boundary changes are at least Strategic; N/A requires evidence and fresh independent review with no trigger/uncertainty.
-- Persisted schema/state/migration concerns are forced applicable when declared persisted semantics change; N/A requires evidence and fresh review that no persisted compatibility behavior changes.
-- Material destructive/data-loss/recovery semantics are at least Strategic and material residual risk requires owner action.
-- Public/external compatibility changes are at least Project, Strategic when materially breaking.
-- Material cross-project architecture is Strategic.
-- Ordinary local implementation details may use standing Local delegation only when no protected trigger/UNKNOWN exists.
-- Any mandatory concern without an explicit rule or adequate evidence/coverage remains UNKNOWN and blocking.
+Factory checks the outline against the owner-released scope, budget, required concern inventory, and acyclic dependencies. When valid, it dispatches ready assignments through the normal Scheduler. Semantic uncertainty about a partition returns to Architect; protected authority changes return to the owner. Factory does not decide architectural boundaries by itself.
 
-Absence of a rule never becomes permission.
+Each contribution names what it owns and what it consumes or proposes for shared contracts. Concurrent contributors return structured proposals rather than writing competing canonical versions of the same file. An Architect synthesis job reconciles terms, interfaces, states, failure/recovery behavior, assumptions, and trade-offs into one coherent package. Unresolved conflicts are explicit, not silently resolved by concatenation or last-writer-wins.
 
-### Protected triggers and delegation grants
+A fresh Reviewer evaluates the complete synthesis for requirement coverage, cross-document consistency, end-to-end failure traces, and applicable engineering criteria. Factory assembles/indexes/renders the admitted artifacts and validates paths, links, schema references, and diagrams. For a small feature, one bounded Architect job may perform outline, design, and synthesis as declared in its job contract; unnecessary parallel fan-out is not a goal.
 
-Factory applies deterministic/procedural triggers where independently observable surfaces exist, such as declared persisted schema/migration changes, new external/public interfaces, auth/trust-boundary configuration changes, destructive/recovery operations, and cross-Project work. Trigger results retain provenance. If PriFly cannot determine the condition from an admitted observable surface, it records UNKNOWN rather than accepting a producer's “nothing changed” assertion.
+### Annotation, revision, and release identity
 
-Standing delegations are versioned owner/policy-authorized objects with scope, allowed classes, protected surfaces, expiry/version, and evidence/review requirements. Local authority is effective only inside an applicable delegation. Protected-surface change, uncertainty, or cumulative expansion outside the grant invalidates it and escalates.
+The owner can inspect source Markdown, rendered documents/diagrams, and baseline diffs. Feedback is captured as a **Package Annotation** tied to package revision and, where possible, a requirement, section, figure, decision, file, or text range. Pilot may structure the feedback; Architect or Planner interprets substantive changes in the appropriate phase.
 
-A proposed NOT_APPLICABLE becomes effective only when an active policy rule names the path, required evidence exists, independent review passes, no protected trigger conflicts, required coverage is not UNKNOWN, and the assertion stays within any applicable delegation. A reviewed string alone is never authority.
+The next package includes an annotation-disposition record: addressed with exact change references; a reasoned alternative; unresolved question; or an owner-withdrawn request. Neither a model's “addressed” label nor an edited provider comment supplies owner approval. A changed package has a new revision/digest and displays what changed since the previously inspected version. Its required evaluations are refreshed according to impact; the previous package's confirmation cannot release the replacement.
 
-## Planning completeness and adversarial review
-
-Planning uses strict gates, not aggregate readiness thresholds; percentages are owner-facing diagnostics only.
-
-### Gate 1 — Design Completeness
-
-Design Completeness is not “the Architect thinks the design is done.” The quality layer normally requires successful standards-backed evaluations for Requirements, applicable quality Requirements, architecture description, architecture evaluation, material Risks, consequential evidence/provenance, and applicable secure-development concerns. Project conformance must show that the Design faithfully addresses the governing owner needs/Requirements/Constraints/Decisions. Workflow policy then requires zero unresolved blocking concerns, authority resolution, traceability and fresh challenge.
-
-The exact profile composition is normative in [Planning policy](../reference/planning-policy.md).
-
-### Gate 2 — Delivery Readiness
-
-Delivery Readiness similarly composes standards-backed plan quality, Verification-plan quality, estimate quality where relevant, material risk quality, and applicable security/documentation obligations. Project conformance proves the decomposition and Verification faithfully cover the Design Baseline. Workflow policy separately checks dependencies, bounded slices, early integrated/testable value, lane/collision assumptions, fresh verification challenge, and fresh Plan Review.
-
-Each Work Item still has Goal, Required Outcomes, Constraints, and Verification. Tests/commands are evidence mechanisms, not semantic Outcomes and not complete Verification definitions by themselves.
-
-PriFly claims deterministic enforcement of declared gates, **not mathematical proof that AI discovered every possible semantic concern**.
-
-## Baselines, Change Requests, and impact uncertainty
-
-Released planning state uses immutable versioned baselines. Semantic changes use typed Change Requests. Impact analysis itself is evaluated using the standards-backed `change-impact-quality/v1` profile; PriFly then applies its project-specific downstream classification of AFFECTED, PROVEN_UNAFFECTED, or UNKNOWN.
-
-UNKNOWN never means safe to continue: AFFECTED work pauses/revalidates; UNKNOWN work conservatively revalidates; only PROVEN_UNAFFECTED work continues without revalidation.
-
-Code-intelligence providers can provide evidence toward PROVEN_UNAFFECTED, but absence of a discovered edge never proves non-impact. Where PriFly cannot soundly narrow impact, it broadens invalidation/revalidation.
-
-## Findings and triage
-
-A Finding is not automatically a Work Item. Dispositions include current-work correction, bounded Candidate, planning amendment, new Planning Record, duplicate, or no action with rationale. Findings/review verdicts are AUTHORITATIVE semantic state.
-
-## Initiative closure and lessons
-
-Initiative closure requires terminal released Work Items, required validation, no unresolved blocking Findings/owner decisions, reconciled provider projection, and explicit residual risks. General closure quality is evaluated using `closure-quality/v1` plus applicable acceptance/product/documentation profiles; project conformance and PriFly closure policy remain separate.
-
-Factory computes deterministic metrics, then may run a bounded independently reviewed lessons analysis.
-
-```text
-Observation
-→ Lesson Candidate
-→ reviewed Lesson
-→ repeated evidence
-→ Recommendation
-→ owner/policy decision
-```
-
-DORA-style delivery metrics may be used as diagnostic evidence for learning, not universal pass/fail thresholds. Factory does not autonomously rewrite Constitution or routing policy.
+| ID | Requirement |
+|---|---|
+| PF-PLN-04 | Each planning phase release identifies the exact Review Package, record revision, scope, permitted phase, and execution budget. |
+| PF-PLN-05 | A new-project design package includes a PRD, manifest-governed proposed canonical design set, diagrams, traceability, and integrated review results. |
+| PF-PLN-06 | An existing-product feature package references its baseline and includes focused design/document deltas and appropriate ADR proposals. |
+| PF-PLN-07 | Design partitioning and synthesis are explicit Architect jobs; Factory performs contract admission, dispatch, rendering, and structural validation. |
+| PF-PLN-08 | The full synthesized package receives independent cross-document review before owner design approval. |
+| PF-PLN-09 | Owner annotations and their dispositions remain tied to exact package revisions, and replacement packages require current release authority. |
+| PF-PLN-10 | Package review exposes both the rendered proposed result and the relevant baseline diff; required files and evidence remain recoverable. |
+| PF-PLN-11 | Canonical documentation lands through planned, reviewed PRs; Factory-held planning material is not another repository specification tree. |

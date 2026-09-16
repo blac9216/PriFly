@@ -1,6 +1,7 @@
 # ADR-0009: Require independent adversarial review for consequential AI artifacts
 
 Status: Accepted
+Amended-by: 0024
 Date: 2026-09-13
 
 ## Context

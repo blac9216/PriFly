@@ -2,43 +2,61 @@
 
 Kind: explanation
 
-This document defines the relationships and rules among PriFly's canonical terms. The one-line definitions and rejected synonyms live in the root [`CONTEXT.md`](../../CONTEXT.md).
+## Domain objects, identities, and explicit states
 
-### Factory
+### Work hierarchy
 
-Factory is the deterministic authority for canonical workflow state, Planning Records, initiatives, epics, Work Items, dependencies, lanes, Commands, Queries, Events, scheduling, routing, owner Attention Items and Owner Actions, provider reconciliation, context compilation, durability/recovery, metrics, experiments, and canonical rendering.
+A **Project** is the enduring product/system boundary, including shared purpose, architecture, vocabulary, and repositories. An **Initiative** is a significant outcome that can be approved, delivered, validated, and closed as a coherent undertaking. An **Epic** groups a cohesive part of that delivery around a capability or deliverable. A **Work Item** is a bounded implementation contract sized for one manageable candidate/PR lifecycle. A **Repository** is where some implementation lives. A **Lane** is a scheduling path controlling dependencies and conflicting edits.
 
-### Pilot
+A **GitHub milestone maps to a PriFly Initiative**. “Milestone” names that provider representation, not another canonical work tier. A cross-repository Initiative may map to one milestone in each participating repository when the projection is enabled. Dates, releases, and optional schedule checkpoints do not create a competing milestone entity.
 
-Pilot is a disposable conversational owner interface. It may query/explain Factory state, surface Attention Items, discuss evidence, draft Owner Actions, translate explicit owner intent into Factory Commands, and ask Factory to begin workflows. It may not perform project work itself, directly mutate provider state, directly change SQLite, or infer consequential owner consent.
+Architect proposes capability/design boundaries; Planner proposes the delivery hierarchy; Reviewer checks coherence; the owner approves the package and release. Split an undertaking when it can be approved and validated independently, has stable interfaces, and can be changed or postponed without redesigning unrelated outcomes. Keep shared unresolved behavior together until those seams are defined. Estimate size informs Planner's judgment but does not make Estimator the decomposer. Existing scope is reused when it actually covers the new work rather than creating duplicate structure.
 
-### Bridge
+A **Planning Record is not another delivery-hierarchy level**. A new substantial Project normally begins with a foundation record covering shared purpose, boundaries, architecture, capabilities, and cross-cutting decisions. Independently deliverable capabilities can then have their own records referencing that foundation. A small project may initially need only one record. Listing a future capability does not authorize that capability's design or execution. Each record names its Project, affected Initiative/Epic scopes where present, baseline dependencies, and explicit phase releases.
 
-Bridge is a future GUI over the same Factory API, Attention Items, Owner Actions, and event stream. Bridge is not a separate workflow authority.
+The external representation of each grouping is independently configurable. Omitting an Initiative milestone, Epic tracking issue, or board view preserves the canonical ownership, dependencies, release authority, and completion obligations described here.
 
-### Workers
+### Figure 6 — Domain relationships
 
-Worker roles include Analyst, Scout, Researcher, Architect, Planner, Estimator, Implementer, Reviewer, Fixer, Rebaser, Validator, Auditor, Arbiter, and Curator. Workers do not orchestrate Factory Workers; they submit typed results, Findings, requests, and proposals.
-
-### Provider Broker
-
-Provider Broker is the privileged internal subsystem responsible for external provider projections and mutations. Workers do not receive normal provider mutation credentials.
-
-## Work hierarchy
-
-```text
-Project
-  └─ Initiative
-      └─ Epic
-          └─ Work Item
+```mermaid
+flowchart TD
+    Project["Project"] --> Initiative["Initiative"]
+    Initiative --> Epic["Epic"]
+    Epic --> WorkItem["Work Item"]
+    Project --> Repositories["One or more repositories"]
+    Project --> Foundation["Foundation Planning Record"]
+    Initiative --> Change["Capability or change Planning Records"]
+    Foundation -->|shared baseline| Change
+    Change --> WorkItem
+    WorkItem --> Jobs["Jobs and attempts"]
+    WorkItem --> Workspace["Implementation Workspace"]
+    WorkItem --> PR["Candidate and PR"]
+    WorkItem --> Targets["Validation Targets"]
+    Initiative -. enabled projection .-> Milestone["GitHub milestone per participating repository"]
+    Epic -. enabled projection .-> EpicIssue["GitHub Epic tracking issue"]
+    WorkItem -. enabled projection .-> Issue["GitHub Work Item issue"]
+    Findings["Findings"] -->|scope and provenance| Initiative
+    Findings -->|may block| Targets
+    Release["Release: exact version set and evidence"] --> PR
+    Release --> Targets
 ```
 
-Milestone, Dependency, Lane, Repository, and Kind are orthogonal concepts. A Project may span multiple repositories. Provider issues/projects are projections, not canonical workflow state.
+### Important record distinctions
 
-## Planning and delivery relationships
+**Planning Record:** the persistent graph for a bounded foundation, capability, or change. It begins in Intake with owner intent and contains needs, Goals, Requirements, Constraints, Questions, Research Claims, Options, Decisions, Design, Risks, and trace links. Phase releases and Review Packages identify exact revisions of that graph.
 
-A **Planning Record** contains Goals, Requirements, Constraints, Research Claims, Decisions, Designs, Risks, Dependencies, and Work Proposals. Releasing coherent planning state creates an immutable **Planning Baseline**.
+**Planning Gap:** an unsatisfied planning obligation, such as a missing testable outcome, unresolved design choice, unknown applicability, or unavailable evidence. **Gap Register** is a derived view of those gaps. It is not a second database or separate decision authority.
 
-A **Work Item** is derived from a Planning Baseline and carries a Goal, Required Outcomes, Constraints, and Verification. One or more **Worker Job Attempts** may execute it. Exact accepted code and evidence are bound by an **Acceptance Certificate**.
+**Review Package:** an immutable revision of the inspectable material submitted at a phase release, with manifest, rendered artifacts, source/diffs, review results, annotation responses, and exact baseline references. **Phase Release:** owner authorization for an exact package, allowed phase, scope, and budget. **Design Baseline:** the immutable design content accepted through Design Completeness and owner design approval. A **Delivery Baseline** binds the decomposition and execution contracts accepted through Delivery Readiness and owner execution release. An **as-built record** identifies what was actually integrated and released. These records must remain distinguishable.
 
-A **Finding** is evidence for triage, not automatically a Work Item. A semantic change to a released baseline is a **Change Request**. A **Project** may contain multiple repositories; repository boundaries never define the Project domain boundary by themselves.
+**Finding:** an evidence-backed observation with a bounded proposed routing disposition. It is not yet an instruction to implement. **Work Proposal** means potential future work arising from planning or triage; the unqualified word **Candidate** means an exact proposed code/artifact subject for review, not the backlog of unplanned work.
+
+**Implementation Workspace:** the reusable writable worktree, dependencies, services, and bounded environment for one Work Item/PR. **Worker Job** is the cognitive assignment. **Worker Attempt** is one execution of that assignment. The workspace and the attempt do not have the same lifetime.
+
+**Validation Target:** a versioned integrated capability/story whose intended behavior must be exercised. **Validation Run:** one bounded execution against selected target revisions and a recorded environment. A single target may depend on multiple Work Items or repositories.
+
+### Identity rules
+
+Domain IDs are opaque strings. Revisions are scoped to a mutable record. Immutable baselines, evidence manifests, rubric versions, Route versions, and acceptance records are replaced or superseded, not rewritten. A reference must include the exact revision, commit, digest, or version whenever correctness depends on that identity.
+
+Examples such as `W-42`, `F-7`, and `VT-3` are readable notation, not a commitment to an ID encoding. Git identities in actual records use the repository's full commit/object identity, not abbreviated examples from diagrams.

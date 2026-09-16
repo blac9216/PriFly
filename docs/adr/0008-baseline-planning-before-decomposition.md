@@ -1,6 +1,7 @@
 # ADR-0008: Baseline complete planning before decomposition
 
 Status: Accepted
+Amended-by: 0022
 Date: 2026-09-13
 
 ## Context

@@ -1,103 +1,267 @@
 # CONTEXT.md — glossary
 
-The canonical vocabulary of PriFly. Definitions are domain language only; implementation details live in the design docs.
+Canonical vocabulary. Relationships belong in [the domain model](docs/explanation/domain-model.md); lifecycle states belong in [the state reference](docs/reference/state-machines.md).
 
 ## Terms
 
-**PriFly** — The local-first autonomous software factory described by this repository. not: orchestrator agent, coding bot.
+**PriFly** — The personal, local-first autonomous software factory. not: coding bot.
 
-**Factory** — The deterministic authority that owns PriFly workflow, canonical state, scheduling, policy enforcement, recovery, and side effects. not: Pilot, Worker.
+**Owner** — Human responsible for product direction and consequential authority. not: Worker.
 
-**Pilot** — A disposable conversational owner interface that queries Factory state and translates owner intent into Factory actions. not: orchestrator, Worker.
+**Pilot** — Disposable conversational client that explains Factory state and translates owner intent into Factory requests. It does not perform project work. not: orchestrator.
 
-**Bridge** — The future graphical owner interface over the same Factory contracts as Pilot. not: control plane.
+**Factory** — Deterministic authority for workflow state, policies, scheduling, records, durability, and external effects. not: Pilot.
 
-**Worker** — A bounded AI execution role performing one Factory-assigned cognitive job. not: agent orchestrator.
+**CLI** — Command-line interface to Factory; permissions depend on the caller's capability. not: authority principal.
 
-**Worker Job Attempt** — One concrete execution attempt for a Worker job, with its own identity and runtime envelope. not: Work Item.
+**Bridge** — Future graphical interface consuming the same records and action semantics. not: separate workflow engine.
 
-**Project** — A product or system boundary managed by PriFly and allowed to span repositories. not: repository.
+**HerdR** — Selected initial session/runtime substrate behind PriFly's runtime adapter. Its runtime facts do not determine workflow completion. not: Factory scheduler.
 
-**Initiative** — A significant outcome inside a Project. not: milestone.
+**Harness** — Program hosting a model-backed coding/agent session. not: Model.
 
-**Epic** — A cohesive workstream or deliverable inside an Initiative. not: Initiative.
+**Model** — Inference service or local model used by a harness. not: Harness.
 
-**Work Item** — The smallest executable delivery unit with Goal, Required Outcomes, Constraints, and Verification. not: issue.
+**Worker** — A bounded AI execution doing a Factory-assigned cognitive job. not: Pilot.
 
-**Lane** — An execution and scheduling path used to reason about dependencies and safe concurrency. not: branch.
+**Worker Role** — Contract describing the cognitive purpose, inputs, outputs, and limits of a Worker, such as Reviewer or Triage. not: Worker Job.
 
-**Planning Record** — The persistent graph of planning objects for a capability or change. not: plan document, spec.
+**Worker Job** — Logical Factory request for a bounded role task. not: Worker Attempt.
 
-**Planning Baseline** — An immutable released snapshot of planning state from which downstream work is derived. not: branch baseline.
+**Worker Attempt** — One concrete execution of a Job with a distinct identity, Route, runtime, scope, and result. not: Implementation Workspace.
 
-**Change Request** — A typed proposal to semantically change a released Planning Baseline. not: pull request.
+**Route** — Versioned harness/model/effort/account/tool/capacity execution configuration. not: model name.
 
-**Finding** — A structured observation that may require correction, triage, planning amendment, or no action. not: issue.
+**Capacity Pool** — Shared scarce capacity consumed by one or more Routes, such as a subscription, API budget, or local compute. not: Route.
 
-**Candidate** — A bounded potential future work item awaiting triage/promotion. not: Work Item.
+**Capability Tier** — Evidence-based relative suitability of Routes for a particular role/task/risk context; not a universal model ranking. not: universal model ranking.
 
-**Goal** — The purpose a planning or delivery unit exists to achieve. not: task.
+**Worker Runtime Manager** — Factory boundary that provisions and supervises attempts through HerdR and lifecycle adapters. not: semantic Reviewer.
 
-**Requirement** — A condition or behavior that must be satisfied. not: implementation step.
+**SandboxProvider** — Replaceable execution isolation/provisioning boundary; its name is not a guarantee of hostile-code containment. not: hostile-code security guarantee.
 
-**Constraint** — A boundary or non-violation that limits acceptable solutions. not: preference.
+**Implementation Workspace** — Reusable worktree/environment associated with a Work Item/PR, including permitted caches and workspace services. not: Worker Attempt.
 
-**Outcome** — An observable condition a Work Item must make true. not: command.
+**Workspace Lease** — Exclusive permission for one modifying attempt to use a workspace; not a Factory leader lease. not: Factory ownership lease.
 
-**Verification** — A falsifiable method for establishing an Outcome. not: acceptance test command.
+**Review Workspace** — Isolated view/environment for the exact candidate under review. not: mutable Implementation Workspace.
 
-**Evidence** — Observed material supporting a Research Claim or Verification result. not: model confidence.
+**Worker Docker** — Dedicated disposable Docker execution universe, separate from the daemon hosting Factory. not: Factory host Docker.
 
-**Research Claim** — A planning assertion with claim-level provenance, freshness, and confidence. not: research report.
+**Execution Manifest** — Exact recorded material runtime, harness, model, tooling, and configuration identity for an attempt. not: prompt transcript.
 
-**Decision** — An approved choice among meaningful alternatives within a defined scope. not: suggestion.
+**Context Packet** — Bounded, source-tagged input for an assigned Worker; deeper detail is retrieved progressively. not: entire Factory history.
 
-**Standards Source** — A pinned external industry standard or authoritative engineering-guidance source used to derive a general quality rubric. not: project requirement, PriFly ADR.
+**Project** — Product/system boundary that may span several repositories. not: Repository.
 
-**Quality Rubric** — A versioned reusable set of standards-backed criteria for judging the general engineering quality of an artifact/work product. not: project conformance, workflow gate.
+**Initiative** — Significant outcome within a Project, potentially spanning Epics, repositories, and releases; represented by GitHub milestone(s) when that projection is enabled. not: Epic.
 
-**Rubric Evaluation** — The criterion-by-criterion PASS/FAIL/NOT_APPLICABLE/UNKNOWN result for one exact artifact against one exact Quality Rubric version, with evidence and evaluator provenance. not: free-form review summary.
+**Epic** — Cohesive workstream/deliverable within an Initiative. not: Initiative.
 
-**Project Conformance** — The evaluation of whether an artifact obeys the governing Project Requirements, Design, Constraints, Planning Baseline, Work Item, and project-specific thresholds. not: industry quality rubric.
+**GitHub milestone** — Optional repository-scoped provider representation of a PriFly Initiative; not a separate canonical work tier. not: canonical work tier.
 
-**Constitution** — Owner-approved Project invariants that only the owner can amend or supersede. not: convention.
+**Repository** — Version-controlled code/documentation boundary, not necessarily a complete Project. not: Project.
 
-**Owner Action** — A revision-bound consequential action package requiring owner authority or an applicable standing delegation. not: Pilot suggestion.
+**Lane** — Scheduling grouping used to reason about dependency progression and safe concurrency. not: org chart.
 
-**Attention Item** — Durable Factory state representing owner attention that may block, require action, or inform. not: chat notification.
+**Planning Record** — Persistent requirements/design/planning graph for a foundation, capability, or change, with exact phase releases and shared-baseline references; not a delivery-hierarchy tier. not: delivery hierarchy tier.
 
-**Acceptance Certificate** — The immutable binding between exact planning, attempt, code, integration target, evidence, review, and policy revisions that authorizes acceptance. not: review comment.
+**Intake** — Pilot-led requirements elicitation and recording before project Worker dispatch is authorized. not: architecture release.
 
-**Acceptance Evidence Manifest** — The immutable list of required evidence and recovery roots supporting an Acceptance Certificate. not: log bundle.
+**Phase Release** — Exact-package owner authorization for architecture, delivery planning, or execution within a named scope and budget. not: passing quality gate.
 
-**Recovery Root Manifest** — The required external Git, evidence, and key dependencies needed to honor a supported recovery checkpoint. not: backup catalog.
+**Requirements Brief** — Inspectable Intake output describing owner needs, goals, behavior, constraints, exclusions, priorities, success, and unresolved questions. not: implementation plan.
 
-**Route** — A versioned execution configuration combining harness, model, effort, auth/account mode, capability profile, Capacity Pool, and material execution identity. not: model.
+**Review Package** — Versioned artifact manifest and source/rendered/diff views, review results, annotations/dispositions, and baseline references submitted at an owner gate. not: unversioned document collection.
 
-**Capacity Pool** — A shared scarce resource consumed by one or more Routes, such as a subscription allowance, API budget, or local compute. not: Route.
+**Design Outline** — Architect proposal defining concern coverage, bounded assignments, shared interfaces, dependencies, and synthesis outputs. not: Delivery Baseline.
 
-**Capability Tier** — A contextual evidence-backed ranking of Route capability for a role or task class. not: universal model rank.
+**Design Assignment** — Bounded Architect job with exact inputs, owned outputs, concerns, dependencies, and scope. not: Work Item.
 
-**Execution Envelope** — The cumulative attempt, time, usage, storage, and escalation boundary for one Work Item. not: single-job timeout.
+**Synthesis** — Architect reconciliation of contributions into a coherent design package, including cross-subsystem behavior and unresolved conflicts. not: concatenation.
 
-**Provider Broker** — The privileged Factory component that projects state to external providers and performs admitted provider operations. not: Worker.
+**Package Annotation** — Owner feedback tied to an exact package revision and relevant content location, with a traced disposition. not: unattributed feedback.
 
-**Provider Projection** — An external provider representation of Factory state for visibility or collaboration. not: canonical state.
+**Goal** — Purpose or desired outcome that justifies work. not: implementation task.
 
-**Provider Obligation** — A durable record of an external effect PriFly has authorized and may have sent. not: event.
+**Requirement** — A behavior or condition the product must satisfy. not: design preference.
 
-**SEND_ARMED** — The provider-operation state proving an obligation is durably authorized and may have been sent. not: sent confirmation.
+**Required Outcome** — Observable condition a Work Item must make true. not: suggested implementation step.
 
-**UNKNOWN** — A conservative state meaning PriFly cannot prove a concern or external operation is safely resolved. not: false, unaffected.
+**Constraint** — Non-violation boundary restricting acceptable solutions. not: optional advice.
 
-**Factory Generation** — A monotonically advancing ownership generation used to fence new authoritative publication and authorization. not: software version.
+**Assumption** — A condition believed for planning purposes that has evidence, uncertainty, and recheck treatment. not: proven fact.
 
-**Published Frontier** — The CAS-published authoritative application sequence and remote restore position every permitted successor must preserve. not: latest uploaded bytes.
+**Question** — An unresolved information or decision need with a responsible path. not: Decision.
 
-**Recovery Kit** — Independently retained material required to identify and recover the Factory after local-host loss. not: Factory backup.
+**Research Claim** — Source-backed factual statement with provenance, freshness, uncertainty, and conflicts. not: model memory.
 
-**SandboxProvider** — The replaceable execution-substrate boundary for Worker job isolation. not: security guarantee.
+**Option** — A possible approach considered for a Decision. not: Decision.
 
-**Code Intelligence Provider** — A replaceable source of repository structure, symbols, references, impact evidence, or diagnostics. not: canonical project knowledge.
+**Decision** — Authorized selection among options with rationale, evidence, and scope. not: unapproved suggestion.
 
-**Ledger Event** — A semantic fact appended transactionally with canonical state to explain how Factory state changed. not: event-sourced database.
+**Constitution** — Explicit owner-approved Project invariants; conversational examples do not create it. not: conversation example.
+
+**Design** — Technical/product solution and relationships satisfying requirements within constraints. not: delivery schedule.
+
+**Risk** — Uncertain condition/event with consequences, likelihood/uncertainty, treatment, ownership, and monitoring. not: confirmed defect.
+
+**Planning Concern** — Required area of consideration, such as persistence, security, compatibility, or operation. not: Finding.
+
+**Planning Gap** — A required planning condition not yet sufficiently resolved. not: Work Item.
+
+**Gap Register** — Derived view of the current Planning Gaps and their responsible paths; not a second authoritative database. not: ignored backlog.
+
+**Design Baseline** — Immutable design snapshot passing Design Completeness and approved by the owner with delivery-planning release. not: Delivery Baseline.
+
+**Delivery Baseline** — Immutable plan/decomposition passing Delivery Readiness and owner execution release, including Work Items, estimates, dependencies, and verification relationships. not: Design Baseline.
+
+**Work Proposal** — Potential planned delivery unit not yet released for execution. not: Candidate.
+
+**Work Item** — Executable unit with Goal, Required Outcomes, Constraints, Verification, dependencies, and baseline traceability. not: Worker Job.
+
+**SLICE** — Work Item delivering coherent, evaluable product progress through the relevant layers. not: component-only task.
+
+**ENABLER** — Exceptional enabling Work Item that names its consuming slices rather than pretending to deliver standalone user value. not: unjustified infrastructure work.
+
+**Implementation Envelope** — Authorized scope, paths/areas, protected surfaces, design references, and permitted capabilities for implementation. not: Execution Envelope.
+
+**Execution Envelope** — Cumulative attempts/time/usage/storage/escalation bounds for a scope, including corrections and descendant jobs. not: Implementation Envelope.
+
+**Dependency** — Relationship defining what predecessor condition must be established before a successor action. not: informal ordering hint.
+
+**Blocking Chain** — Traversable sequence explaining why an action waits and what conditions clear its blockers. not: flat priority list.
+
+**Change Request** — Typed proposal to change released planning meaning, with impact analysis and required authority. not: silent baseline edit.
+
+**Candidate** — Exact artifact/code result proposed for acceptance, usually identified by repository and commit. Not a synonym for potential future work. not: Work Proposal.
+
+**Verification** — Method/evidence for establishing a specified Requirement or Outcome; not a mandatory Worker role. not: Worker role.
+
+**Verification Evidence** — Attributable observation of checks/measurements against exact subjects and material conditions. not: unsupported test assertion.
+
+**Review** — Independent evaluation of engineering quality, project conformance, and evidence sufficiency. not: self-approval.
+
+**Review Round** — Factory-assigned exact-candidate review unit linked to attempts/results and any predecessor correction history. not: test invocation.
+
+**Review Conversation Entry** — Canonical ordered verdict, correction, approval, or integration entry rendered to configured issue/PR destinations. not: provider comment as authority.
+
+**Correction Submission** — Before/after candidates and the correcting Implementer's per-finding responses, evidence, unresolved points, and updated PR Draft. not: unstructured fix claim.
+
+**PR Draft** — Implementer-authored structured PR explanation that Factory validates and renders with authoritative metadata. not: native pull request.
+
+**Attack Profile** — Versioned adversarial review techniques/probes supplementing quality rubrics and project conformance; probe outcomes remain explicit. not: unbounded critique.
+
+**Reviewer** — Worker performing a Review; may gather evidence in the same review without triggering another Reviewer. not: merger.
+
+**Implementer** — Worker producing a candidate in new-work or current-correction mode; each current correction is a fresh attempt using the existing Work Item/PR and workspace. not: Fixer.
+
+**Rebaser** — Worker resolving semantic Git conflicts that a mechanical branch update cannot resolve. not: Reviewer.
+
+**Finding** — Evidence-backed observation that may require action; not automatically a Work Item or confirmed bug. not: Work Item.
+
+**Finding Producer** — Authorized originator of a Finding; this is a relationship, not a Worker role. not: disposition authority.
+
+**Proposed Disposition** — Producer's bounded route choice: current correction, follow-up, or planning change. not: effective disposition.
+
+**Current Correction** — Finding identifying an existing acceptance obligation the current candidate fails; uses the tight correction path. not: new follow-up Work Item.
+
+**Follow-up** — Finding not required for acceptance of the current candidate; enters common triage. not: current candidate correction.
+
+**Planning Change** — Finding suggesting governing requirements/design/planning meaning needs revision; no automatic authority to change it. not: local implementation decision.
+
+**Triage** — Semantic assessment of finding relevance, impact, duplicates, grouping, and treatment. Also the name of the Worker role doing that assessment. not: deterministic semantic classification.
+
+**Triage Backlog** — Tracked collection of non-correction Findings undergoing assessment, hold, grouping, planning, work, or final disposition. not: implementation state.
+
+**Hold** — Nonterminal treatment retaining a finding for an explicit reconsideration condition. not: resolution.
+
+**Batch** — Coherent grouping of related Findings into a planning unit; never itself resolution. not: closure.
+
+**Acceptance Certificate** — Immutable binding of exact candidate, baseline, review, rubric evaluations, and evidence for a named acceptance scope. not: self-approval.
+
+**Acceptance Evidence Manifest** — Immutable reference set of required evidence, optional diagnostics, and code roots supporting acceptance. not: raw logs.
+
+**Validation** — Exercise of integrated behavior against intended use in representative conditions. not: candidate review.
+
+**Validator** — Worker executing a bounded Validation Run; reports observations/findings but does not implement fixes. not: Reviewer.
+
+**Validation Target** — Versioned integrated capability/scenario scope requiring intended-use proof. not: Validation Run.
+
+**Validation Run** — A single bounded execution against one or more target revisions. not: Validation Target.
+
+**Pending validation** — Current integrated target lacks required product proof; includes failed targets whose known blocking fixes have now landed and require reevaluation. not: Validated.
+
+**Validation failed** — A required intended-use failure has been demonstrated for the target revision. not: environment interruption.
+
+**Validated** — Required product behavior passed for the recorded target/version/environment; not an eternal status for all future changes. not: Integrated.
+
+**Zero-workaround** — Passing through the supported approved product/operator path, without retrospectively blessing improvised repairs. not: patched demo pass.
+
+**Standards Source** — Pinned official source identity, version, locator, access scope, and status used for criterion derivation. not: unofficial summary.
+
+**Rubric Profile** — Versioned set of general engineering quality criteria for an artifact/work-product type. not: project conformance.
+
+**Rubric Criterion** — Individually addressable question with source mapping, applicability, evidence requirements, and evaluation method. not: workflow rule.
+
+**Rubric Evaluation** — Criterion-level evidence and results for an exact subject/profile version. not: certification.
+
+**Project Conformance** — Adherence to this Project's accepted requirements/design/constraints, evaluated separately from general quality. not: industry quality.
+
+**Workflow Eligibility** — Whether state, authority, independence, evidence, and policy permit the requested lifecycle transition. not: quality rubric.
+
+**Applicability UNKNOWN** — Insufficient basis to decide whether a concern/criterion applies; relevant gates stay blocked. not: criterion failure.
+
+**Criterion UNKNOWN** — Insufficient evidence or unresolved source interpretation to judge a required quality criterion. not: PASS.
+
+**Impact UNKNOWN** — Insufficient coverage to establish safe non-impact; downstream work is conservatively revalidated. not: proven unaffected.
+
+**Provider outcome UNKNOWN** — An external operation may have happened but its terminal result is unproven. not: not sent.
+
+**Attention Item** — Durable information/action/blocker for the owner, independent of notification delivery. not: Owner Action.
+
+**Owner Action** — Immutable consequential package confirmed through owner-control authority, bound to exact scope and revisions. not: Pilot consent.
+
+**Delegation** — Explicit bounded authority for routine decisions/actions without repeated owner confirmation. not: blanket autonomy.
+
+**Provider Broker** — Privileged Factory subsystem performing admitted external operations and reconciliation. not: Worker tool with provider credentials.
+
+**Provider Projection** — External representation of Factory state for visibility; not the canonical workflow record. not: canonical state.
+
+**Provider Projection Profile** — Versioned mapping and enablement of provider objects, fields, relationships, conversation destinations, and synchronization/retirement behavior. not: canonical workflow policy.
+
+**Projection Mapping** — Recorded canonical-to-provider identity and synchronization state for a representation slot and repository/scope. not: canonical subject identity.
+
+**Provider Obligation** — Durable exact intent and lifecycle for an external effect. not: provider response alone.
+
+**SEND_ARMED** — Authoritatively published possible-send state; the request may already be in flight. not: proven sent.
+
+**PR Head** — Current candidate commit on the branch proposed by a GitHub pull request. not: actual merge SHA.
+
+**Base Branch** — Target branch into which the PR is proposed, usually `main`. not: PR Head.
+
+**Integrated** — GitHub has actually merged the PR and Factory has recorded the observed result. not: Validated.
+
+**Release Manifest** — Named scope and exact version/artifact set with required acceptance/publication evidence. not: branch name.
+
+**Closeout** — Accounting for all obligations in a named scope, including findings, validation, information, risks, and publication. not: ticket count.
+
+**Ledger Event** — Immutable semantic fact recorded transactionally with state changes. not: diagnostic log.
+
+**Published Frontier** — Remote recoverable state that the coordination record has made authoritative. not: latest remote bytes.
+
+**Factory Generation** — Ownership epoch used to fence new publication/authorization; distinct from software version. not: time-based leader lease.
+
+**Recovery Root Manifest** — Immutable dependency closure needed to honor a supported checkpoint. not: latest snapshot only.
+
+**Recovery Kit** — Independently retained bootstrap repository locator/revision, initial repository access, age decryption material, and recovery authority needed on a clean host. not: lost-host credential store.
+
+**Migration Baseline/Epoch** — Schema lineage anchor for fresh installs, migration ordering, and supported upgrades. not: license to drop live data.
+
+**Replayability** — Availability of the inputs/prerequisites to reattempt an execution; not a guarantee of identical model output. not: deterministic model regeneration.
+
+**Auditor** — Worker examining cross-cutting/retrospective evidence and recommending investigation or improvement. not: policy adoption authority.
+
+**Curator** — Worker organizing eligible reviewed knowledge into useful durable artifacts. not: automatic memory promotion.
+
+**Arbiter** — Worker giving a bounded recommendation on a semantic dispute; it does not grant owner authority. not: owner authority.
