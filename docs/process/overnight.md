@@ -26,11 +26,21 @@ Standing rules for unattended runs in this repository:
     [#38](https://github.com/blac9216/PriFly/issues/38#issuecomment-5702259082), which
     assigns the orchestration's "claims, isolated worktrees, implementation/fix agents,
     PRs, review rounds, reviewer merges, board state and evidence" to `github-workflow`).
-    Each role may update only the Project field values the `github-workflow` skill
-    assigns it, exactly as its `references/orchestration.md` "Column ownership" table
-    and `references/claims.md` state:
-    - orchestrator (during triage): Triage → Backlog / Ready and Backlog → Ready, plus
-      `Claimed by` per `references/claims.md`;
+    Each role writes only the Project field values the `github-workflow` skill assigns
+    to that role, wherever in the skill the assignment is made; this exception grants
+    no write the skill does not assign. Those assignments are the skill's
+    `references/orchestration.md` "Column ownership" table and `references/claims.md`
+    and, for the orchestrator's triage and maintenance moves, its
+    `references/maintenance.md` § 1 "Triage drain" and § 5 "State audit" and
+    `references/orchestration.md` "The loop, per issue" step 1 and "Report-handling
+    checklist" `deferrals` item. By role (a summary; where it differs from the skill,
+    the skill's assignment governs):
+    - orchestrator: the Column ownership table's Triage → Backlog / Ready and
+      Backlog → Ready during triage, `Claimed by` per `references/claims.md`, and every
+      further Status write the maintenance and triage references above assign it,
+      among them returning a reopened issue still shown as Done to Triage (§ 5) and
+      re-adding an issue with `home-deferred.sh --readd --status Triage` (a sighting
+      reopen) or `home-deferred.sh --readd --status Ready` (a batch rider);
     - implementer or fix-round agent, at its start: → In progress, assigning the issue
       to the acting account in the same breath;
     - reviewer, at its start, every round: → In review;
