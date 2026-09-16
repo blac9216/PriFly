@@ -24,4 +24,4 @@ Standing rules for unattended runs in this repository:
   `documentation` + `area:*`, per the current dispatch's filing convention);
 - do not exceed a Work Item's or the milestone's cumulative execution envelope
   (attempts/hours) to finish overnight; exhaustion holds and replans, per the
-  [D3 operating contract](https://github.com/blac9216/PriFly/issues/38#issuecomment-5702104540).
+  [DP4 operating contract](https://github.com/blac9216/PriFly/issues/38#issuecomment-5702104540).

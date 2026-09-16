@@ -1,7 +1,8 @@
 <!--
-Filled per docs/process/testing.md and the github-workflow skill's pr-body template.
-Closing keywords go on their own line, above this comment block is fine, but never
-buried inside prose — GitHub only auto-closes from keywords in the PR body.
+Fill this in per docs/process/testing.md and the github-workflow skill's pr-body
+template. Put each closing keyword on its own line in the PR body, as below, never inside
+prose: GitHub links and auto-closes issues only from keywords in the PR body.
+Keep every "## " heading: the readiness shape in docs/process/work-tracking.md checks them.
 -->
 Closes #<issue>
 <!-- Closes #<issue2>   one line per issue for a multi-issue PR -->

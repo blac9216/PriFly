@@ -17,8 +17,9 @@ repository.
   section as the fallback source.
 - **No distinct reviewer identity is configured** — see
   [work-tracking.md](work-tracking.md)'s "Known identity limitation": the
-  `workflow-main` ruleset requires zero approving reviews and both configured accounts
-  share `project`/`repo` scope, so `author ≠ merger` is a role-separation and
-  review-record convention today, not a GitHub-enforced identity check. Guard: never
+  `workflow-main` ruleset requires zero approving reviews, lets the Admin role bypass it
+  always, and both configured accounts share `project`/`repo` scope, so `author ≠ merger`
+  is a role-separation and review-record convention today, not a GitHub-enforced identity
+  check (follow-up [#123](https://github.com/blac9216/PriFly/issues/123)). Guard: never
   treat a passing required check alone as proof of independent review; check the PR's
   own review/comment history for a distinct-round Reviewer verdict.

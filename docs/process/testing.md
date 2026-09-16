@@ -31,9 +31,10 @@ ran them.
 ## Lint state
 
 `not installed — review-only` (`command -v markdownlint` → exit `1`;
-`command -v markdownlint-cli2` → exit `1`, checked live 2026-09-16). No markdown linter
-is installed on this host; Markdown structure/link correctness is instead covered by
-`check-links.sh` and `check-pointers.sh` above.
+`command -v markdownlint-cli2` → exit `1`, checked 2026-09-16). No markdown linter is
+part of the documented suite or CI; Markdown structure/link correctness is instead covered
+by `check-links.sh` and `check-pointers.sh` above. Whether a given machine has one
+installed belongs in `*.local.md` guidance.
 
 ## Coverage
 
@@ -49,8 +50,9 @@ namespaces. A run removes only its own named resources — see
 
 ## Live testing
 
-Environment-specific recipes belong in `docs/testing.local.md` (untracked); none exists
-yet on this host.
+Environment-specific recipes belong in untracked `*.local.md` guidance (for example
+`docs/testing.local.md`); none is committed. The inputs a live check needs, and the
+blocker reported when one is missing, are in [validation.md](validation.md).
 
 Add exact Go unit, integration, `go vet`/lint, coverage, and sanitization commands in the
 same change that makes each real; keep this table and `.github/workflows/docs-checks.yml`

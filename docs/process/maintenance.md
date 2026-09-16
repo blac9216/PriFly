@@ -6,7 +6,7 @@
 | Agent scratch dir | Machine-local scratch outside the repository tree, under a uniquely-named subdirectory per agent — see [worktrees.md](worktrees.md). |
 | Allowed write locations | The current issue's worktree, the acting agent's own scratch subdirectory, and explicitly authorized generated-output paths (e.g. the audit's own `--out` path). |
 | Test resource prefix | `prifly-<issue-or-attempt>-<run-id>` for any future container, volume, network, namespace, or remote test key. |
-| Host thresholds | No repository-wide numeric thresholds are declared yet beyond the DP4 shared-attempt resource reservations recorded in the [D3 operating contract](https://github.com/blac9216/PriFly/issues/38#issuecomment-5702104540); machine-local guidance may add its own. |
+| Host thresholds | No repository-wide numeric thresholds are declared yet beyond the DP4 shared-attempt resource reservations recorded in the [DP4 operating contract](https://github.com/blac9216/PriFly/issues/38#issuecomment-5702104540); machine-local guidance may add its own. |
 | Shared sequence resources | Timestamped forward-only migration filenames/IDs ([ADR-0020](../adr/0020-use-timestamped-forward-only-migrations.md)); serialize concurrent migration authorship until implementation proves collision-safe allocation. |
 
 Before every parallel wave, compare candidate issues' `area:*` labels
