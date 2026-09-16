@@ -156,8 +156,20 @@ against the committed templates, so the headings live in one place:
 - the issue carries one type label from the Type row of [labels.md](labels.md) and at
   least one label from its `area:*` table;
 - a PR body carries every `## ` heading of
-  [`.github/PULL_REQUEST_TEMPLATE.md`](../../.github/PULL_REQUEST_TEMPLATE.md) and a
-  `Closes #<N>` line.
+  [`.github/PULL_REQUEST_TEMPLATE.md`](../../.github/PULL_REQUEST_TEMPLATE.md) and either
+  a `Closes #<N>` line or the partial-delivery form below.
+
+A PR that deliberately delivers only part of an issue uses the partial-delivery form
+instead of `Closes #<N>`: the body carries a `Refs #<N>` line, names the exact
+remainder not delivered by this PR, and names the issue whose PR will close #<N>. The
+body then carries no closing keyword anywhere — not on its own line and not inside
+prose, since GitHub treats a phrase like "closes #N" in prose as a closing reference
+the same as a dedicated line — for the referenced issue #<N>. The gate accepts this
+form in place of `Closes #<N>`, per the `github-workflow` skill's own convention
+(`references/templates/implementer.md`: "`Closes #<N>` on its own line in the PR
+**body** (or `Refs` + exact remainder)"). [PR #134](https://github.com/blac9216/PriFly/pull/134)
+is the worked example: its body opens with `Refs #57`, names AC2's remainder, and
+names #133 as the issue whose PR closes #57.
 
 Each missing element is reported by name, and the gate stops and asks. Nothing missing is
 passed silently. The shape is necessary, not sufficient: owner release, dependency
