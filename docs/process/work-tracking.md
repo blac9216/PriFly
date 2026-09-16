@@ -9,7 +9,7 @@ records what differs by repository; the skill's own rules are not restated here.
 | Project board | [PriFly #8](https://github.com/users/blac9216/projects/8), owner `blac9216`. |
 | Milestone | [Milestone 2 — Execution handover: PriFly builds PriFly](https://github.com/blac9216/PriFly/milestone/2) holds every released DP4 Work Item and tracking epic. |
 | Epics | `epic`-labelled issues #42–51, one per domain area named in the DP4 delivery index; children link through native GitHub sub-issues. |
-| Issues | Every issue carries a canonical type/priority/size label plus at least one `area:*` lock from [labels.md](labels.md); Work Items additionally carry the section shape of [`.github/ISSUE_TEMPLATE/work-item.md`](../../.github/ISSUE_TEMPLATE/work-item.md), copied from the released DP4 Work Items (see "Readiness shape" below). |
+| Issues | Every issue carries a canonical type label, a `priority:*` label, and at least one `area:*` lock from [labels.md](labels.md), and every released DP4 Work Item and domain epic also carries a `size:*` label; Work Items additionally carry the section shape of [`.github/ISSUE_TEMPLATE/work-item.md`](../../.github/ISSUE_TEMPLATE/work-item.md), copied from the released DP4 Work Items (see "Readiness shape" below). |
 
 Canonical delivery authority (Delivery Baseline, owner phase release, Work Item
 contracts, envelopes) lives in the design set indexed by
