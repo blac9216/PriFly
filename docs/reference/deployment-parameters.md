@@ -53,7 +53,7 @@ recheck trigger in its governing package/profile.
 
 ## Proposed initial execution-handover profile
 
-The following concrete profile is proposed for independent review and exact owner design approval. It does not admit any runtime tuple or release implementation. The preceding RP definitions remain the governing selection/qualification boundaries; this table selects the bounded initial scope and numerical targets before implementation observations. Runtime values still requiring actual identity/compatibility evidence are stated explicitly. Subsequent profile changes preserve prior evidence and require impact/requalification.
+The following concrete profile received independent review and exact owner design approval ([#38 owner approval](https://github.com/blac9216/PriFly/issues/38#issuecomment-5701739109)). It does not admit any runtime tuple or release implementation. The preceding RP definitions remain the governing selection/qualification boundaries; this table selects the bounded initial scope before implementation observations. Runtime values still requiring actual identity/compatibility evidence are stated explicitly. Subsequent profile changes preserve prior evidence and require impact/requalification.
 
 | ID / RP mapping | Proposed selection | Evidence and enforcement / recheck trigger |
 |---|---|---|
