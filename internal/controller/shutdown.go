@@ -12,12 +12,12 @@ import (
 // DefaultShutdownBound is the maximum duration priflyd allows its shutdown
 // hook to run after SIGINT/SIGTERM before giving up and returning an error.
 //
-// D3 fixes no controller-shutdown threshold: profile P9b (governing issue
-// #38 comment 5701521177) only bounds the trusted launcher's HerdR
-// attempt-container lifecycle (10s grace / 30s forced-stop), not this
-// process. This value is therefore UNKNOWN against D3; it is a conservative
-// default flagged for planning, reusing P9b's grace figure as the nearest
-// documented analogue, not a D3-derived guarantee.
+// D3 fixes no controller-shutdown threshold: profile P9b only bounds the
+// trusted launcher's HerdR attempt-container lifecycle (10s grace / 30s
+// forced-stop), not this process. This value is therefore UNKNOWN against
+// D3; it is a conservative default flagged for planning, reusing P9b's
+// grace figure as the nearest documented analogue, not a D3-derived
+// guarantee.
 const DefaultShutdownBound = 10 * time.Second
 
 // ErrShutdownTimedOut is returned by Run when the shutdown hook did not

@@ -21,10 +21,11 @@ the repository root, plus the Go suite that follows it:
 | Mechanical audit | `bash scripts/docs/audit.sh --root . --out <scratch-path>/gap.md` | Repository checkout; writes an ephemeral gap report outside the repository tree — never commit it. |
 | Markdown links/fragments | `bash scripts/docs/check-links.sh --root .` | Repository checkout; Python 3. |
 | Link-checker regression tests | `bash scripts/docs/test-check-links.sh` | Repository checkout; Python 3. |
+| Readiness-checker regression tests | `bash scripts/process/test-check-readiness.sh` | Repository checkout; Bash, Python 3. |
 | Sanitize scan | `gitleaks detect --source . --no-banner` | Repository checkout; `gitleaks` binary on `PATH`. Run before every push — this repository is **public**. |
 | Integration | No command exists until a runnable integration surface lands. | Not configured. |
 
-These are exactly the five `docs-checks.yml` steps plus the sanitize scan; a manifest's
+These are exactly the six `docs-checks.yml` steps plus the sanitize scan; a manifest's
 **Command** field lists these (and the Go suite below, if Go changed) in the order the
 log actually ran them.
 
