@@ -175,19 +175,19 @@ Each missing element is reported by name, and the gate stops and asks. Nothing m
 passed silently. The shape is necessary, not sufficient: owner release, dependency
 conditions, and live predicates still gate dispatch ([validation.md](validation.md)).
 
-The rules above are otherwise checked only by hand-run commands quoted in a PR's
-Suggested Test Steps ([#126](https://github.com/blac9216/PriFly/issues/126)), so
 [`scripts/process/check-readiness.sh`](../../scripts/process/check-readiness.sh) is a
-retained, committed, deterministic checker that derives its required section list from
-the templates named above (`work-item.md`, `PULL_REQUEST_TEMPLATE.md`) and its label
-sets from `labels.md`'s own anchors, instead of hard-coding either, and its own self-test
-(`scripts/process/test-check-readiness.sh`) proves the check's result changes under the
-template-heading and doc-anchor mutations named in #126. Run
-`bash scripts/process/check-readiness.sh --root . --mode issue --body <file|-> --labels
-a,b,c` or `--mode pr --body <file|->` on demand; run
-`bash scripts/process/test-check-readiness.sh` to prove the checker itself still
-detects those regressions. Neither script is wired into CI by this change (tracked
-separately); this section names the checker, not a new rule.
+retained, deterministic checker for the Work Item **issue-body** part of this shape
+([#126](https://github.com/blac9216/PriFly/issues/126)): every `## ` heading of
+`work-item.md`, read from the committed template rather than hard-coded; an
+acceptance-criteria checkbox inside the body's Acceptance Criteria section; and one type
+plus one `area:*` label, read from `labels.md`. It exits 3 if a file it reads is missing
+or unreadable, if the template has no `## ` headings, or if the rule text above or the
+`labels.md` rows it relies on have been reworded. Run
+`bash scripts/process/check-readiness.sh --root . --body <file|-> --labels a,b,c`, and
+`bash scripts/process/test-check-readiness.sh` to prove the checker still detects those
+regressions. PR bodies are not checked by it; that is tracked in
+[#152](https://github.com/blac9216/PriFly/issues/152). Neither script runs in CI yet, and
+this paragraph names a checker, not a new rule.
 
 ## Optional configuration
 
