@@ -202,7 +202,7 @@ pr_body refs "$pr_refs"
 run_case 'PR: Refs form passes' 0 'check-readiness: 3/3 as expected' \
   --root "$root" --body "$fixture_root/pr-refs.md" "${pr[@]}"
 run_case 'PR: Refs remainder and closing issue are printed UNCHECKED' 0 \
-  'UNCHECKED: Refs #57 names the exact remainder and the issue whose PR will close #57' \
+  'UNCHECKED: Refs #57 names the exact remainder and the issue whose PR closes issue #57' \
   --root "$root" --body "$fixture_root/pr-refs.md" "${pr[@]}"
 pr_body neither $'Part of #42\n'
 run_case 'PR: neither a Closes nor a Refs line fails' 1 \

@@ -212,7 +212,7 @@ if mode == 'pr':
         found = [m.group(0) for m in hits if m.group(2) == n]
         check(not found, f"no closing keyword for Refs #{n} anywhere in the body",
               f"found: {found}" if found else "")
-    finish([f"Refs #{n} names the exact remainder and the issue whose PR will close #{n} "
+    finish([f"Refs #{n} names the exact remainder and the issue whose PR closes issue #{n} "
             "(no mechanically checkable form in work-tracking.md; check by hand, #157)"
             for n in refs])
 
