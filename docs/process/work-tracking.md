@@ -180,14 +180,23 @@ retained, deterministic checker for the Work Item **issue-body** part of this sh
 ([#126](https://github.com/blac9216/PriFly/issues/126)): every `## ` heading of
 `work-item.md`, read from the committed template rather than hard-coded; an
 acceptance-criteria checkbox inside the body's Acceptance Criteria section; and one type
-plus one `area:*` label, read from `labels.md`. It exits 3 if a file it reads is missing
-or unreadable, if the template has no `## ` headings, or if the rule text above or the
-`labels.md` rows it relies on have been reworded. Run
+plus one `area:*` label, read from `labels.md`. It exits 2 on a usage error or a missing,
+unreadable or non-UTF-8 body. It exits 3 if a doc or template file it reads is missing,
+unreadable or not UTF-8, if the template has no `## ` headings, or if the rule text above
+or the `labels.md` rows it relies on have been reworded. Run
 `bash scripts/process/check-readiness.sh --root . --body <file|-> --labels a,b,c`, and
 `bash scripts/process/test-check-readiness.sh` to prove the checker still detects those
-regressions. PR bodies are not checked by it; that is tracked in
-[#152](https://github.com/blac9216/PriFly/issues/152). Neither script runs in CI yet, and
-this paragraph names a checker, not a new rule.
+regressions. With `--mode pr --repo blac9216/PriFly` instead of `--labels` it checks a
+**PR body**: every `## ` heading of `PULL_REQUEST_TEMPLATE.md`, a `Closes #<N>` or
+`Refs #<N>` line, and for each `Refs #<N>` no closing keyword for #<N> in the raw body.
+The keywords, their colon and uppercase forms, and the `#<N>` and
+`<owner>/<repository>#<N>` references are the ones GitHub's
+[Linking a pull request to an issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue)
+lists. That page does not say whether code or HTML comments are parsed, so keywords
+there are flagged too. The Refs form's remainder and closing issue are printed as
+`UNCHECKED`: the rule gives them no mechanically checkable form
+([#157](https://github.com/blac9216/PriFly/issues/157)). Neither script runs in CI yet,
+and this paragraph names a checker, not a new rule.
 
 ## Optional configuration
 

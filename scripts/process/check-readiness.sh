@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
-# Readiness-shape checker for Work Item ISSUE bodies (repository workflow check only; not
-# a live-input preflight — see docs/process/work-tracking.md "Readiness shape" and
-# validation.md). Checks an issue body against: every "## " heading of the committed
-# .github/ISSUE_TEMPLATE/work-item.md, an acceptance-criteria checkbox inside that
-# body's Acceptance Criteria section, and one type plus one area:* label as listed in
-# docs/process/labels.md. PR bodies are not checked here (tracked in #152).
-# Exit codes: 0 all checks pass; 1 a check fails; 2 usage error or unreadable body;
-# 3 a doc/template file is missing or unreadable, or a rule anchor it relies on is gone.
+# Readiness-shape checker (repository workflow check only; not a live-input preflight —
+# see docs/process/work-tracking.md "Readiness shape" and validation.md).
+# --mode issue (default): a Work Item issue body against every "## " heading of the
+# committed .github/ISSUE_TEMPLATE/work-item.md, an acceptance-criteria checkbox inside
+# the body's Acceptance Criteria section(s), and one type plus one area:* label as listed
+# in docs/process/labels.md.
+# --mode pr --repo OWNER/NAME: a PR body against every "## " heading of
+# .github/PULL_REQUEST_TEMPLATE.md, a "Closes #<N>" or "Refs #<N>" line, and no closing
+# keyword for any Refs'd #<N>. The Refs form's remainder and closing issue are printed
+# UNCHECKED: the doc gives them no mechanically checkable form (#157).
+# Exit codes: 0 all checks pass; 1 a check fails; 2 usage error, or a missing, unreadable
+# or non-UTF-8 body; 3 a doc/template file is missing, unreadable or not UTF-8, or a rule
+# anchor it relies on is gone.
 set -euo pipefail
 
 ROOT=""
 BODY=""
 LABELS=""
+MODE="issue"
+REPO=""
 
 while (($#)); do
   case "$1" in
@@ -27,8 +34,14 @@ while (($#)); do
       [[ $# -ge 2 ]] || { echo "check-readiness: --labels requires a value" >&2; exit 2; }
       LABELS="$2"; shift 2 ;;
     --labels=*) LABELS="${1#*=}"; shift ;;
+    --mode)
+      [[ $# -ge 2 ]] || { echo "check-readiness: --mode requires a value" >&2; exit 2; }
+      MODE="$2"; shift 2 ;;
+    --repo)
+      [[ $# -ge 2 ]] || { echo "check-readiness: --repo requires a value" >&2; exit 2; }
+      REPO="$2"; shift 2 ;;
     -h|--help)
-      echo "usage: $0 --root R --body FILE|- [--labels a,b,c]"
+      echo "usage: $0 --root R --body FILE|- [--labels a,b,c | --mode pr --repo OWNER/NAME]"
       exit 0
       ;;
     *) echo "check-readiness: unknown argument: $1" >&2; exit 2 ;;
@@ -37,6 +50,9 @@ done
 
 [[ -n "$ROOT" && -d "$ROOT" ]] || { echo "check-readiness: --root must name a directory" >&2; exit 2; }
 ROOT="$(cd "$ROOT" && pwd)"
+[[ "$MODE" == issue || "$MODE" == pr ]] || { echo "check-readiness: --mode must be issue or pr" >&2; exit 2; }
+[[ "$MODE" == issue || "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+  echo "check-readiness: --mode pr requires --repo OWNER/NAME" >&2; exit 2; }
 [[ -n "$BODY" ]] || { echo "check-readiness: --body is required (a file path, or - for stdin)" >&2; exit 2; }
 
 body_file="$BODY"
@@ -53,24 +69,26 @@ trap '[[ -n "$tmp_body" ]] && rm -f "$tmp_body"' EXIT
 [[ -r "$body_file" && ! -d "$body_file" ]] || {
   echo "check-readiness: body file not found or not readable: $body_file" >&2; exit 2; }
 
-python3 - "$ROOT" "$body_file" "$LABELS" <<'PY'
+python3 - "$ROOT" "$body_file" "$LABELS" "$MODE" "$REPO" <<'PY'
 import re
 import sys
 
-root, body_path, labels_arg = sys.argv[1:4]
+root, body_path, labels_arg, mode, repo = sys.argv[1:6]
 
-def read(path):
-    # A missing or unreadable doc/template file fails loudly with exit 3, not a Python
-    # traceback under the exit 1 that means "a check failed".
+def read(path, code=3):
+    # A missing, unreadable or non-UTF-8 file fails loudly with a named message: exit 3
+    # for a doc/template file, exit 2 for the body — never a Python traceback under the
+    # exit 1 that means "a check failed".
     try:
         with open(path, encoding='utf-8') as fh:
             return fh.read()
     except FileNotFoundError:
         sys.stderr.write(f"check-readiness: FILE_NOT_FOUND: {path} does not exist\n")
-        sys.exit(3)
+    except UnicodeDecodeError as exc:
+        sys.stderr.write(f"check-readiness: FILE_NOT_UTF8: {path}: {exc.reason} at byte {exc.start}\n")
     except OSError as exc:
         sys.stderr.write(f"check-readiness: FILE_UNREADABLE: {path}: {exc.strerror}\n")
-        sys.exit(3)
+    sys.exit(code)
 
 work_tracking = read(f"{root}/docs/process/work-tracking.md")
 
@@ -84,6 +102,10 @@ ANCHORS = [
     "at least one acceptance-criteria checkbox (`- [ ]` or `- [x]`)",
     "one type label from the Type row of [labels.md](labels.md) and at\n"
     "  least one label from its `area:*` table",
+    "a PR body carries every `## ` heading of",
+    "a `Closes #<N>` line or the partial-delivery form below",
+    "the body carries a `Refs #<N>` line",
+    "body then carries no closing keyword anywhere",
 ]
 missing_anchors = [a for a in ANCHORS if a not in work_tracking]
 if missing_anchors:
@@ -130,23 +152,24 @@ def heading_list(text):
     return [l[3:].rstrip() for l in clean_lines(text) if l.startswith('## ')]
 
 def section_text(text, heading):
-    # Cleaned lines after the named "## " heading, up to the next "## " heading.
-    lines = clean_lines(text)
-    start = next((i + 1 for i, l in enumerate(lines)
-                  if l.startswith('## ') and l[3:].rstrip() == heading), None)
-    if start is None:
-        return ''
-    end = next((j for j in range(start, len(lines)) if lines[j].startswith('## ')), len(lines))
-    return '\n'.join(lines[start:end])
+    # Cleaned lines under EVERY "## " heading named `heading`, each up to the next "## "
+    # heading: a body that repeats a template heading is checked in all copies (#155).
+    out, inside = [], False
+    for l in clean_lines(text):
+        if l.startswith('## '):
+            inside = l[3:].rstrip() == heading
+        elif inside:
+            out.append(l)
+    return '\n'.join(out)
 
 results = []  # (ok: bool, name: str, detail: str)
 
 def check(ok, name, detail=""):
     results.append((ok, name, detail))
 
-body = read(body_path)
+body = read(body_path, code=2)
 
-template_path = f"{root}/.github/ISSUE_TEMPLATE/work-item.md"
+template_path = f"{root}/.github/{'PULL_REQUEST_TEMPLATE.md' if mode == 'pr' else 'ISSUE_TEMPLATE/work-item.md'}"
 required_headings = heading_list(read(template_path))
 if not required_headings:
     sys.stderr.write(
@@ -159,6 +182,39 @@ body_headings = set(heading_list(body))
 missing = [h for h in required_headings if h not in body_headings]
 check(not missing, "all template sections present",
       "missing: " + ", ".join(missing) if missing else "")
+
+def finish(unchecked=()):
+    passed = sum(1 for ok, _, _ in results if ok)
+    for ok, name, detail in results:
+        print(f"{'OK' if ok else 'MISSING'}: {name}" + (f" ({detail})" if detail else ""))
+    for line in unchecked:
+        print(f"UNCHECKED: {line}")
+    print(f"check-readiness: {passed}/{len(results)} as expected")
+    sys.exit(0 if passed == len(results) else 1)
+
+if mode == 'pr':
+    lines = [l.rstrip() for l in clean_lines(body)]
+    closes = [m.group(1) for l in lines if (m := re.fullmatch(r'Closes #(\d+)', l))]
+    refs = [m.group(1) for l in lines if (m := re.fullmatch(r'Refs #(\d+)', l))]
+    check(bool(closes or refs), "a Closes #<N> line or a Refs #<N> line present",
+          "" if closes or refs else "no line is exactly 'Closes #<N>' or 'Refs #<N>'")
+    # GitHub's "Linking a pull request to an issue" names these nine keywords, says they
+    # "can be followed by colons or in uppercase", and gives the forms KEYWORD #N and
+    # KEYWORD OWNER/REPOSITORY#N. Any case is matched. The page says nothing about code
+    # spans, fenced code or HTML comments, so the RAW body is searched: a keyword quoted
+    # in code is flagged even if GitHub would ignore it (unverified; fails loud, never
+    # silent). An OWNER/REPOSITORY other than --repo names another repository's issue.
+    keyword_re = re.compile(r'\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+'
+                            r'(?:([\w.-]+/[\w.-]+))?#(\d+)\b', re.IGNORECASE)
+    hits = [m for m in keyword_re.finditer(body)
+            if m.group(1) is None or m.group(1).lower() == repo.lower()]
+    for n in refs:
+        found = [m.group(0) for m in hits if m.group(2) == n]
+        check(not found, f"no closing keyword for Refs #{n} anywhere in the body",
+              f"found: {found}" if found else "")
+    finish([f"Refs #{n} names the exact remainder and the issue whose PR closes issue #{n} "
+            "(no mechanically checkable form in work-tracking.md; check by hand, #157)"
+            for n in refs])
 
 ac_heading = next((h for h in required_headings if h.lower().startswith('acceptance criteria')), None)
 check(ac_heading is not None, "template names an Acceptance Criteria heading",
@@ -200,10 +256,5 @@ has_area = bool(given_labels & area_labels)
 check(has_area, "carries one area:* label",
       "" if has_area else f"no label in {sorted(given_labels)} is one of {sorted(area_labels)}")
 
-passed = sum(1 for ok, _, _ in results if ok)
-for ok, name, detail in results:
-    print(f"{'OK' if ok else 'MISSING'}: {name}" + (f" ({detail})" if detail else ""))
-
-print(f"check-readiness: {passed}/{len(results)} as expected")
-sys.exit(0 if passed == len(results) else 1)
+finish()
 PY
