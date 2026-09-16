@@ -141,8 +141,8 @@ review/merge history**: distinct dispatch prompts, a fresh-context Reviewer roun
 the PR/issue comment trail this process produces. It is not a GitHub-verified distinct
 approver identity, and a passing required check is not proof of independent review.
 This is a known limitation, not a guarantee. Provisioning a distinct reviewer identity is
-tracked in [#123](https://github.com/blac9216/PriFly/issues/123), which is in Backlog
-awaiting an owner decision and access; it is not scheduled.
+tracked in [#123](https://github.com/blac9216/PriFly/issues/123), which needs an
+owner-provisioned second GitHub identity.
 
 ## Readiness shape
 
