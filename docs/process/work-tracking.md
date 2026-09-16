@@ -175,6 +175,20 @@ Each missing element is reported by name, and the gate stops and asks. Nothing m
 passed silently. The shape is necessary, not sufficient: owner release, dependency
 conditions, and live predicates still gate dispatch ([validation.md](validation.md)).
 
+[`scripts/process/check-readiness.sh`](../../scripts/process/check-readiness.sh) is a
+retained, deterministic checker for the Work Item **issue-body** part of this shape
+([#126](https://github.com/blac9216/PriFly/issues/126)): every `## ` heading of
+`work-item.md`, read from the committed template rather than hard-coded; an
+acceptance-criteria checkbox inside the body's Acceptance Criteria section; and one type
+plus one `area:*` label, read from `labels.md`. It exits 3 if a file it reads is missing
+or unreadable, if the template has no `## ` headings, or if the rule text above or the
+`labels.md` rows it relies on have been reworded. Run
+`bash scripts/process/check-readiness.sh --root . --body <file|-> --labels a,b,c`, and
+`bash scripts/process/test-check-readiness.sh` to prove the checker still detects those
+regressions. PR bodies are not checked by it; that is tracked in
+[#152](https://github.com/blac9216/PriFly/issues/152). Neither script runs in CI yet, and
+this paragraph names a checker, not a new rule.
+
 ## Optional configuration
 
 Session-log archive: blac9216/workflow-logs
