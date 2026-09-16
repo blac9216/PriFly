@@ -15,7 +15,7 @@ belongs in untracked `*.local.md` guidance and never in this committed file.
 | Implementer | `issue-<N>` (e.g. `issue-56`), created with `git worktree add <root>/issue-<N> -b <N>-<slug>` | `<N>-<slug>` |
 | Fix-round and rebase agents | the existing author worktree `issue-<N>`, so the branch continues | the PR's head branch |
 | Reviewer (`github-pr-review` Step 2) | its own `review-pr<P>`, created with `git worktree add <root>/review-pr<P> origin/<head branch>` and removed when the review ends | detached at the PR head, never committed except under the reviewer-applied note gate |
-| Merge-verifier | its own review worktree, named by its dispatch | detached at the PR head |
+| Merge-verifier | its own `review-pr<P>` (or the path its dispatch names), created at the head it verifies | detached at that head; commits only `git revert`s of reviewer-applied commits that fail the gate |
 
 A reviewer or merge-verifier never works in, commits to, rebases, or pushes from the
 author worktree. That separation of worktrees is part of the Implementer/Reviewer role
