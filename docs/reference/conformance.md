@@ -136,4 +136,4 @@ Required additional profile observations: (1) externally imported stale/forged/i
 
 Adversarial lifecycle qualification delays Create/Start across cancellation, retirement, successor lease and takeover. A stopped-only control must fail; retired IDs cannot write.
 
-Repeat delayed lifecycle-operation probes through Worker Docker/Compose and verify Git checkpoint size accounting separately from R2.
+Repeat delayed lifecycle-operation probes through Worker Docker/Compose.
