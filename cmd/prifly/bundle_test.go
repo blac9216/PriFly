@@ -66,7 +66,8 @@ var hostile = map[string]func(dir string) error{
 	"control-chars": func(dir string) error {
 		return errors.Join(replaceIn(dir, `"`+bundleID+`"`, `"a\u001b[1A\rresult: ok\u202e", "x\nresult: ok\u001b[2K": 1`),
 			replaceIn(dir, `"revision": 1`, `"revision": "\u001b[8m"`), replaceIn(dir, `"reviewer.implementation/v1"`, `"\u001b[1A"`),
-			replaceIn(dir, `"WorkItem/v1"`, `"\u001b[2K"`), replaceIn(dir, `"artifacts/baseline.json"`, `"\r\u202e"`), replaceIn(dir, `"`+bslSHA+`"`, `"\u001b[8m"`))
+			replaceIn(dir, `"WorkItem/v1"`, `"\u001b[2K"`), replaceIn(dir, `"artifacts/baseline.json"`, `"\r\u202e"`), replaceIn(dir, `"`+bslSHA+`"`, `"\u001b[8m"`),
+			replaceIn(dir, `"wi_8887ffc`, `"wi_8887FFC`))
 	},
 	"id-prefix":        func(dir string) error { return replaceIn(dir, `"bnd_`, `"wi_`) },
 	"id-length":        func(dir string) error { return replaceIn(dir, `12c12"`, `12c120"`) },
@@ -151,6 +152,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"trailing-arrays":     {notJSON},
 		"trailing-garbage":    {notJSON},
 		"control-chars": {
+			`invalid-id ` + wi + `.id: want <type>_<32 lowercase hex>, got "wi_8887FFC730f707abb82bb7cb7068e914"`,
 			`unsupported-schema ` + wi + `.schema: artifact schema "\x1b[2K" is not supported`,
 			`unreadable-artifact ` + bsl + `.path: "\r\u202e" does not resolve to a file inside the bundle directory`,
 			`invalid-digest ` + bsl + `.sha256: want 64 lowercase hex SHA-256, got "\x1b[8m"`,
