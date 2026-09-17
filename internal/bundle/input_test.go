@@ -408,6 +408,53 @@ func TestCheckerBudgetBuysSmallestPaths(t *testing.T) {
 	}
 }
 
+// TestCheckerBudgetBreaksATieByCodeThenDetail pins the part of the rule that
+// takes effect only at the cut boundary. Path order decides which findings the
+// budget buys, but two findings can share a path, and then order compares their
+// codes and then their details — so when the last slot is contested the code is
+// consulted, which a reader of "path order and nothing else" would not expect.
+//
+// Each case fills all but one slot with findings at paths that sort before the
+// contested one, then adds the two contestants at a single path in the order
+// that would win if arrival order counted. The one kept is written out.
+func TestCheckerBudgetBreaksATieByCodeThenDetail(t *testing.T) {
+	const contested = "$.artifacts[9999].content.dependencies[0].work_item"
+	for _, c := range []struct {
+		name       string
+		late, keep Diagnostic
+	}{{
+		// The details are chosen to disagree with the codes, so this case
+		// separates a tie-break that reads the code from one that reads the
+		// detail; with both agreeing it would pass either way.
+		name: "the code decides, against the detail order",
+		late: Diagnostic{contested, "unresolved-work-item", "a"},
+		keep: Diagnostic{contested, "dependency-cycle", "z"},
+	}, {
+		name: "the detail decides when the code ties",
+		late: Diagnostic{contested, "dependency-cycle", "no artifact in this bundle has ID b"},
+		keep: Diagnostic{contested, "dependency-cycle", "no artifact in this bundle has ID a"},
+	}} {
+		t.Run(c.name, func(t *testing.T) {
+			var ch checker
+			for i := range MaxDiagnostics - 1 { // every slot but the contested one
+				ch.add(fmt.Sprintf("$.artifacts[%04d].content.dependencies[0].work_item", i), "dependency-cycle", "Work Items depend in a cycle")
+			}
+			ch.add(c.late.Path, c.late.Code, "%s", c.late.Detail) // added first, and cut all the same
+			ch.add(c.keep.Path, c.keep.Code, "%s", c.keep.Detail)
+			got := ch.done(true)
+			if len(got) != MaxDiagnostics+1 || !got[len(got)-1].Incomplete() {
+				t.Fatalf("done lists %d diagnostics ending %v, want %d ending incomplete", len(got), got[len(got)-1], MaxDiagnostics+1)
+			}
+			if last := got[MaxDiagnostics-1]; last != c.keep {
+				t.Errorf("the last listed diagnostic is %v, want %v: the contested slot went to the wrong one of the two at %s", last, c.keep, contested)
+			}
+			if slices.Contains(got, c.late) {
+				t.Errorf("%v is listed, and it sorts after %v at the same path", c.late, c.keep)
+			}
+		})
+	}
+}
+
 // TestCheckerBudgetIsATotalOverCodes pins the other half of that rule: what
 // trips the cut is MaxDiagnostics findings of every code together, not a quota
 // per code. One finding under the bound is listed whole with nothing appended;

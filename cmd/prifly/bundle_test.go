@@ -969,6 +969,15 @@ func fileImports(f *ast.File) (byName map[string]string, dotted []string) {
 // quotesRaw reports whether the function named sel of the package at path
 // leaves printable non-ASCII raw: a strconv quoting call that is not one of the
 // ToASCII ones. path is the resolved import path, so an alias changes nothing.
+//
+// Two limits of this rule, stated rather than left to be found. It resolves one
+// hop: the package is read from the imports of the file being inspected, so a
+// quoting call wrapped in a third package is invisible here — the shape
+// bundle.Quote itself has, safely, and the shape a future sibling wrapper built
+// on strconv.Quote would have. Closing that needs type information rather than
+// an import list. And a plus-flagged q verb is reported by the directive rule
+// although it is strconv.QuoteToASCII and would be safe: nothing writes it, and
+// a rule that admits a spelling is the kind of rule these two replaced.
 func quotesRaw(path, sel string) bool {
 	return path == "strconv" && !strings.HasSuffix(sel, "ToASCII") &&
 		(strings.HasPrefix(sel, "Quote") || strings.HasPrefix(sel, "AppendQuote"))

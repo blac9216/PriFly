@@ -159,6 +159,14 @@ func TestCommandRendersASCII(t *testing.T) {
 	if parsed < 2 {
 		t.Errorf("parsed %d non-test files of cmd/prifly, want at least 2", parsed)
 	}
+	// What the count pins is that a site cannot be added silently, not that a
+	// site prints safely: a new print site rendering operator-supplied text with
+	// a plain %s is green once its author records the count here. That is why the
+	// message below leads with the case to add and closes with the count — the
+	// cheapest reading of it is the one that covers the new site. The count also
+	// knows only these five spellings, so a writer that is not one of them is
+	// left to TestBundleImportsNoNetworkOrProcess, which rejects a .Write or
+	// .WriteString selector for its own reasons.
 	for _, c := range []struct {
 		name string
 		want int
