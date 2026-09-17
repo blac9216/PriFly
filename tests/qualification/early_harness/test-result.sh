@@ -59,6 +59,21 @@ case_ "writer between stop and observed" 'if .writer == "detached" and .run == "
 case_ "detached writer never started" 'select(.writer != "detached")' 1 "REJECT FALSE-SUCCESS codex-cli: detached writer never observed before stop"
 case_ "writer seen once before stop" 'select(.writer != "docker" or .t != 5200)' 1 "REJECT FALSE-SUCCESS claude-code: docker writer seen once before stop; its cadence is unknown"
 case_ "one candidate only" 'select(.run != "b2" and .harness != "claude-code")' 1 "REJECT MISSING-CANDIDATE claude-code: no launch of exact version 2.1.268"
+# boundaries (#256): a stamp equal to its bound is inside it, one ms past it is outside
+case_ "writer stamp at stop" 'if .run == "a1" and .writer == "detached" and .t == 1200 then .t = 1300 else . end' 0 "VERDICT: expected observations for both candidates (local trace only; not a live PASS)"
+case_ "writer stamp one ms after stop" 'if .run == "a1" and .writer == "detached" and .t == 1200 then .t = 1301 else . end' 1 "REJECT DETACHED-WRITER codex-cli: detached writer wrote 1 sentinel(s) after stop"
+case_ "result at launch" "if $A1 \"result\" then .t = 1000 else . end" 0 "VERDICT: expected observations for both candidates (local trace only; not a live PASS)"
+case_ "result one ms before launch" "if $A1 \"result\" then .t = 999 else . end" 1 "REJECT STALE-RESULT codex-cli: result outside its run's launch..stop interval"
+case_ "result at stop" "if $A1 \"result\" then .t = 1300 else . end" 0 "VERDICT: expected observations for both candidates (local trace only; not a live PASS)"
+case_ "result one ms after stop" "if $A1 \"result\" then .t = 1301 else . end" 1 "REJECT STALE-RESULT codex-cli: result outside its run's launch..stop interval"
+case_ "observation equal to the window" "if $A1 \"observed\" then .t = 1600 else . end" 0 "VERDICT: expected observations for both candidates (local trace only; not a live PASS)"
+case_ "cadence equal to the window" 'if .ev == "trace" then .observe_ms = 100 else . end' 0 "VERDICT: expected observations for both candidates (local trace only; not a live PASS)"
+case_ "cadence one ms over the window" 'if .ev == "trace" then .observe_ms = 99 else . end' 1 "REJECT FALSE-SUCCESS codex-cli: declared window 99ms is shorter than loop writer cadence 100ms"
+case_ "stop equal to launch" "if $A1 \"stop\" then .t = 1000 else . end" 1 "REJECT STALE-RESULT codex-cli: result outside its run's launch..stop interval"
+case_ "result from another run then a malformed line" "if $B2 \"result\" then .run = \"ff\" else . end" 2 "REJECT STALE-RESULT -: result for run ff before or without its launch" '$s/}$//'
+set +e; "$work/result" "$work/success.jsonl" "$work/success.jsonl" >"$work/usage.out" 2>&1; rc=$?; set -e
+if [[ "$rc" == 2 ]] && grep -qxF "result: usage: BIN TRACE <nil>" "$work/usage.out"; then echo "ok   two-argument usage"; else
+  echo "FAIL two-argument usage: exit $rc (want 2)"; sed 's/^/     | /' "$work/usage.out"; fails=$((fails + 1)); fi
 # exit 2: the trace grammar in result.go's header, one case per refused shape
 case_ "unknown writer name" 'if .writer == "docker" then .writer = "docker2" else . end' 2 "result: line 14: malformed event: unknown sentinel value"
 case_ "unknown access target" 'if .target == "herdr" then .target = "herdr2" else . end' 2 "result: line 4: malformed event: unknown access value"

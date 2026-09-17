@@ -9,12 +9,13 @@
 // (fields below); t, live and observe_ms are integers >= 0, every other value a non-empty
 // string; target, outcome and writer take the listed values. Line 1, and no other, is the
 // early-trace/v1 header. Each launch is a declared candidate at its exact version, at most
-// once per candidate and per run; every other event names a run launched on an earlier
-// line. Per run, stop follows launch, observed follows stop and inventory follows observed,
-// each at most once, access at most once per target and before the run's stop line, and
-// none is stamped before that predecessor; each writer's sentinel stamps strictly increase
-// line by line. A missing
-// candidate launch and the result count and interval are judged (exit 1), not malformed.
+// once per candidate and per run; every other event except a result names a run launched
+// on an earlier line. Per run, stop follows launch, observed follows stop and inventory
+// follows observed, each at most once, access at most once per target and before the run's
+// stop line, and none is stamped before that predecessor; each writer's sentinel stamps
+// strictly increase line by line. A missing candidate launch, a result for a run not
+// launched on an earlier line (STALE-RESULT), and the result count and interval are judged
+// (exit 1), not malformed; a malformed line after such a finding still exits 2.
 // Covers, per candidate: launch at the exact pinned version; E1 denied engine, HerdR and
 // other-workspace access; one fixed typed result inside launch..stop; E4 loop, detached and
 // docker writers each seen at least twice before stop, none after it, a post-stop window
