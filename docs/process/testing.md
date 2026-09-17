@@ -88,6 +88,9 @@ none is a live PASS.
 | Evaluator vet | `go vet scripts/qualification/early/result.go` | Pinned `go` first on `PATH`; `result.go` is `//go:build ignore`, so `go vet ./...` skips it. |
 | Evaluator proof | `bash tests/qualification/early_harness/test-result.sh` | Same; `jq`. Builds `result.go` under `${TMPDIR:-/tmp}`; prints one `ok` line per case and `failures: 0`. |
 | Harness proof | `bash tests/qualification/early_harness/test-harness.sh` | Same; `python3`, `setsid`, `pgrep`, the `en_US.UTF-8` locale, and the namespaces above; `TMPDIR` with no upper case (#240). Prints one `ok` line per check and `failures: 0`. |
+| Publication input proof | `bash tests/qualification/early_publication/test-input.sh` | Pinned `go` first on `PATH`; `jq`. Builds `fixture.go` under `${TMPDIR:-/tmp}`; no namespaces, locale or network. Prints one `ok` line per case and `0 failed`. |
+| Publication evaluator proof | `bash tests/qualification/early_publication/test-fixture.sh` | Same; also `sha256sum` and `timeout`. Prints one `ok` line per case and `0 failed`. |
+| Publication runner proof | `bash tests/qualification/early_publication/test-publication.sh` | Same. Runs `scripts/qualification/early/publication.sh` against the fake probe and placeholder manifest in `tests/qualification/early_publication/`, most groups on a virtual clock (`PATH` shims for `date`, `sleep` and `timeout`) and one on the real clock over a procedure scaled to four commands; no Litestream, R2, credential, network or real run. The slowest step of the job by a wide margin, which is why its `timeout-minutes` is 25. Prints one `ok` line per case and `0 failed`. |
 
 ## Lint state
 
