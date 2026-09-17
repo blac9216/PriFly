@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 # Local fake launcher for test-harness.sh: no harness, provider, network, engine or R2.
 # FAKE_MODE: ok | stop-only | stop-only-slow | engine | herdr | other-workspace | stale |
-# untyped | no-detached | garbage | stop-fails-once | signal-term | signal-int | signal-hup |
-# signal-twice | signal-group | signal-group-twice | hang-probe | hang-result | hang-writers |
-# hang-stop | hang-inventory;
-# a mode named like a probe target leaks that target. Each probe appends "<target> <path>" to
-# $FAKE_STATE/probes. Access probes run in a private user+mount namespace that hides the
-# target unless the mode leaks it; if unshare or mount fails the probe exits non-zero,
-# never "denied". Writers are real local processes (the "docker" one is a labelled
-# stand-in, no engine), each leading its own session; their pids go to
-# $FAKE_STATE/<run>.pids, and stop kills each writer's whole process group, its sleep too.
-# stop-only stops only the loop writer; -slow writes every 20s, so the warm-up times out;
-# signal-sig sends SIG to the runner (this call's grandparent, past timeout; refused unless
-# its argv holds --launcher) once the writers run; signal-twice sends TERM there, then its stop sends
-# INT and HUP to the runner (only while that pid is still the runner) and takes 3s before
-# stopping. signal-group[-twice] sends TERM there, then its stop and its inventory each send
-# INT and HUP once [twice] to the runner's process group (refused unless the runner leads
-# that group, so the suite is never hit), 1.5s apart. hang-VERB does that call's work; the
-# case's first hung call also starts a sleep 20 in its own session holding this call's stdout
-# (added to the run's pids, so stop kills it); then the call ignores TERM and waits on a
-# sleep 20 child, which inherits that and outlives 2D in the call's process group. Every call
-# appends its pid to $FAKE_STATE/launchers and "<verb> <epoch-ms>" to $FAKE_STATE/t.
+# untyped | no-detached | garbage | stop-fails-once | signal-term | signal-int |
+# signal-hup | signal-twice | signal-group | signal-group-twice | hang-probe | hang-result |
+# hang-writers | hang-stop | hang-inventory; a mode named like a probe target leaks that
+# target. Each probe appends "<target> <path>" to $FAKE_STATE/probes. Access probes run in a
+# private user+mount namespace that hides the target unless the mode leaks it; if unshare or
+# mount fails the probe exits non-zero, never "denied". Writers are real local processes
+# (the "docker" one is a labelled stand-in, no engine), each leading its own session; their
+# pids go to $FAKE_STATE/<run>.pids, and stop kills each writer's whole process group, its
+# sleep too. stop-only stops only the loop writer; -slow writes every 20s, so the warm-up
+# times out; signal-sig sends SIG to the runner (this call's grandparent, past timeout;
+# refused unless its argv holds --launcher) once the writers run; signal-twice sends TERM
+# there, then its stop sends INT and HUP to the runner (only while that pid is still the
+# runner) and takes 3s before stopping. signal-group[-twice] sends TERM there, then its stop
+# and its inventory each send INT and HUP once [twice] to the runner's process group
+# (refused unless the runner leads that group, so the suite is never hit), 1.5s apart.
+# hang-VERB does that call's work; the case's first hung call also starts a sleep 20 in its
+# own session holding this call's stdout (added to the run's pids, so stop kills it); then
+# the call ignores TERM and waits on a sleep 20 child, which inherits that and outlives 2D
+# in the call's process group. Every call appends its pid to $FAKE_STATE/launchers and
+# "<verb> <epoch-ms>" to $FAKE_STATE/t.
 # shellcheck disable=SC2016  # the sh -c bodies expand inside the child shell
 set -euo pipefail
 st="$FAKE_STATE" mode="$FAKE_MODE" verb="$1"
