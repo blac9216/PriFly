@@ -91,6 +91,17 @@ var hostile = map[string]func(dir string) error{
 	"artifact-id-pattern":    func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, `"wi_8887FFC`) },
 	"digest-control-suffix":  func(dir string) error { return replaceIn(dir, wiSHA+`"`, wiSHA+`\u001b[2K\rresult: ok"`) },
 	"non-string-jobs":        func(dir string) error { return replaceIn(dir, `"jobs": [`, `"jobs": [7, null, {"x": 1}, `) },
+	"invalid-artifact-revision": func(dir string) error { // referenced by the work item, which names revision 1
+		return replaceIn(dir, `a5a", "revision": 1, "schema"`, `a5a", "revision": 0, "schema"`)
+	},
+	"duplicate-key-trailing": func(dir string) error {
+		return errors.Join(replaceIn(dir, `"revision": 1`, `"revision": 1, "revision": 1`), replaceIn(dir, "\n}\n", "\n}\n}"))
+	},
+	"invalid-utf8": func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, "\"wi_\xff\xfe8887ffc") },
+	"lone-surrogate": func(dir string) error { // a high, a low before a pair, and a pair beside an escaped backslash
+		return errors.Join(replaceIn(dir, `"bnd_`, `"bnd_\ud800`), replaceIn(dir, `"reviewer.implementation/v1"`, `"\udc00\ud83d\ude00"`),
+			replaceIn(dir, `"WorkItem/v1"`, `"\ud83d\ude00\\ud800"`))
+	},
 }
 
 const (
@@ -113,6 +124,7 @@ func replaceIn(dir, old, new string) error {
 func TestBundleInspectFixtures(t *testing.T) {
 	const (
 		notPartOf  = ": field is not part of ExternalPlanningBundle/v1"
+		repeated   = ": key repeats an earlier key of this object"
 		notJSON    = "invalid-json $: bundle.json is not a single JSON value"
 		notObject  = "invalid-type $: want object"
 		unresolved = "unreadable-bundle $: bundle.json does not resolve to a file inside the bundle directory"
@@ -120,7 +132,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 		baseline   = "unreadable-artifact " + bsl + `.path: "artifacts/baseline.json" `
 	)
 	for variant, want := range map[string][]string{
-		"valid":           {"result: ok manifest_sha256=fbc1794d24f6d94d47c2d62021734bf5efdea5d34093f27d6bd905000f546220 (nothing staged or started)"},
+		"valid":           {"result: ok manifest_sha256=6f358423ad86a871c441a2bac7c0e1c7d21f9ba8b4c05e7a9b318d1bfb1620d4 (nothing staged or started)"},
 		"tampered-digest": {"digest-mismatch " + wi + `.sha256: declared "` + wiSHA + `", exact bytes hash to be9861302628ee7be1c9586b626e6d9ecf1403d9dec73e1f148e037140a1ade6`},
 		"unsupported-version": {
 			"unsupported-schema " + bsl + `.schema: artifact schema "Baseline/v2" is not supported`,
@@ -128,22 +140,46 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"unsupported-bundle-schema": {`unsupported-schema $.schema: want "ExternalPlanningBundle/v1", got "ExternalPlanningBundle/v2\x1b[2K"`},
 		"unsupported-authority-field": {
 			"unknown-field " + wi + ".factory_attempt_id" + notPartOf,
-			"unknown-field " + bsl + ".refs" + notPartOf,
 			"unknown-field $.dispatch_eligible" + notPartOf,
 			"unknown-field $.owner_release_confirmed" + notPartOf,
 			"unknown-field $.refs" + notPartOf},
 		"malformed-identity": {
 			`invalid-id ` + wi + `.id: want wi_<32 lowercase hex>, got "wi_8887ffc730f707abb82bb7cb7068e9140"`,
 			"invalid-type " + wi + ".path: want string",
+			"missing-field " + wi + ".refs: required field is absent",
 			`invalid-revision ` + wi + `.revision: want integer >= 1, got "1"`,
 			`invalid-id ` + bsl + `.id: want bsl_<32 lowercase hex>, got "wi_6e73c229223db574a3c8fa28dd5a1a5a"`,
 			"unreadable-artifact " + bsl + `.path: "../valid/artifacts/baseline.json" does not resolve to a file inside the bundle directory`,
+			"missing-field " + bsl + ".refs: required field is absent",
 			"missing-field " + bsl + ".revision: required field is absent",
 			"invalid-digest " + bsl + `.sha256: want 64 lowercase hex SHA-256, got "70E2A30E1B5A5D53B311FAF4E2EB50ACAED9C4BE464FDCA8F8EB72C6416EFE34"`,
 			"invalid-type $.artifacts[2]: want object",
 			`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "id: ` + bundleID + `"`,
 			"invalid-type $.jobs: want array",
 			"invalid-revision $.revision: want integer >= 1, got 0"},
+		"missing-reference": {
+			"unresolved-reference " + wi + `.refs[0].id: no artifact in this bundle has ID "wi_b171b88de6c22604fb5f583cc13b1fbe"`,
+			"reference-revision-mismatch " + wi + ".refs[1].revision: reference names 2, artifact " + bsl + " has revision 1",
+			"reference-digest-mismatch " + wi + `.refs[2].sha256: reference names "` + wiSHA + `", artifact ` + bsl + ` declares "` + bslSHA + `"`,
+			"unknown-field " + wi + ".refs[3].dispatch_eligible" + notPartOf,
+			"invalid-id " + wi + `.refs[3].id: want <type>_<32 lowercase hex>, got "bsl_6E73c229223db574a3c8fa28dd5a1a5a"`,
+			"invalid-revision " + wi + ".refs[3].revision: want integer >= 1, got 0",
+			"invalid-digest " + wi + `.refs[3].sha256: want 64 lowercase hex SHA-256, got "70E2A30E1B5A5D53B311FAF4E2EB50ACAED9C4BE464FDCA8F8EB72C6416EFE34"`,
+			"reference-revision-mismatch " + bsl + ".refs[0].revision: reference names 3, artifact " + wi + " has revision 1",
+			"reference-digest-mismatch " + bsl + `.refs[0].sha256: reference names "` + bslSHA + `", artifact ` + wi + ` declares "` + wiSHA + `"`},
+		"invalid-artifact-revision": {"invalid-revision " + bsl + ".revision: want integer >= 1, got 0"},
+		"duplicate-key-trailing":    {notJSON, "duplicate-key $.revision" + repeated},
+		"duplicate-id":              {`duplicate-id $.artifacts[2].id: artifact ID "wi_8887ffc730f707abb82bb7cb7068e914" is already declared at ` + wi + ".id"},
+		"duplicate-key": {
+			"duplicate-key " + wi + ".refs[0].id" + repeated,
+			"duplicate-key " + wi + ".sha256" + repeated,
+			"duplicate-key " + bsl + ".refs" + repeated,
+			"duplicate-key $.schema" + repeated,
+			`duplicate-key $["x\x1b[2K"]` + repeated},
+		"invalid-utf8": {"invalid-string " + wi + ".id: string is not valid UTF-8"},
+		"lone-surrogate": {
+			"invalid-string $.bundle_id: string escapes an unpaired surrogate",
+			"invalid-string $.jobs[1]: string escapes an unpaired surrogate"},
 		"digest-control-suffix": {`invalid-digest ` + wi + `.sha256: want 64 lowercase hex SHA-256, got "` + wiSHA + `\x1b[2K\rresult: ok"`},
 		"non-string-jobs": {
 			"unsupported-job $.jobs[0]: job/version 7 is not supported",
@@ -160,9 +196,9 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"trailing-garbage":    {notJSON},
 		"control-chars": {
 			`invalid-id ` + wi + `.id: want <type>_<32 lowercase hex>, got "wi_8887FFC730f707abb82bb7cb7068e914"`,
+			`invalid-digest ` + wi + `.refs[0].sha256: want 64 lowercase hex SHA-256, got "\x1b[8m"`,
 			`unsupported-schema ` + wi + `.schema: artifact schema "\x1b[2K" is not supported`,
 			`unreadable-artifact ` + bsl + `.path: "\r\u202e" does not resolve to a file inside the bundle directory`,
-			`invalid-digest ` + bsl + `.sha256: want 64 lowercase hex SHA-256, got "\x1b[8m"`,
 			`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "a\x1b[1A\rresult: ok\u202e"`,
 			`unsupported-job $.jobs[1]: job/version "\x1b[1A" is not supported`,
 			`invalid-revision $.revision: want integer >= 1, got "\x1b[8m"`,
@@ -245,7 +281,7 @@ func TestBundleUsageErrors(t *testing.T) {
 // that writes files or starts processes.
 func TestBundleImportsNoNetworkOrProcess(t *testing.T) {
 	const module = "github.com/blac9216/PriFly/"
-	allowed := []string{"bytes", "crypto/sha256", "encoding/json", "fmt", "io", "os", "regexp", "slices", "strconv", "strings"}
+	allowed := []string{"bytes", "crypto/sha256", "encoding/json", "fmt", "io", "os", "regexp", "slices", "strconv", "strings", "unicode/utf8"}
 	forbidden := []string{"StartProcess", "Command", "CommandContext", "Exec", "ForkExec", "WriteFile", "Create", "CreateTemp",
 		"OpenFile", "Mkdir", "MkdirAll", "MkdirTemp", "Remove", "RemoveAll", "Rename", "Link", "Symlink", "Chmod", "Chown",
 		"Lchown", "Chtimes", "Truncate", "Write", "WriteAt", "WriteString", "CopyFS"}

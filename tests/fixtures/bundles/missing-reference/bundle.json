@@ -1,0 +1,17 @@
+{
+  "schema": "ExternalPlanningBundle/v1",
+  "bundle_id": "bnd_8d0e1c6f026fef7621a0c7b017f12c12",
+  "revision": 1,
+  "jobs": ["implementer.implementation/v1", "reviewer.implementation/v1"],
+  "artifacts": [
+    {"id": "wi_8887ffc730f707abb82bb7cb7068e914", "revision": 1, "schema": "WorkItem/v1", "path": "artifacts/work-item.json", "sha256": "e7d95ce6f478a7f82dbca4bee40b67d11efe93cdb245a22a03a28703024fa143", "refs": [
+      {"id": "wi_b171b88de6c22604fb5f583cc13b1fbe", "revision": 1, "sha256": "e7d95ce6f478a7f82dbca4bee40b67d11efe93cdb245a22a03a28703024fa143"},
+      {"id": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "revision": 2, "sha256": "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34"},
+      {"id": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "revision": 1, "sha256": "e7d95ce6f478a7f82dbca4bee40b67d11efe93cdb245a22a03a28703024fa143"},
+      {"id": "bsl_6E73c229223db574a3c8fa28dd5a1a5a", "revision": 0, "sha256": "70E2A30E1B5A5D53B311FAF4E2EB50ACAED9C4BE464FDCA8F8EB72C6416EFE34", "dispatch_eligible": true}
+    ]},
+    {"id": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "revision": 1, "schema": "Baseline/v1", "path": "artifacts/baseline.json", "sha256": "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34", "refs": [
+      {"id": "wi_8887ffc730f707abb82bb7cb7068e914", "revision": 3, "sha256": "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34"}
+    ]}
+  ]
+}

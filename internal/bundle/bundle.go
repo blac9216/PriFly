@@ -75,22 +75,38 @@ func (c *checker) str(m map[string]any, path, key string) (string, bool) {
 }
 
 // id checks a typed ID with the given type prefix; prefix "" (an unsupported
-// artifact schema) accepts any type prefix.
-func (c *checker) id(m map[string]any, path, key, prefix string) {
+// artifact schema or a reference) accepts any type prefix. It returns the ID,
+// or "" when it is absent or invalid.
+func (c *checker) id(m map[string]any, path, key, prefix string) string {
 	s, ok := c.str(m, path, key)
 	if g := idRE.FindStringSubmatch(s); ok && (g == nil || prefix != "" && g[1] != prefix) {
 		if prefix == "" {
 			prefix = "<type>"
 		}
 		c.add(path+"."+key, "invalid-id", "want %s_<32 lowercase hex>, got %s", prefix, Quote(s))
+		return ""
 	}
+	return s
 }
 
-func (c *checker) revision(m map[string]any, path, key string) {
+// revision checks a revision, returning it, or "" when it is absent or invalid.
+func (c *checker) revision(m map[string]any, path, key string) string {
 	n, ok := m[key].(json.Number)
 	if _, present := m[key]; present && (!ok || !revisionRE.MatchString(n.String())) {
 		c.add(path+"."+key, "invalid-revision", "want integer >= 1, got %s", Quote(m[key]))
+		return ""
 	}
+	return n.String()
+}
+
+// digest checks a SHA-256 digest, returning it, or "" when absent or invalid.
+func (c *checker) digest(m map[string]any, path, key string) string {
+	s, ok := c.str(m, path, key)
+	if ok && !digestRE.MatchString(s) {
+		c.add(path+"."+key, "invalid-digest", "want 64 lowercase hex SHA-256, got %s", Quote(s))
+		return ""
+	}
+	return s
 }
 
 // list returns an array field, reporting a mistyped one.
@@ -102,30 +118,65 @@ func (c *checker) list(m map[string]any, path, key string) []any {
 	return l
 }
 
-// artifact checks one artifacts[] entry at path p and compares the SHA-256 of
-// its file's exact bytes, read through ReadRegular, with the declared digest.
-func (c *checker) artifact(root *os.Root, p string, a any) {
-	m := c.object(a, p, "id", "revision", "schema", "path", "sha256")
+// identity is an artifact's or a reference's ID+revision+digest at a path; a
+// component that is absent or invalid is "" and never compared.
+type identity struct{ path, id, revision, digest string }
+
+// ident checks the id, revision and sha256 fields of m at path p.
+func (c *checker) ident(m map[string]any, p, prefix string) identity {
+	return identity{p, c.id(m, p, "id", prefix), c.revision(m, p, "revision"), c.digest(m, p, "sha256")}
+}
+
+// artifact checks one artifacts[] entry at path p, compares the SHA-256 of its
+// file's exact bytes, read through ReadRegular, with the declared digest, and
+// returns the artifact's identity and its references' identities.
+func (c *checker) artifact(root *os.Root, p string, a any) (self identity, refs []identity) {
+	m := c.object(a, p, "id", "revision", "schema", "path", "sha256", "refs")
 	schema, isString := c.str(m, p, "schema")
 	prefix, supported := artifactSchemas[schema]
 	if isString && !supported {
 		c.add(p+".schema", "unsupported-schema", "artifact schema %s is not supported", Quote(schema))
 	}
-	c.id(m, p, "id", prefix)
-	c.revision(m, p, "revision")
-	want, wantOK := c.str(m, p, "sha256")
-	if wantOK && !digestRE.MatchString(want) {
-		c.add(p+".sha256", "invalid-digest", "want 64 lowercase hex SHA-256, got %s", Quote(want))
-		wantOK = false
+	self = c.ident(m, p, prefix)
+	for i, r := range c.list(m, p, "refs") {
+		rp := fmt.Sprintf("%s.refs[%d]", p, i)
+		refs = append(refs, c.ident(c.object(r, rp, "id", "revision", "sha256"), rp, ""))
 	}
 	name, ok := c.str(m, p, "path")
 	if !ok {
-		return
+		return self, refs
 	}
 	if content, reason := ReadRegular(root, name); reason != "" {
 		c.add(p+".path", "unreadable-artifact", "%s %s", Quote(name), reason)
-	} else if got := fmt.Sprintf("%x", sha256.Sum256(content)); wantOK && got != want {
-		c.add(p+".sha256", "digest-mismatch", "declared %s, exact bytes hash to %s", Quote(want), got)
+	} else if got := fmt.Sprintf("%x", sha256.Sum256(content)); self.digest != "" && got != self.digest {
+		c.add(p+".sha256", "digest-mismatch", "declared %s, exact bytes hash to %s", Quote(self.digest), got)
+	}
+	return self, refs
+}
+
+// closure rejects a repeated artifact ID and resolves each reference by ID,
+// then compares its revision and digest with the first artifact declaring
+// that ID (C1 closure of references; C2 ID+revision+digest).
+func (c *checker) closure(artifacts, refs []identity) {
+	byID := map[string]identity{}
+	for _, a := range artifacts {
+		if first, seen := byID[a.id]; a.id != "" && seen {
+			c.add(a.path+".id", "duplicate-id", "artifact ID %s is already declared at %s.id", Quote(a.id), first.path)
+		} else if a.id != "" {
+			byID[a.id] = a
+		}
+	}
+	for _, r := range refs {
+		a, found := byID[r.id]
+		if r.id != "" && !found {
+			c.add(r.path+".id", "unresolved-reference", "no artifact in this bundle has ID %s", Quote(r.id))
+		}
+		if found && r.revision != "" && a.revision != "" && r.revision != a.revision {
+			c.add(r.path+".revision", "reference-revision-mismatch", "reference names %s, artifact %s has revision %s", Quote(json.Number(r.revision)), a.path, Quote(json.Number(a.revision)))
+		}
+		if found && r.digest != "" && a.digest != "" && r.digest != a.digest {
+			c.add(r.path+".sha256", "reference-digest-mismatch", "reference names %s, artifact %s declares %s", Quote(r.digest), a.path, Quote(a.digest))
+		}
 	}
 }
 
@@ -149,9 +200,11 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 		return
 	}
 	manifestSHA256 = fmt.Sprintf("%x", sha256.Sum256(raw))
-	doc, ok := DecodeJSON(raw)
-	if !ok {
+	doc, isJSON := decodeValue(raw)
+	if c = Faults(raw); !isJSON {
 		c.add("$", "invalid-json", "bundle.json is not a single JSON value")
+	}
+	if len(c) > 0 {
 		return
 	}
 	if m, ok := doc.(map[string]any); ok && m["schema"] != Schema {
@@ -166,8 +219,11 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 			c.add(fmt.Sprintf("$.jobs[%d]", i), "unsupported-job", "job/version %s is not supported", Quote(j))
 		}
 	}
+	var artifacts, refs []identity
 	for i, a := range c.list(top, "$", "artifacts") {
-		c.artifact(root, fmt.Sprintf("$.artifacts[%d]", i), a)
+		self, r := c.artifact(root, fmt.Sprintf("$.artifacts[%d]", i), a)
+		artifacts, refs = append(artifacts, self), append(refs, r...)
 	}
+	c.closure(artifacts, refs)
 	return
 }

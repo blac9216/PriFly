@@ -1,6 +1,7 @@
 // Package bundle inspects local external planning bundles. This file is its
 // input-safety layer: every read of bundle content goes through ReadRegular,
-// every JSON document through DecodeJSON, and every bundle-derived string that
+// every JSON document through DecodeJSON (Inspect applies its two checks,
+// decodeValue and Faults, separately), and every bundle-derived string that
 // reaches output through Quote or Member.
 package bundle
 
@@ -12,6 +13,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"unicode/utf8"
 )
 
 // MaxFileBytes caps every file ReadRegular reads; reading stops one byte past
@@ -63,9 +65,16 @@ func readCapped(r io.Reader, limit int) ([]byte, string) {
 }
 
 // DecodeJSON decodes raw as exactly one JSON value, keeping numbers as
-// json.Number. ok is false when raw is not valid JSON or when anything but
-// JSON whitespace follows the value (a stray "}", "]]]" or a second value).
+// json.Number. ok is false when raw is not valid JSON, when anything but JSON
+// whitespace follows the value (a stray "}", "]]]" or a second value), or when
+// Faults finds a repeated key or a string that would not decode exactly.
 func DecodeJSON(raw []byte) (v any, ok bool) {
+	v, ok = decodeValue(raw)
+	return v, ok && Faults(raw) == nil
+}
+
+// decodeValue is DecodeJSON without Faults: ok is whether raw is one JSON value.
+func decodeValue(raw []byte) (v any, ok bool) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	// InputOffset is the end of the decoded value.
@@ -100,4 +109,98 @@ func Member(path, key string) string {
 		return path + "." + key
 	}
 	return path + "[" + strconv.QuoteToASCII(key) + "]"
+}
+
+// Faults walks raw's tokens and returns, in document order, a diagnostic at
+// the JSON path of each object key repeated in its object and of each key or
+// string value that is not valid UTF-8 or escapes an unpaired surrogate, which
+// encoding/json would silently resolve to the last value or map to U+FFFD. The
+// walk ends at a syntax error or after the first value without reporting it:
+// DecodeJSON then returns ok=false and Inspect adds invalid-json. A path is
+// built only for a fault, and no fault is added once the paths reported total
+// len(raw) bytes, so memory stays linear in len(raw) however deep raw nests.
+func Faults(raw []byte) (faults []Diagnostic) {
+	type frame struct {
+		key  string          // object: the key whose value is next or open
+		keys map[string]bool // nil for an array
+		next int             // array: next index; object: 1 when a value is next
+	}
+	// The root frame is an object awaiting the value of its member at $.
+	dec, stack, budget := json.NewDecoder(bytes.NewReader(raw)), []*frame{{keys: map[string]bool{}, next: 1}}, len(raw)
+	dec.UseNumber() // as DecodeJSON: 1e400 is valid JSON and must not end the walk
+	add := func(code, detail string) {
+		path := []byte("$") // appended to, never re-copied per level
+		for _, f := range stack[1:] {
+			if f.keys == nil {
+				path = fmt.Appendf(path, "[%d]", f.next-1)
+			} else {
+				path = append(path, Member("", f.key)...)
+			}
+		}
+		faults, budget = append(faults, Diagnostic{string(path), code, detail}), budget-len(path)
+	}
+	for budget > 0 && (len(stack) > 1 || stack[0].next == 1) {
+		start := dec.InputOffset()
+		tok, err := dec.Token()
+		if err != nil {
+			return faults
+		}
+		f, isKey := stack[len(stack)-1], false
+		s, isString := tok.(string)
+		switch {
+		case tok == json.Delim('}') || tok == json.Delim(']'):
+			stack = stack[:len(stack)-1]
+		case f.keys == nil:
+			f.next++
+		case f.next == 0:
+			f.key, f.next, isKey = s, 1, true
+		default:
+			f.next = 0
+		}
+		reason := ""
+		if isString {
+			reason = textFault(raw[start:dec.InputOffset()])
+		}
+		switch {
+		case tok == json.Delim('{'):
+			stack = append(stack, &frame{keys: map[string]bool{}})
+		case tok == json.Delim('['):
+			stack = append(stack, &frame{})
+		case reason != "":
+			add("invalid-string", "string "+reason)
+		case isKey && f.keys[s]:
+			add("duplicate-key", "key repeats an earlier key of this object")
+		case isKey:
+			f.keys[s] = true
+		}
+	}
+	return faults
+}
+
+// textFault returns why the string token in lit (the token and any separators
+// before it) would not decode exactly: invalid UTF-8 or a \u escape of an
+// unpaired surrogate; "" if it decodes exactly. Token has checked its syntax.
+func textFault(lit []byte) string {
+	if !utf8.Valid(lit) {
+		return "is not valid UTF-8"
+	}
+	// escape reports whether lit holds, at i, a \u escape of a unit in [lo, hi].
+	escape := func(i int, lo, hi uint64) bool {
+		if i+6 > len(lit) || lit[i] != '\\' || lit[i+1] != 'u' {
+			return false
+		}
+		n, _ := strconv.ParseUint(string(lit[i+2:i+6]), 16, 16)
+		return n >= lo && n <= hi
+	}
+	for i := 0; i < len(lit); i++ {
+		switch {
+		case escape(i, 0xd800, 0xdbff) && escape(i+6, 0xdc00, 0xdfff):
+			i += 11
+		case escape(i, 0xd800, 0xdfff):
+			return "escapes an unpaired surrogate"
+		case lit[i] == '\\':
+			i++
+		}
+	}
+	return ""
 }
