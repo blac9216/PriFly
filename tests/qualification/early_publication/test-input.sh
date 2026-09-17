@@ -48,13 +48,13 @@ edit() { feed "$1" 2 "fixture: malformed trace line $2" jq -c "$3 | .[]" -s "$go
 text() { feed "$1" 2 "fixture: malformed trace line $2" sed "$3" "$good"; }
 grants() { cat "$good" && awk -v n="$1" 'NR == 3 { for (i = 0; i < n; i++) print }' "$good"; }  # good plus n grant lines
 fill() { sed -n 1p "$good" && head -c "$1" /dev/zero | tr '\0' "$2"; }  # header plus a line of n copies of a byte
-input() { echo "INPUT: fixed procedure and $1 well-formed trace lines; no feasibility verdict, not a Q13 PASS"; }
+input() { echo "VERDICT: trace rejected; no feasibility result"; }  # well formed, so exit 1 from the semantic checks
 proc() {  # name, sed expression over publication.json
   made "$1" "$work/${1// /-}.json" sed "$2" "$EARLY/publication.json" || return 0
   verdict "$1" 2 "fixture: procedure is not the fixed P4/P12a/P12b/P13 procedure" "$work/${1// /-}.json" "$good"
 }
 line() { echo "to_entries | map(if .key == $1 - 1 then .value |= ($2) else . end) | map(.value)"; }
-feed "valid trace" 0 "$(input 6)" cat "$good"
+feed "valid trace" 1 "$(input 6)" cat "$good"
 "$work/fixture" "$EARLY/publication.json" "$good" >"$work/again.out" 2>&1 || true
 if cmp -s "$work/valid-trace.out" "$work/again.out"; then echo "ok   deterministic output"; else echo "FAIL deterministic output"; fails=$((fails + 1)); fi
 # Header and line framing
@@ -71,11 +71,11 @@ text "leading next-line character" 1 '1s/^/\xc2\x85/'
 text "trailing line separator" 6 '$s/$/\xe2\x80\xa8/'
 # Size guards: 4,096 lines of at most 4,096 bytes (the trace read stops past 16,781,312 bytes)
 pad=$((4096 - $(sed -n 5p "$good" | wc -c) + 1))
-feed "line of 4096 bytes" 0 "$(input 6)" sed "5s/\"lineage-1\"/\"lineage-1$(printf "%${pad}s" | tr ' ' x)\"/" "$good"
+feed "line of 4096 bytes" 1 "$(input 6)" sed "5s/\"lineage-1\"/\"lineage-1$(printf "%${pad}s" | tr ' ' x)\"/" "$good"
 text "line over 4096 bytes" 5 "5s/\"lineage-1\"/\"lineage-1$(printf "%$((pad + 1))s" | tr ' ' x)\"/"
-feed "trace of 4096 lines" 0 "$(input 4096)" grants 4090
+feed "trace of 4096 lines" 1 "$(input 4096)" grants 4090
 feed "trace over 4096 lines" 2 "fixture: trace over 4096 lines" grants 4091
-feed "trace of 16781312 bytes" 0 "$(input 4096)" awk '{ while (length($0) < 4096) $0 = $0 " "; print }' <(grants 4090)
+feed "trace of 16781312 bytes" 1 "$(input 4096)" awk '{ while (length($0) < 4096) $0 = $0 " "; print }' <(grants 4090)
 made "escape-heavy line" "$work/escapes.jsonl" fill 16700000 "\\\\" &&  # refused before decoding: fits 1 GiB of address space
   verdict "escape-heavy line refused before decoding" 2 "fixture: malformed trace line 2" "$EARLY/publication.json" "$work/escapes.jsonl" 1048576
 feed "trace over 16781312 bytes" 2 "fixture: cannot read procedure or trace within 16781312 bytes" fill 16781312 x
@@ -102,14 +102,14 @@ text "integer written as 0.0" 6 '6s/"casSeq":0,/"casSeq":0.0,/'
 edit "nested value" 5 "$(line 5 '.lineage = ["lineage-1"]')"
 edit "negative number" 5 "$(line 5 '.writes = -1000000')"
 edit "number over 2^53-1" 5 "$(line 5 '.bytes = 9007199254740992')"
-feed "number of exactly 2^53-1" 0 "$(input 6)" sed '5s/"bytes":328192/"bytes":9007199254740991/' "$good"
+feed "number of exactly 2^53-1" 1 "$(input 6)" sed '5s/"bytes":328192/"bytes":9007199254740991/' "$good"
 text "negative zero" 2 '2s/"run":1,/"run":-0,/'
 text "invalid UTF-8" 5 '5s/"txid":"t1"/"txid":"t1\xff"/'
 text "lone surrogate escape" 5 '5s/"txid":"t1"/"txid":"t1\\ud800"/'
 text "lone low surrogate escape" 5 '5s/"txid":"t1"/"txid":"t1\\udc00"/'
 text "high surrogate pair" 5 '5s/"txid":"t1"/"txid":"t1\\ud800\\ud800"/'
-feed "surrogate pair escape" 0 "$(input 6)" sed '5s/"txid":"t1"/"txid":"t1\\ud83d\\ude00"/' "$good"
-feed "escaped backslash before u" 0 "$(input 6)" sed '5s/"txid":"t1"/"txid":"t1\\\\ud800"/' "$good"
+feed "surrogate pair escape" 1 "$(input 6)" sed '5s/"txid":"t1"/"txid":"t1\\ud83d\\ude00"/' "$good"
+feed "escaped backslash before u" 1 "$(input 6)" sed '5s/"txid":"t1"/"txid":"t1\\\\ud800"/' "$good"
 edit "empty string" 2 "$(line 2 '.generator = ""')"
 edit "run with an empty lineage" 2 "$(line 2 '.lineage = ""')"
 edit "published with an empty T" 5 "$(line 5 '.txid = "" | .restoreTxid = "" | .casTxid = ""')"
@@ -129,7 +129,7 @@ proc "procedure missing field" 's/  "stepTimeoutS": 120,//'
 proc "procedure extra field" 's/"runs": 3,/"runs": 3, "note": 1,/'
 pads() { cat "$EARLY/publication.json" && printf "%$(($1 - $(wc -c <"$EARLY/publication.json")))s" ''; }  # procedure padded to n bytes
 made "procedure of 65536 bytes" "$work/procedure-65536.json" pads 65536 &&
-  verdict "procedure of 65536 bytes" 0 "$(input 6)" "$work/procedure-65536.json" "$good"
+  verdict "procedure of 65536 bytes" 1 "$(input 6)" "$work/procedure-65536.json" "$good"
 made "procedure over 65536 bytes" "$work/procedure-65537.json" pads 65537 &&
   verdict "procedure over 65536 bytes" 2 "fixture: cannot read procedure or trace within 65536 bytes" "$work/procedure-65537.json" "$good"
 echo "$fails failed"
