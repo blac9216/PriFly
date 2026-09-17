@@ -36,6 +36,14 @@
 #   probe step then fails the job if namespaces are still denied; nothing is
 #   skipped. TMPDIR stays unset (/tmp): the harness proof exits 1 on an
 #   upper-case TMPDIR.
+# - The three early publication proofs (#228) need no namespaces, no locale and
+#   no network: they build fixture.go with the pinned Go and drive publication.sh
+#   against the fake probe and placeholder manifest in the same test directory,
+#   most groups on a virtual clock (PATH shims for date and sleep). They are the
+#   slowest steps here: the runner proof dominates and the other two add well
+#   under a minute between them. The job's earlier steps ran in about 1.5 minutes
+#   before this change, so timeout-minutes is 25 rather than 10 to leave room on
+#   a slow runner; the bound is a backstop against a hang, not a budget.
 name: go-checks
 on:
   pull_request:
@@ -46,7 +54,7 @@ permissions:
 jobs:
   go:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     env:
       GOTOOLCHAIN: local
       GOFLAGS: -mod=readonly
@@ -95,3 +103,9 @@ jobs:
         run: bash tests/qualification/early_harness/test-result.sh
       - name: Early harness local proof (fake launcher)
         run: bash tests/qualification/early_harness/test-harness.sh
+      - name: Early publication input proof (trace and procedure grammar)
+        run: bash tests/qualification/early_publication/test-input.sh
+      - name: Early publication evaluator proof (crafted traces)
+        run: bash tests/qualification/early_publication/test-fixture.sh
+      - name: Early publication runner local proof (fake probe, virtual clock)
+        run: bash tests/qualification/early_publication/test-publication.sh
