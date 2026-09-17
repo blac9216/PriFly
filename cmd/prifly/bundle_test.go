@@ -181,12 +181,12 @@ var hostile = map[string]func(dir string) error{
 		return errors.Join(addItems(dir, naming(xenID, slice()), naming(xen2ID, slice()), naming(xen2ID, slice(-1)), naming(unresolved, slice()), naming(unresolved, slice()),
 			naming(invalid, slice()), naming(invalid, slice(-1)), naming(xenID, slice())), addArtifacts(dir, "xen", "ExecutionEnvelope/v1", envelope), replaceIn(dir, `"`+wiN(7)+`"`, `"`+wiN(0)+`"`))
 	},
+	"fault-budget":        nested(10), // 4 of 10 repeated keys total the manifest's length in paths
+	"fault-budget-at-end": nested(5),  // the last repeated key brings the paths past it
 	"diagnostic-cap": func(dir string) error { // $.zz is added first, the unreadable artifact last
 		return errors.Join(replaceIn(dir, `"jobs": [`, `"zz": 1, "jobs": [`+strings.Repeat("7, ", 2000)), replaceIn(dir, `"artifacts/baseline.json"`, `"artifacts/missing.json"`))
 	},
-	"fault-budget":        nested(10), // 4 of 10 repeated keys total the manifest's length in paths
-	"fault-budget-at-end": nested(5),  // the last repeated key brings the paths past it
-	"invalid-utf8":        func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, "\"wi_\xff\xfe8887ffc") },
+	"invalid-utf8": func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, "\"wi_\xff\xfe8887ffc") },
 	"lone-surrogate": func(dir string) error { // a high, a low before a pair, and a pair beside an escaped backslash
 		return errors.Join(replaceIn(dir, `"bnd_`, `"bnd_\ud800`), replaceIn(dir, `"reviewer.implementation/v1"`, `"\udc00\ud83d\ude00"`),
 			replaceIn(dir, `"WorkItem/v1"`, `"\ud83d\ude00\\ud800"`))

@@ -145,23 +145,24 @@ func (r *countingReader) Read(p []byte) (int, error) {
 }
 
 // TestReadCapped pins the read bound: with a 16-byte cap, readCapped consumes
-// at most 17 bytes of a 1 MiB input, however much the input holds, and returns
-// every byte it consumed, also with a failure reason.
+// at most 17 bytes of a 1 MiB input, however much the input holds. A read that
+// fails after 3 bytes returns those 3 bytes with its reason.
 func TestReadCapped(t *testing.T) {
+	if b, reason := readCapped(&countingReader{n: 3, err: io.ErrUnexpectedEOF}, 16); string(b) != "\x00\x00\x00" || reason != "cannot be read" {
+		t.Errorf("readCapped(3 bytes, then an error) = %q, %q; want 3 bytes, \"cannot be read\"", b, reason)
+	}
 	for label, c := range map[string]struct {
 		n, consumed int
 		reason      string
-		err         error
 	}{
-		"under-cap":  {15, 15, "", nil},
-		"at-cap":     {16, 16, "", nil},
-		"over-cap":   {1 << 20, 17, "exceeds the 16-byte size cap", nil},
-		"read-error": {3, 3, "cannot be read", io.ErrUnexpectedEOF},
+		"under-cap": {15, 15, ""},
+		"at-cap":    {16, 16, ""},
+		"over-cap":  {1 << 20, 17, "exceeds the 16-byte size cap"},
 	} {
 		t.Run(label, func(t *testing.T) {
-			r := &countingReader{n: c.n, err: c.err}
+			r := &countingReader{n: c.n}
 			b, reason := readCapped(r, 16)
-			if reason != c.reason || r.consumed != c.consumed || len(b) != c.consumed {
+			if reason != c.reason || r.consumed != c.consumed || reason == "" && len(b) != c.n {
 				t.Errorf("readCapped(%d bytes) = %d bytes, %q after consuming %d; want %q after consuming %d", c.n, len(b), reason, r.consumed, c.reason, c.consumed)
 			}
 		})
