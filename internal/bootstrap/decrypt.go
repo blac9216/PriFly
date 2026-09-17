@@ -84,8 +84,8 @@ func Decrypt(v *Verified, identityFile, workDir string, provision func(path stri
 	return nil
 }
 
-// readIdentities takes the identity only from the named file (or descriptor
-// path), never from the argument's own text.
+// readIdentities takes the identity only from the named file, never from the
+// argument's own text.
 func readIdentities(identityFile string) ([]age.Identity, error) {
 	f, err := os.Open(identityFile)
 	if err != nil {
