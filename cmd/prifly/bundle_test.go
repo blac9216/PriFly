@@ -612,7 +612,7 @@ func zeroArtifacts(dir string, sizes map[string]int, names ...string) error {
 // and asserts its exact output and the bytes this process reads meanwhile (rchar
 // in /proc/self/io): the manifest, the first /proc/self/io read and the artifact
 // bytes, one past MaxArtifactBytes once it is passed, plus under 4,096 bytes of
-// other reads by the process (8 to 96 bytes were seen), so a read limit even
+// other reads by the process, which vary between runs, so a read limit even
 // 4,096 bytes too high fails.
 //   - over-cap: $.artifacts[12], 16 MiB, is reached with 8 MiB - 702 B left, and
 //     [13] is not read.
