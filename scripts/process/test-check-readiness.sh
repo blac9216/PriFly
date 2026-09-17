@@ -447,8 +447,10 @@ checkbox_case quote-fence-code "$ac_h" $'> ```text\n> x\n    - [ ] Quoted as ind
 checkbox_case quote-lazy "$ac_h" $'- a\n  > text\nlazy\n  ```text\n- [ ] A criterion after the item ends.\n  ```\n' \
   'checkbox after a lazy line continuing a quote inside a list item passes' 0
 
-checkbox_case quote-fence-close "$ac_h" $'> ````text\n> - ````\n> ~~~~\n> ```\n> x\n    - [ ] Quoted as indented code.\n' \
-  'checkbox in indented code after a quoted fence holding shorter, other and item fence lines fails'
+for close in '~~~~' '```' '- ````'; do  # none of these closes the quoted ```` fence
+  checkbox_case "quote-close-${#close}" "$ac_h" $'> ````text\n> '"$close"$'\n> x\n    - [ ] Quoted as indented code.\n' \
+    "checkbox in indented code after a quoted \`\`\`\` fence holding a > $close line fails"
+done
 checkbox_case quote-heading-code "$ac_h" $'> # Note\n    - [ ] Quoted as indented code.\n' \
   'checkbox in indented code after a quoted heading fails'
 checkbox_case quote-empty-code "$ac_h" $'>\n    - [ ] Quoted as indented code.\n' \
