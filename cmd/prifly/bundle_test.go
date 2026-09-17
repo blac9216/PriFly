@@ -63,7 +63,8 @@ var hostile = map[string]func(dir string) error{
 	"trailing-arrays":  func(dir string) error { return appendFile(dir+"/bundle.json", "]]]") },
 	"trailing-garbage": func(dir string) error { return appendFile(dir+"/bundle.json", "}garbage") },
 	"control-chars": func(dir string) error {
-		return replaceIn(dir, `"`+bundleID+`"`, `"a\u001b[1A\rresult: ok\u202e", "x\nresult: ok\u001b[2K": 1`)
+		return errors.Join(replaceIn(dir, `"`+bundleID+`"`, `"a\u001b[1A\rresult: ok\u202e", "x\nresult: ok\u001b[2K": 1`),
+			replaceIn(dir, `"revision": 1`, `"revision": "\u001b[8m"`))
 	},
 	"id-prefix": func(dir string) error { return replaceIn(dir, `"bnd_`, `"wi_`) },
 	"id-length": func(dir string) error { return replaceIn(dir, `12c12"`, `12c120"`) },
@@ -112,7 +113,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 	)
 	for variant, want := range map[string][]string{
 		"valid":                     {"result: ok manifest_sha256=436aeea0a5192bec621f003eefea7247a378af8f0176416b5041ac62c24534db (nothing staged or started)"},
-		"unsupported-bundle-schema": {`unsupported-schema $.schema: want "ExternalPlanningBundle/v1", got "ExternalPlanningBundle/v2"`},
+		"unsupported-bundle-schema": {`unsupported-schema $.schema: want "ExternalPlanningBundle/v1", got "ExternalPlanningBundle/v2\x1b[2K"`},
 		"unsupported-authority-field": {
 			"unknown-field $.artifacts" + notPartOf,
 			"unknown-field $.dispatch_eligible" + notPartOf,
@@ -132,6 +133,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"trailing-garbage": {notJSON},
 		"control-chars": {
 			`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "a\x1b[1A\rresult: ok\u202e"`,
+			`invalid-revision $.revision: want integer >= 1, got "\x1b[8m"`,
 			`unknown-field $["x\nresult: ok\x1b[2K"]` + notPartOf},
 		"no-bundle-json": {unresolved},
 		"symlink-escape": {unresolved},
@@ -223,7 +225,7 @@ func TestBundleImportsNoNetworkOrProcess(t *testing.T) {
 			})
 		}
 	}
-	if scanned["."] < 2 || scanned["../../internal/bundle"] < 1 {
+	if scanned["."] < 2 || scanned["../../internal/bundle"] < 2 {
 		t.Errorf("scanned files per package = %v, want cmd/prifly and internal/bundle", scanned)
 	}
 }
