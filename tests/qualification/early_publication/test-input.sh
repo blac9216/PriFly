@@ -97,8 +97,10 @@ edit "renewal without ack" 4 "$(line 4 'del(.ack)')"
 edit "renewal without T" 4 "$(line 4 'del(.txid)')"
 edit "renewal without integrity" 4 "$(line 4 'del(.integrity)')"
 edit "published renewal with an empty lineage" 4 "$(line 4 '.lineage = ""')"
-feed "plan call use" 1 "$(input 7)" sed '3a {"ev":"plan","run":1,"bytes":0,"writes":0,"requests":1}' "$good"
-text "plan without requests" 4 '3a {"ev":"plan","run":1,"bytes":0,"writes":0}'
+feed "plan call use" 1 "$(input 7)" sed '3a {"ev":"plan","run":1,"t":1000000,"grant":0,"bytes":0,"writes":0,"requests":1}' "$good"
+text "plan without requests" 4 '3a {"ev":"plan","run":1,"t":1000000,"grant":0,"bytes":0,"writes":0}'
+text "plan without its grant" 4 '3a {"ev":"plan","run":1,"t":1000000,"bytes":0,"writes":0,"requests":1}'
+feed "failed renewal with empty result strings" 1 "$(input 6)" jq -c "$(line 4 '.outcome = "failed" | .txid = "" | .lineage = "" | .restoreTxid = "" | .integrity = "" | .casTxid = ""') | .[]" -s "$good"
 edit "command without payload hash" 5 "$(line 5 'del(.payloadSha256)')"
 edit "failed command without database size" 6 "$(line 6 'del(.dbBytes)')"
 # Values: unsigned integers in 0..2^53-1, typed, UTF-8, no lone surrogate, non-empty strings, outcome and reason

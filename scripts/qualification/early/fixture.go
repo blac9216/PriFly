@@ -10,10 +10,11 @@
 // that is a lone surrogate. The trace is lines split at "\n", one final "\n" optional; each line is
 // one JSON object, with only JSON whitespace around it, no duplicate key and exactly the keys of its
 // known event ev (keys below, exact case); a grant carrying a ticket is a renewal and carries the
-// renewal keys; a plan line is one probe plan call's remote use. Every number is an unsigned integer literal in 0..2^53-1 (so -0 is refused); every
-// string is non-empty, except that a published entry's reason is empty and a failed entry leaves its
-// reason non-empty and may leave its result strings (results below) empty; outcome is published or
-// failed. Line 1, and no other, is the trace header; an empty trace or a blank line is malformed.
+// renewal keys; a plan line is one probe plan call's remote use. Every number is an unsigned integer
+// literal in 0..2^53-1 (so -0 is refused); every string is non-empty, except that a published entry's
+// reason is empty and a failed entry leaves its reason non-empty and may leave its result strings
+// (results below) empty; outcome is published or failed. Line 1, and no other, is the trace header; an
+// empty trace or a blank line is malformed.
 // Semantics. Grants are in time order: the first a plain grant, every later one a renewal, a published
 // ticketed entry reserved inside the grant it renews, with a command's synced T, lineage and integrity.
 // Lane clocks (ms, one clock, 0 = step not reached): ticket ≤ commitStart ≤ … ≤ casEnd ≤ ack. Commands
@@ -23,9 +24,16 @@
 // entry before it (the frontier never moves backwards, C3 step 2); a failed entry records no clock after its
 // first 0; and no published step lasts over stepTimeoutS. No minimum step duration is set (no cited doc
 // names one). Use: a published entry records bytes, writes and requests, each ≥1; an entry outside a ticket
-// records none; tickets are charged to their grant's P12b control/recovery maxima; sums saturate, so the
-// P12a envelope (the header's prior cumulative usage, plan calls, fixture steps, commands, renewals) and the
-// per-grant maxima cannot wrap.
+// records none. Grant lines are the control/recovery grants of #252 ruling 5714969372: each lasts at most
+// grant.ms and has its own P12b control maxima, never reused or refilled (item 2); a ticket, or a plan
+// call at its clock t, is charged to the last grant live at that clock. A plan line names that grant
+// (index in the run's grant order, 0 the plain grant), records no writes, and its bytes and requests
+// count in that grant's maxima and in P12a (item 1). Every ticketed entry has a plan call before it
+// (item 4): up to each ticket, and up to t0 for the fixture step, a run holds at least as many plan
+// lines as fixture step and ticketed entries (a trace does not say which plan served which entry). A
+// failed command keeps its sequence number n (item 3). Sums saturate, so the P12a envelope (the header's
+// prior cumulative usage, plan calls, fixture steps, commands, renewals) and the per-grant maxima cannot
+// wrap.
 package main
 
 import (
@@ -96,7 +104,7 @@ type event struct {
 	ProcedureSha256, RunnerSha256, EvaluatorSha256, ProbeSha256, ManifestSha256                string
 	Before, After, PayloadSha256, RestoredPayloadSha256, Txid, RestoreTxid, CasTxid, Integrity string
 	Run, N, Seed, DbBytes, T0, T, Deadline, Arrival, Submit, PriorBytes, PriorRequests         int64
-	PayloadBytes, RestoredSeq, CasSeq, Bytes, Writes, Requests                                 int64
+	PayloadBytes, RestoredSeq, CasSeq, Bytes, Writes, Requests, Grant                          int64
 	renewal                                                                                    bool
 }
 
@@ -111,7 +119,7 @@ var keys = map[string]string{
 	"trace": "ev schema procedureSha256 runnerSha256 evaluatorSha256 probeSha256 manifestSha256 priorBytes priorRequests",
 	"run":   "ev run t0 prefix lineage generator seed litestream dbBytes bytes writes requests",
 	"grant": "ev run t deadline",
-	"plan":  "ev run bytes writes requests",
+	"plan":  "ev run t grant bytes writes requests",
 	"cmd": "ev run n kind arrival submit outcome reason bytes writes requests payloadSha256 payloadBytes before after " +
 		"dbBytes txid lineage restoreTxid restoredSeq restoredPayloadSha256 integrity casSeq casTxid" + lane,
 }
@@ -250,7 +258,7 @@ func main() {
 		}
 	}
 	var head, plans event
-	runs, grants, cmds := map[int64]event{}, map[int64][]event{}, map[[2]int64]event{}
+	runs, grants, planned, cmds := map[int64]event{}, map[int64][]event{}, map[int64][]event{}, map[[2]int64]event{}
 	lines := bytes.Split(bytes.TrimSuffix(in[1], []byte("\n")), []byte("\n"))
 	if len(lines) > maxLines {
 		fail("trace over %d lines", maxLines)
@@ -275,6 +283,7 @@ func main() {
 			grants[e.Run] = append(grants[e.Run], e)
 		case "plan":
 			plans.Bytes, plans.Requests = add(plans.Bytes, e.Bytes), add(plans.Requests, e.Requests)
+			planned[e.Run] = append(planned[e.Run], e)
 		case "cmd":
 			_, dup := cmds[[2]int64{e.Run, e.N}]
 			check(dup, "SEQUENCE", e.Run, e.N, "command recorded twice")
@@ -393,9 +402,35 @@ func main() {
 			u := &use[e.grant]
 			u.Bytes, u.Writes, u.Requests = add(u.Bytes, e.Bytes), add(u.Writes, e.Writes), add(u.Requests, e.Requests)
 		}
+		ts, got, used := []int64{}, 0, 0
+		for _, e := range planned[r] {
+			gi := -1
+			for k, g := range grants[r] {
+				if g.T <= e.T && e.T <= g.Deadline {
+					gi = k
+				}
+			}
+			check(e.Writes > 0, "LEDGER", r, 0, "plan call records writes")
+			if !check(int64(gi) != e.Grant, "EXPIRED-PERMIT", r, 0, "plan call outside the live grant it names") {
+				u := &use[gi]
+				u.Bytes, u.Requests = add(u.Bytes, e.Bytes), add(u.Requests, e.Requests)
+			}
+			ts = append(ts, e.T)
+		}
+		slices.Sort(ts)
+		need := append([]laneEntry{{event: event{clocks: clocks{Ticket: ru.T0}}}}, lane...)
+		sort.SliceStable(need, func(i, j int) bool { return need[i].Ticket < need[j].Ticket })
+		for _, e := range need {
+			for got < len(ts) && ts[got] <= e.Ticket {
+				got++
+			}
+			if !check(got <= used, "PLAN", r, e.N, "fewer plan calls than the fixture step and ticketed entries up to this ticket") {
+				used++
+			}
+		}
 		for k, u := range use {
 			check(u.Bytes > p.Control.Bytes || u.Writes > p.Control.Writes || u.Requests > p.Control.Requests,
-				"LEDGER", r, 0, fmt.Sprintf("grant %d ticket use exceeds the P12b control/recovery grant maxima", k))
+				"LEDGER", r, 0, fmt.Sprintf("grant %d ticket and plan use exceeds the P12b control/recovery grant maxima", k))
 			if k > 0 {
 				usedBytes, usedRequests = add(usedBytes, grants[r][k].Bytes), add(usedRequests, grants[r][k].Requests)
 			}
