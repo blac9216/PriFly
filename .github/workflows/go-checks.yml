@@ -2,10 +2,16 @@
 # identical to docs/process/testing.md's Go suite.
 #
 # Dispositions:
-# - cache: false on setup-go below is deliberate, not an oversight: no go.sum
-#   exists yet (no dependencies), so the default cache would only produce a
-#   "Restore cache failed" warning. Turn it on in the same change that adds a
-#   go.sum.
+# - The Go toolchain is the go.dev archive named by GO_ARCHIVE, verified against
+#   the SHA-256 pinned in GO_ARCHIVE_SHA256 before it is extracted. This is the
+#   one committed record of that digest; the local recipe in
+#   docs/process/testing.md reads both values from this file. actions/setup-go
+#   is not used: it installs a repackaged actions/go-versions archive, or a
+#   runner tool-cache copy, and checks no digest. A go.mod `go` directive that
+#   no longer matches GO_ARCHIVE fails the step; bump both together, with the
+#   new digest read from https://go.dev/dl/?mode=json&include=all.
+# - No module or build cache: no go.sum exists yet (no dependencies). Add one in
+#   the same change that adds a go.sum.
 # - runs-on: ubuntu-latest is a mutable GitHub-hosted runner image. This job
 #   is CI infrastructure, not the product runtime profile; no product
 #   deployment parameter pins a CI runner image, so no pin is applied here.
@@ -30,13 +36,20 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Set up pinned Go toolchain
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: false
+      - name: Install pinned Go toolchain (verify SHA-256, then extract)
+        env:
+          GO_ARCHIVE: go1.27.1.linux-amd64.tar.gz
+          GO_ARCHIVE_SHA256: 63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445
+        run: |
+          set -euo pipefail
+          test "$(uname -s)-$(uname -m)" = Linux-x86_64
+          test "$GO_ARCHIVE" = "go$(awk '$1 == "go" { print $2 }' go.mod).linux-amd64.tar.gz"
+          curl -fsSL --proto '=https' --proto-redir '=https' -o "$RUNNER_TEMP/$GO_ARCHIVE" "https://go.dev/dl/$GO_ARCHIVE"
+          (cd "$RUNNER_TEMP" && echo "$GO_ARCHIVE_SHA256  $GO_ARCHIVE" | sha256sum -c -)
+          tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/$GO_ARCHIVE"
+          echo "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
       - name: Record tested commit and toolchain
-        run: git rev-parse HEAD && go version
+        run: git rev-parse HEAD && command -v go && go version && go env GOROOT
       - name: gofmt (no unformatted files)
         run: test -z "$(gofmt -l .)"
       - name: go vet
