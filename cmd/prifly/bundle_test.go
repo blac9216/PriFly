@@ -1062,9 +1062,10 @@ func declaredNames(fset *token.FileSet, f *ast.File) map[string][]token.Position
 
 // TestBundleDiagnosticsRenderASCII pins internal/bundle's diagnostic details to a
 // renderer that escapes non-ASCII, by reading the package's own non-test source:
-// it fails on a strconv quoting call that is not a ToASCII one, and on a %q verb
+// it fails on a strconv quoting call that is not a ToASCII one, on a %q verb
 // — %q is strconv.Quote — anywhere but the one checker.add whose %q argument is
-// this package's Schema constant, which is not bundle text.
+// this package's Schema constant, which is not bundle text, and on a change to
+// the number of sites that render the package's text.
 //
 // It is the negative control for the call sites no bundle can reach. Thirteen of
 // the 24 Quote call sites render a value the checker has already validated into a
@@ -1075,14 +1076,21 @@ func declaredNames(fset *token.FileSet, f *ast.File) map[string][]token.Position
 // end to end with a printable non-ASCII character by the cases above.
 //
 // The call-site counts are asserted so the enumeration stays by occurrence and
-// not by line: two lines of bundle.go carry two Quote calls each.
+// not by line: two lines of bundle.go carry two Quote calls each. The fmt
+// spellings that render this package's text are counted the same way, and for a
+// reason the renderer counts cannot serve: a site that renders text without
+// reaching Quote or Member moves no count above and holds no quoting directive,
+// so nothing else here sees it. Which spellings are pinned, why no Fprint* row is
+// listed, and what a count does and does not prove are stated at their table.
 //
-// Both of its judgements fail closed. A format whose verbs formatVerbs cannot map
-// to their arguments is reported rather than skipped, so no fmt syntax this
-// control does not parse — an explicit argument index above all — can carry a %q
-// past it. And the carve-out is refused outright, rather than applied by name, if
+// Its judgements fail closed against the spellings that could otherwise evade
+// them. A format whose verbs formatVerbs cannot map to their arguments is
+// reported rather than skipped, so no fmt syntax this control does not parse —
+// an explicit argument index above all — can carry a %q past it. The carve-out is refused outright, rather than applied by name, if
 // "Schema" ever names more than the package-level constant: this check reads
-// identifiers, so a second Schema in scope would make the whitelist a guess.
+// identifiers, so a second Schema in scope would make the whitelist a guess. And
+// an fmt spelling the count does not name is reported rather than passed over, so
+// the table pins the families it lists without assuming they are the only ones.
 func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 	const pkg = "../../internal/bundle"
 	files, err := filepath.Glob(filepath.Join(pkg, "*.go"))
@@ -1090,6 +1098,7 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 		t.Fatal(err)
 	}
 	fset, calls, parsed := token.NewFileSet(), map[string]int{}, 0
+	fmtSites := map[string][]token.Position{}
 	parsedFiles := map[string]*ast.File{}
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
@@ -1128,9 +1137,24 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 			// bound to a name and called through it (q := strconv.Quote; q(s))
 			// is this selector too, so reading them all covers that form.
 			if sel, ok := n.(*ast.SelectorExpr); ok {
-				if x, isName := sel.X.(*ast.Ident); isName && quotesRaw(imports[x.Name], sel.Sel.Name) {
-					t.Errorf("%s: %s leaves printable non-ASCII raw; bundle text is rendered by Quote or Member",
-						fset.Position(sel.Pos()), asWritten(x.Name, sel.Sel.Name))
+				if x, isName := sel.X.(*ast.Ident); isName {
+					if quotesRaw(imports[x.Name], sel.Sel.Name) {
+						t.Errorf("%s: %s leaves printable non-ASCII raw; bundle text is rendered by Quote or Member",
+							fset.Position(sel.Pos()), asWritten(x.Name, sel.Sel.Name))
+					}
+					// Recorded by what the name resolves to, not by how it is
+					// written, so f.Sprintf under import f "fmt" is counted here
+					// and a call through a package bound to the name fmt is not.
+					// A renderer wrapped in a third package is out of reach
+					// either way: this reads the file's imports, one hop, the
+					// limit quotesRaw records above. A local bound to an
+					// imported name is read as the import, having no type
+					// information to ask, which can only add a site to a count
+					// and never hide one.
+					if imports[x.Name] == "fmt" {
+						name := "fmt." + sel.Sel.Name
+						fmtSites[name] = append(fmtSites[name], fset.Position(sel.Pos()))
+					}
 				}
 			}
 			call, ok := n.(*ast.CallExpr)
@@ -1206,6 +1230,50 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 			t.Errorf("%s call sites in %s = %d, want %d: give a new site a case above driving a printable "+
 				"non-ASCII character through it, or, if its value is validated to a fixed ASCII shape before "+
 				"it is rendered, record that here with the count", c.name, pkg, calls[c.name], c.want)
+		}
+	}
+	// The counts above are of the two renderers this package escapes text with;
+	// the count below is of the sites that render text at all, by the spelling of
+	// the fmt function each one uses. The two questions are different: a new site
+	// that renders operator-supplied text without reaching Quote or Member moves
+	// no count above and carries no quoting directive for the rules to read, so
+	// without this table it is invisible to every other judgement this control
+	// makes.
+	//
+	// The table names the three spellings live in the package today, and every
+	// other fmt spelling is reported by the loop below rather than skipped, so a
+	// family nobody anticipated does not pass unseen — which is why no Fprint*
+	// row is listed at zero. There is no Fprint* here to pin: this package
+	// returns and appends its diagnostic text rather than writing it to a stream,
+	// and a first writer added later is caught as an unnamed spelling, with a
+	// message that says to give it a row.
+	//
+	// What this table pins is what render_test.go's count pins, and no more: that
+	// a site cannot be added silently, not that a site prints safely. A new
+	// fmt.Sprintf rendering operator-supplied text with a plain %s is green once
+	// its author records the new number, so the message below leads with the case
+	// to add and closes with the count — the cheapest reading of it is the one
+	// that covers the new site. That limit is disclosed here rather than closed:
+	// closing it would take a rule about where a rendered value comes from, and
+	// every rule in this control reads the shape of the source instead.
+	counted := map[string]bool{}
+	for _, c := range []struct {
+		name string
+		want int
+	}{{"fmt.Sprintf", 14}, {"fmt.Sprint", 1}, {"fmt.Appendf", 1}} {
+		counted[c.name] = true
+		if got := len(fmtSites[c.name]); got != c.want {
+			t.Errorf("%s sites in %s = %d, want %d (at %v): give a new site a case above driving a printable "+
+				"non-ASCII character through it, rendering any operator-supplied part of its text through Quote "+
+				"or Member, or, if its value is validated to a fixed ASCII shape before it is rendered, record "+
+				"that here; then record the new count", c.name, pkg, got, c.want, fmtSites[c.name])
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(fmtSites)) {
+		if !counted[name] {
+			t.Errorf("%s renders text in %s (at %v) and is a spelling this count does not name, so it is reported "+
+				"rather than counted: give the site a case above driving a printable non-ASCII character through "+
+				"it, then give the spelling its own row in the table above", name, pkg, fmtSites[name])
 		}
 	}
 }
