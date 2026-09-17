@@ -466,7 +466,7 @@ checkbox_case empty-dash-spaceline-blank "$ac_h" $'- \n   \n\n  ```text\n- [ ] q
   'checkbox inside a fence after an empty - item, a whitespace-only line and a blank line fails'
 pr_body item-heading 'Closes #154'
 replace "$fixture_root/pr-item-heading.md" $'\n## Verified expectation\n' $'\n- Item.\n  ## Verified expectation\n'
-run_case 'PR: a "## " heading inside a list item does not count' 1 \
+run_case 'PR: a "## " heading inside a list item is not counted (fail closed)' 1 \
   'MISSING: all template sections present (missing: Verified expectation)' \
   --root "$root" --body "$fixture_root/pr-item-heading.md" "${pr[@]}"
 echo "test-check-readiness: $passed cases passed"
