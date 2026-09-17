@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# Evaluator-level proof for fixture.go: jq crafts one valid three-run trace from publication.json
+# (serial lane, grant renewals as ticketed publications), then each case edits it for one rule and
+# asserts the exit code AND one whole output line. No runner, probe, network or object store is used.
+# EARLY may name a scratch copy of scripts/qualification/early (mutant pass).
+# shellcheck disable=SC2016  # jq filters expand inside jq
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EARLY="${EARLY:-$HERE/../../../scripts/qualification/early}"
+work="$(mktemp -d "${TMPDIR:-/tmp}/prifly-early-fixture-tests.XXXXXX")"
+trap 'rm -rf -- "$work"' EXIT
+go build -o "$work/fixture" "$EARLY/fixture.go"
+good="$work/good.jsonl"
+jq -nc --slurpfile p "$EARLY/publication.json" --arg ps "$(sha256sum <"$EARLY/publication.json" | cut -d' ' -f1)" \
+  --arg es "$(sha256sum <"$EARLY/fixture.go" | cut -d' ' -f1)" -f /dev/stdin >"$good" <<'JQ'
+def hx($s): ("0" * (64 - ($s | length))) + $s;
+def lane($t): {ticket: $t, commitStart: ($t + 100), commitEnd: ($t + 200), syncStart: ($t + 200), syncEnd: ($t + 500),
+  restoreStart: ($t + 500), restoreEnd: ($t + 800), casStart: ($t + 800), casEnd: ($t + 1000), ack: ($t + 1100), outcome: "published"};
+$p[0] as $p | [range(0; $p.warmupMs + $p.durationMs; $p.cadenceMs) as $a
+  | $a, (if $a == $p.warmupMs + $p.burst.atMs then range($p.burst.count) | $a else empty end)] as $arr
+| {ev: "trace", schema: "prifly/qualification/early-publication-trace/v1", procedureSha256: $ps,
+   runnerSha256: ("1" * 64), evaluatorSha256: $es, probeSha256: ("2" * 64), manifestSha256: ("3" * 64)},
+  (range(1; $p.runs + 1) as $r
+  | {ev: "run", run: $r, t0: 1000000, prefix: "q13/run\($r)/", lineage: "lineage-\($r)", generator: "gen-v1",
+     seed: $p.seed, litestream: $p.litestream, dbBytes: 52428800, bytes: 52494336, writes: 2, requests: 9},
+    {ev: "grant", run: $r, t: 1000000, deadline: 1600000},
+    foreach range($arr | length) as $i ({free: 0, deadline: 1600000};
+      ([1000000 + $arr[$i], .free] | max) as $t | (.out = []) | .t = $t
+      | if $t + 5000 > .deadline then (lane($t) + {ev: "grant", run: $r, bytes: 65536, writes: 3, requests: 25}) as $g
+          | .out = [$g + {t: $g.ack, deadline: ($g.ack + $p.grant.ms)}] | .t = $g.ack | .deadline = $g.ack + $p.grant.ms
+        else . end
+      | ($i + 1) as $n | $p.mix[$i % ($p.mix | length)] as $m | lane(.t) as $c | .free = $c.ack
+      | .out += [$c + {ev: "cmd", run: $r, n: $n, kind: $m.kind, arrival: $arr[$i], submit: (1000000 + $arr[$i]),
+          reason: "", bytes: ($m.payloadBytes + 66048), writes: 4, requests: 27, payloadSha256: hx("\($n)"),
+          payloadBytes: $m.payloadBytes, before: "s\($n - 1)", after: "s\($n)", dbBytes: (52428800 + $n * 4096),
+          txid: "t\($n)", lineage: "lineage-\($r)", restoreTxid: "t\($n)", restoredSeq: $n, restoredPayloadSha256: hx("\($n)"),
+          integrity: "ok", casSeq: $n, casTxid: "t\($n)"}]; .out[]))
+JQ
+fails=0
+verdict() {  # name, want exit, want whole output line, procedure, trace
+  local out="$work/${1// /-}.out"
+  set +e; "$work/fixture" "$4" "$5" >"$out" 2>&1; rc=$?; set -e
+  if [[ "$rc" == "$2" ]] && grep -qxF -- "$3" "$out"; then echo "ok   $1"; else
+    echo "FAIL $1: exit $rc (want $2), want line: $3"; grep -E "^(REJECT|RUN|VERDICT|fixture)" "$out" | head -n 8 | sed 's/^/     | /' || true; fails=$((fails + 1)); fi
+}
+edit() { jq -c "$4 | .[]" -s "$good" >"$work/${1// /-}.jsonl"; verdict "$1" "$2" "$3" "$EARLY/publication.json" "$work/${1// /-}.jsonl"; }
+at() { echo "map(if .ev == \"cmd\" and .run == $1 and .n == $2 then $3 else . end)"; }
+runfield() { echo "map(if .ev == \"run\" and .run == $1 then $2 else . end)"; }
+renewal='(map(select(.ev == "grant" and .run == 1))[1]) as $g | map(if . == $g then '
+shift='with_entries(if (.key | test("Start$|End$|^ticket$|^ack$")) then .value += $d else . end)'
+cmd() { echo "(map(select(.ev == \"cmd\" and .run == $1 and .n == $2))[0])"; }
+unticketed='.ticket = 0 | .commitStart = 0 | .commitEnd = 0 | .syncStart = 0 | .syncEnd = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0 | .outcome = "failed" | .reason = "no-ticket" | .bytes = 0 | .writes = 0 | .requests = 0'
+PASS="VERDICT: every run meets the fixed publication thresholds; feasibility evidence only, not a Q13 PASS"
+MISS="VERDICT: a run misses a fixed publication threshold; feasibility evidence only"
+edit "valid trace" 0 "$PASS" '.'
+edit "burst drains through the serial lane" 0 "RUN 1 measured 130 failures 0 p95 6600 max 13200 burst 13200 meets true" '.'
+"$work/fixture" "$EARLY/publication.json" "$good" >"$work/again.out" 2>&1 || true
+if cmp -s "$work/valid-trace.out" "$work/again.out"; then echo "ok   deterministic output"; else echo "FAIL deterministic output"; fails=$((fails + 1)); fi
+# Frontier and lane order (C3 step 2: no N+1 before N resolves)
+edit "old frontier" 1 "REJECT OLD-FRONTIER run 1 n 7: restore or frontier at sequence 6" "$(at 1 7 '.restoredSeq = 6')"
+edit "later frontier" 1 "REJECT LATER-FRONTIER run 2 n 8: restore or frontier at sequence 9" "$(at 2 8 '.casSeq = 9')"
+edit "command runs after its successor" 1 "REJECT OLD-FRONTIER run 1 n 30: command entered the lane after command 31; the frontier moved backwards" \
+  "($(cmd 1 31).ack - $(cmd 1 30).ticket) as \$d | $(at 1 30 "$shift")"
+edit "burst commands swapped" 1 "REJECT OLD-FRONTIER run 1 n 84: command entered the lane after command 85; the frontier moved backwards" \
+  "($(cmd 1 85).ticket - $(cmd 1 84).ticket) as \$d | $(at 1 84 "$shift") | (-\$d) as \$d | $(at 1 85 "$shift")"
+edit "burst lane overlap" 1 "REJECT LANE run 1 n 84: step clock out of lane order; commands run one at a time" "$(at 1 84 '(.submit - .ticket) as $d | '"$shift")"
+edit "ticket before the previous ack" 1 "REJECT LANE run 1 n 31: step clock out of lane order; commands run one at a time" "$(at 1 30 '.ack += 20000')"
+edit "step clock 1 ms early" 1 "REJECT LANE run 1 n 30: step clock out of lane order; commands run one at a time" "$(at 1 30 '.commitStart = .ticket - 1')"
+edit "published step not reached" 1 "REJECT LANE run 1 n 30: step clock out of lane order; commands run one at a time" "$(at 1 30 '.casEnd = 0')"
+edit "failed entry clock after a step not reached" 1 "REJECT LANE run 2 n 150: step clock out of lane order; commands run one at a time" \
+  "$(at 2 150 '.outcome = "failed" | .reason = "restore-exit1" | .restoreEnd = 0')"
+edit "ticket inside a failed predecessor step" 1 "REJECT LANE run 1 n 6: step clock out of lane order; commands run one at a time" \
+  "$(at 1 5 '.outcome = "failed" | .reason = "sync-exit1" | .syncStart = 1080000 | .syncEnd = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0')"
+edit "commands swapped across a renewal" 1 "REJECT OLD-FRONTIER run 1 n 40: command entered the lane after command 41; the frontier moved backwards" \
+  "($(cmd 1 41).ticket - $(cmd 1 40).ticket) as \$d | $(at 1 40 "$shift") | (-\$d) as \$d | $(at 1 41 "$shift")"
+edit "ack before CAS result" 1 "REJECT EARLY-ACK run 1 n 30: acknowledged before the frontier CAS result" "$(at 1 30 '.ack = .casEnd - 1')"
+edit "zero latency everywhere" 1 "REJECT EARLY-ACK run 1 n 1: acknowledged before the frontier CAS result" 'map(if .ev == "cmd" then .ack = .submit else . end)'
+edit "CAS pacing under 1.1 s" 1 "REJECT PACING run 1 n 83: CAS write under 1100ms after the previous one" \
+  "$(at 1 83 '.ticket as $t | .commitStart = $t | .commitEnd = $t | .syncStart = $t | .syncEnd = $t | .restoreStart = $t | .restoreEnd = $t | .casStart = $t')"
+edit "CAS pacing 1099 ms" 1 "REJECT PACING run 1 n 83: CAS write under 1100ms after the previous one" "$(at 1 83 '.restoreEnd -= 1 | .casStart -= 1')"
+edit "renewal CAS paced after a command" 1 "REJECT PACING run 1 n 0: CAS write under 1100ms after the previous one" \
+  "(map(select(.ev == \"grant\" and .run == 1))[1].casStart) as \$c | $(at 1 40 '.casStart = $c - 1099 | .casEnd = $c - 1000 | .ack = $c - 900')"
+edit "published step over the step timeout" 1 "REJECT STEP-TIMEOUT run 3 n 150: a published step lasted over 120s" "$(at 3 150 '.syncEnd += 119701 | .restoreStart += 119701 | .restoreEnd += 119701 | .casStart += 119701 | .casEnd += 119701 | .ack += 119701')"
+edit "published step of exactly the step timeout" 3 "$MISS" "$(at 3 150 '.syncEnd += 119700 | .restoreStart += 119700 | .restoreEnd += 119700 | .casStart += 119700 | .casEnd += 119700 | .ack += 119700')"
+edit "timeout retained as failure" 3 "FAILURE run 2 n 150 kind attempt-result arrival 2085000 reason sync-exit124" \
+  "$(at 2 150 '.outcome = "failed" | .reason = "sync-exit124" | .syncEnd += 125000 | .after = "" | .txid = "" | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0')"
+# Permits, renewals and the P12a/P12b ledger
+edit "expired permit without renewal" 1 "REJECT EXPIRED-PERMIT run 1 n 41: remote use or publication without a ticket inside a live grant of at most 600000ms" 'map(select(.ev != "grant" or .run != 1 or .ticket == null))'
+edit "over-long grant" 1 "REJECT EXPIRED-PERMIT run 1 n 0: grant 0 ends before it starts or lasts over 600000ms" 'map(if .ev == "grant" and .ticket == null then .deadline += 1 else . end)'
+edit "grant ends before it starts" 1 "REJECT EXPIRED-PERMIT run 1 n 0: grant 0 ends before it starts or lasts over 600000ms" 'map(if .ev == "grant" and .ticket == null and .run == 1 then .deadline = .t - 1 else . end)'
+edit "ticket at clock zero" 1 "REJECT EXPIRED-PERMIT run 1 n 1: remote use or publication without a ticket inside a live grant of at most 600000ms" \
+  'map(if .run == 1 then with_entries(if (.key | test("^(t0|t|deadline|submit|ticket|ack)$|Start$|End$")) then .value -= 1000000 else . end) else . end)'
+edit "unticketed publication" 1 "REJECT EXPIRED-PERMIT run 1 n 43: remote use or publication without a ticket inside a live grant of at most 600000ms" "$(at 1 43 "$unticketed"' | .outcome = "published" | .reason = ""')"
+edit "unticketed clock" 1 "REJECT EXPIRED-PERMIT run 1 n 44: remote use or publication without a ticket inside a live grant of at most 600000ms" "$(at 1 44 "$unticketed"' | .casStart = 1650000')"
+for f in bytes writes requests; do
+  edit "unticketed $f" 1 "REJECT EXPIRED-PERMIT run 1 n 44: remote use or publication without a ticket inside a live grant of at most 600000ms" "$(at 1 44 "$unticketed | .$f = 1")"
+  edit "publication without $f" 1 "REJECT LEDGER run 1 n 45: publication records no remote use" "$(at 1 45 ".$f = 0")"
+  edit "fixture step without $f" 1 "REJECT LEDGER run 2 n 0: fixture step records no remote use" "$(runfield 2 ".$f = 0")"
+done
+edit "renewal without use" 1 "REJECT LEDGER run 1 n 0: publication records no remote use" "$renewal"'.writes = 0 else . end)'
+edit "first grant is a renewal" 1 "REJECT RENEWAL run 2 n 0: grant 0: only a grant after the first is a renewal" \
+  '(map(select(.ev == "grant" and .run == 2))[0]) as $g0 | (map(select(.ev == "grant" and .run == 2))[1]) as $g1 | map(select(. != $g0) | if . == $g1 then .t = 1000000 | .deadline = 1600000 else . end)'
+edit "renewal not a ticketed publication" 1 "REJECT RENEWAL run 1 n 0: grant 1: only a grant after the first is a renewal" "$renewal"'{ev, run, t, deadline} else . end)'
+edit "renewal reserved after expiry" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.ticket = 1600001 else . end)'
+edit "renewal reserved before the grant it renews" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.ticket = 999999 else . end)'
+edit "renewal failed" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.outcome = "failed" else . end)'
+edit "grant active before its renewal ack" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.t = .ack - 1 | .deadline -= 1 else . end)'
+GRANT0="REJECT LEDGER run 1 n 0: grant 0 use exceeds the P12b grant maxima" failed='.outcome = "failed" | .reason = "cas-conflict"'
+grant() {  # field, maximum, excess: commands 1-40 of run 1 and the renewal charged to grant 0 sum to maximum + excess
+  echo "$renewal.$1 = $2 - 40 * (($2 - 1) / 40 | floor) + $3 else . end) | map(if .ev == \"cmd\" and .run == 1 and .n <= 40 then .$1 = (($2 - 1) / 40 | floor) else . end)"; }
+for f in bytes:1073741824 writes:4096 requests:10000; do
+  edit "grant ${f%:*} at the maximum" 0 "$PASS" "$(grant "${f%:*}" "${f#*:}" 0)"
+  edit "grant maxima exceeded (${f%:*})" 1 "$GRANT0" "$(grant "${f%:*}" "${f#*:}" 1)"
+done
+edit "failed entry use counts in grant maxima" 1 "$GRANT0" "$(grant writes 4096 1) | $(at 1 40 "$failed")"
+for f in bytes:268435457 writes:1025 requests:8193; do
+  edit "ticket exceeded (${f%:*})" 1 "REJECT LEDGER run 1 n 3: remote use exceeds the pre-send ticket" "$(at 1 3 ".${f%:*} = ${f#*:}")"
+done
+edit "renewal use counts in grant maxima" 1 "REJECT LEDGER run 1 n 0: grant 0 use exceeds the P12b grant maxima" \
+  "$renewal"'.writes = 17 else . end) | map(if .ev == "cmd" and .run == 1 and .n <= 40 then .writes = 102 else . end)'
+edit "renewal ticket exceeded" 1 "REJECT LEDGER run 1 n 0: remote use exceeds the pre-send ticket" "$renewal"'.bytes = 268435457 else . end)'
+P12A="REJECT LEDGER run 0 n 0: trace exceeds the P12a envelope (fixture steps, commands and renewals)"
+envelope() { echo "(map(.$1 // 0) | add) as \$s | $(runfield 1 ".$1 += $2 - \$s + $3")"; }  # field, limit, excess over the whole trace
+for f in bytes:8589934592 requests:100000; do
+  edit "envelope ${f%:*} at the limit" 0 "$PASS" "$(envelope "${f%:*}" "${f#*:}" 0)"
+  edit "envelope ${f%:*} exceeded" 1 "$P12A" "$(envelope "${f%:*}" "${f#*:}" 1)"
+done
+edit "failed command use counts in P12a" 1 "$P12A" "$(envelope bytes 8589934592 1) | $(at 1 40 "$failed")"
+edit "renewal use counts in P12a" 1 "$P12A" 'map(if .ev == "cmd" then .bytes = 16777216 elif .ev == "grant" and .ticket then .bytes = 209715200 else . end)'
+edit "fixture bytes count in P12a" 1 "$P12A" 'map(if .ev == "run" then .bytes = 2900000000 else . end)'
+edit "fixture requests count in P12a" 1 "$P12A" 'map(if .ev == "run" then .requests = 34000 else . end)'
+edit "usage sums saturate" 1 "$P12A" "$renewal"'. else . end) | map(if .ev == "cmd" then .bytes = 9007199254740991 else . end) + [range(600) | $g | .bytes = 9007199254740991]'
+# Workload, results and schedule
+edit "wrong T" 1 "REJECT WRONG-T run 1 n 9: restore or frontier T/lineage is not the synced T" "$(at 1 9 '.restoreTxid = "t0"')"
+edit "frontier T differs" 1 "REJECT WRONG-T run 2 n 9: restore or frontier T/lineage is not the synced T" "$(at 2 9 '.casTxid = "t0"')"
+edit "wrong lineage" 1 "REJECT WRONG-T run 3 n 2: restore or frontier T/lineage is not the synced T" "$(at 3 2 '.lineage = "lineage-other"')"
+edit "wrong command result" 1 "REJECT WRONG-RESULT run 1 n 10: restored database does not hold the exact command result" "$(at 1 10 '.restoredPayloadSha256 = "0"')"
+edit "failed integrity" 1 "REJECT WRONG-RESULT run 2 n 10: restored database does not hold the exact command result" "$(at 2 10 '.integrity = "corrupt"')"
+NOOP="no state change, replayed or resized payload, or broken state chain"
+edit "no-op state" 1 "REJECT NO-OP run 1 n 11: $NOOP" "$(at 1 11 '.after = .before')"
+edit "replayed payload" 1 "REJECT NO-OP run 1 n 12: $NOOP" "$(at 1 12 '.payloadSha256 = .payloadSha256[:-2] + "11" | .restoredPayloadSha256 = .payloadSha256')"
+edit "payload not a SHA-256" 1 "REJECT NO-OP run 1 n 12: $NOOP" "$(at 1 12 '.payloadSha256 = "p12" | .restoredPayloadSha256 = "p12"')"
+edit "resized payload" 1 "REJECT NO-OP run 1 n 13: $NOOP" "$(at 1 13 '.payloadBytes = 1')"
+edit "broken state chain" 1 "REJECT NO-OP run 1 n 14: $NOOP" "$(at 1 14 '.before = "stale"')"
+edit "oversize database" 1 "REJECT IDENTITY run 1 n 15: database size missing or over 67108864 bytes" "$(at 1 15 '.dbBytes = 67108865')"
+edit "database size zero" 1 "REJECT IDENTITY run 1 n 15: database size missing or over 67108864 bytes" "$(at 1 15 '.dbBytes = 0')"
+edit "omitted command" 1 "REJECT DROPPED run 1 n 5: command missing; every latency, failure and timeout is retained" 'map(select(.ev != "cmd" or .run != 1 or .n != 5))'
+edit "no measured commands" 1 "REJECT DROPPED run 2 n 0: no measured command" 'map(select(.ev != "cmd" or .run != 2))'
+edit "header-only trace" 1 "REJECT IDENTITY run 1 n 0: run missing, reused prefix/lineage, or fixture identity/size differs from the procedure" '.[:1]'
+edit "extra run" 1 "REJECT SEQUENCE run 4 n 0: event outside runs 1..3" '. + [(map(select(.ev == "run"))[0] | .run = 4 | .prefix = "x" | .lineage = "y")]'
+edit "run 0 event" 1 "REJECT SEQUENCE run 0 n 0: event outside runs 1..3" '. + [(map(select(.ev == "run"))[0] | .run = 0 | .prefix = "x" | .lineage = "y")]'
+edit "duplicate run" 1 "REJECT IDENTITY run 1 n 0: run recorded twice" '. + [map(select(.ev == "run"))[0]]'
+edit "duplicate command" 1 "REJECT SEQUENCE run 1 n 18: command recorded twice" 'map(if .ev == "cmd" and .run == 1 and .n == 18 then ., . else . end)'
+edit "command outside schedule" 1 "REJECT SEQUENCE run 3 n 151: command outside the fixed schedule" '. + [last | .n = 151]'
+edit "command 0" 1 "REJECT SEQUENCE run 3 n 0: command outside the fixed schedule" '. + [last | .n = 0]'
+SCHED="kind, arrival or submission clock is not the fixed schedule"
+edit "submission off schedule" 1 "REJECT SCHEDULE run 1 n 19: $SCHED" "$(at 1 19 '.submit -= 700')"
+edit "kind out of mix order" 1 "REJECT SCHEDULE run 1 n 20: $SCHED" "$(at 1 20 '.kind = "package-revision"')"
+edit "arrival off schedule" 1 "REJECT SCHEDULE run 1 n 21: $SCHED" "$(at 1 21 '.arrival += 1')"
+edit "ticket before submission" 1 "REJECT SCHEDULE run 1 n 22: $SCHED" "$(at 1 22 '.ticket = .submit - 1')"
+edit "slow publication misses" 3 "$MISS" "$(at 2 150 '.ack += 40000')"
+edit "p95 misses" 3 "RUN 2 measured 130 failures 0 p95 13100 max 13200 burst 13200 meets false" 'map(if .ev == "cmd" and .run == 2 and .n >= 100 and .n <= 106 then .ack += 12000 else . end)'
+# Identity
+BOUND="REJECT IDENTITY run 0 n 0: trace is not bound to this procedure file and evaluator source"
+edit "procedure not bound" 1 "$BOUND" 'map(if .ev == "trace" then .procedureSha256 = ("0" * 64) else . end)'
+edit "evaluator not bound" 1 "$BOUND" 'map(if .ev == "trace" then .evaluatorSha256 = ("0" * 64) else . end)'
+mkdir "$work/no-source" && cp "$EARLY/publication.json" "$work/no-source/"  # no fixture.go beside it: the trace claims the empty file
+jq -c '(if .ev == "trace" then .evaluatorSha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" else . end)' "$good" >"$work/no-source.jsonl"
+verdict "evaluator source missing" 1 "$BOUND" "$work/no-source/publication.json" "$work/no-source.jsonl"
+edit "trace schema" 1 "$BOUND" 'map(if .ev == "trace" then .schema = "other" else . end)'
+edit "runner identity not a SHA-256" 1 "REJECT IDENTITY run 0 n 0: subject identity is not a SHA-256" 'map(if .ev == "trace" then .runnerSha256 = ("1" * 63) else . end)'
+RUNID="run missing, reused prefix/lineage, or fixture identity/size differs from the procedure"
+edit "missing run" 1 "REJECT IDENTITY run 3 n 0: $RUNID" 'map(select(.ev != "run" or .run != 3))'
+edit "reused prefix" 1 "REJECT IDENTITY run 2 n 0: $RUNID" "$(runfield 2 '.prefix = "q13/run1/"')"
+edit "reused lineage" 1 "REJECT IDENTITY run 3 n 0: $RUNID" "$(runfield 3 '.lineage = "lineage-1"')"
+edit "generator differs" 1 "REJECT IDENTITY run 2 n 0: $RUNID" "$(runfield 2 '.generator = "other"')"
+edit "seed differs" 1 "REJECT IDENTITY run 1 n 0: $RUNID" "$(runfield 1 '.seed = 1')"
+edit "litestream differs" 1 "REJECT IDENTITY run 1 n 0: $RUNID" "$(runfield 1 '.litestream = "0.5.16"')"
+edit "undersized database" 1 "REJECT IDENTITY run 1 n 0: $RUNID" "$(runfield 1 '.dbBytes = 41943040')"
+edit "oversized initial database" 1 "REJECT IDENTITY run 1 n 0: $RUNID" "$(runfield 1 '.dbBytes = 54525953')"
+echo "$fails failed"
+((fails == 0))
