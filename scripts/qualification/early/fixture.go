@@ -63,7 +63,8 @@ var fixed = procedure{Schema: "prifly/qualification/early-publication/v1", Lites
 
 // Size guards of this layer, not authority values: the fixed workload is 150 commands a run (warm-up
 // and duration at the 15 s cadence plus the burst of 10, L76/L97) over three runs, about 450 command
-// lines of under 1 KiB each, so 4,096 lines of at most 4,096 bytes bound memory with ample headroom.
+// lines of under 1 KiB each, so 4,096 lines of at most 4,096 bytes bound memory with ample headroom:
+// the whole trace is read under its byte bound, and each line's length is checked before it is decoded.
 const maxLines, maxLine, maxProcedure = 4096, 4096, 1 << 16
 
 type clocks struct {
@@ -205,7 +206,10 @@ func main() {
 		fail("trace over %d lines", maxLines)
 	}
 	for i, line := range lines {
-		if e, ok := parse(line); len(line) > maxLine || !ok || (i == 0) != (e.Ev == "trace") {
+		if len(line) > maxLine {
+			fail("malformed trace line %d", i+1) // before any decoding, so parse never sees more than maxLine bytes
+		}
+		if e, ok := parse(line); !ok || (i == 0) != (e.Ev == "trace") {
 			fail("malformed trace line %d", i+1)
 		}
 	}
