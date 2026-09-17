@@ -183,7 +183,7 @@ def clean_numbered(text):
     fence_char, fence_len, fence_col = None, 0, 0
     items, in_para, para_depth = [], False, 0  # content columns of the open list items
     empty_item = False  # the previous line opened an item with no content
-    quote_fence = None  # the fence character of a fence open inside a "> " quote
+    quote_fence = None  # the opening run of a fence open inside a "> " quote
     for i, raw in enumerate(text.splitlines()):
         line = raw.expandtabs(4)
         stripped = line.strip()
@@ -232,13 +232,14 @@ def clean_numbered(text):
                     in_comment = True
                     continue
             elif stripped.startswith('>'):
-                rest = QUOTE_PREFIX_RE.sub('', stripped, count=1)
                 if was_quoted:  # a quoted fence goes on only over "> " lines
-                    closes = FENCE_CLOSE_RE.match(rest) and rest[0] == was_quoted
+                    c = FENCE_CLOSE_RE.match(stripped.lstrip('> '))
+                    closes = c and c.group(1)[0] == was_quoted[0] and len(c.group(1)) >= len(was_quoted)
                     quote_fence, in_para = None if closes else was_quoted, False
                 else:
+                    rest = QUOTE_PREFIX_RE.sub('', stripped, count=1)
                     f = fence_at(rest, 0)
-                    quote_fence = f.group(1)[0] if f else None
+                    quote_fence = f.group(1) if f else None
                     in_para, para_depth = bool(rest) and not starts_block(rest), -1
             else:
                 pos, code = indent, False

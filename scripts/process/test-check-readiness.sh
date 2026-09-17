@@ -447,4 +447,24 @@ checkbox_case quote-fence-code "$ac_h" $'> ```text\n> x\n    - [ ] Quoted as ind
 checkbox_case quote-lazy "$ac_h" $'- a\n  > text\nlazy\n  ```text\n- [ ] A criterion after the item ends.\n  ```\n' \
   'checkbox after a lazy line continuing a quote inside a list item passes' 0
 
+checkbox_case quote-fence-close "$ac_h" $'> ````text\n> - ````\n> ~~~~\n> ```\n> x\n    - [ ] Quoted as indented code.\n' \
+  'checkbox in indented code after a quoted fence holding shorter, other and item fence lines fails'
+checkbox_case quote-heading-code "$ac_h" $'> # Note\n    - [ ] Quoted as indented code.\n' \
+  'checkbox in indented code after a quoted heading fails'
+checkbox_case quote-empty-code "$ac_h" $'>\n    - [ ] Quoted as indented code.\n' \
+  'checkbox in indented code after an empty quote line fails'
+# #192: indented code ends the list items it is less indented than; #219: a lazy "===" line is
+# paragraph text, not a setext underline; #223: an empty line ends an empty item a whitespace-only
+# line kept open.
+checkbox_case code-ends-item "$ac_h" $'  1) step\n\n    code\n     - [ ] Quoted as indented code.\n' \
+  'checkbox in indented code that ended a 1) item fails'
+checkbox_case setext-lazy "$ac_h" $'- a\n===\n  2. ```text\n     - [ ] A criterion in the item.\n     ```\n' \
+  'checkbox after a 2. ```text line following a lazy === line in a - item passes' 0
+checkbox_case empty-dash-spaceline-blank "$ac_h" $'- \n   \n\n  ```text\n- [ ] quoted\n  ```\n' \
+  'checkbox inside a fence after an empty - item, a whitespace-only line and a blank line fails'
+pr_body item-heading 'Closes #154'
+replace "$fixture_root/pr-item-heading.md" $'\n## Verified expectation\n' $'\n- Item.\n  ## Verified expectation\n'
+run_case 'PR: a "## " heading inside a list item does not count' 1 \
+  'MISSING: all template sections present (missing: Verified expectation)' \
+  --root "$root" --body "$fixture_root/pr-item-heading.md" "${pr[@]}"
 echo "test-check-readiness: $passed cases passed"
