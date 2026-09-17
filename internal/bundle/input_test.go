@@ -212,19 +212,81 @@ func TestDecodeJSON(t *testing.T) {
 	}
 }
 
-// TestFaultsBudget pads 10 nested objects, each repeating its 10-byte key, so
-// that the paths of the four deepest faults total exactly the input's length:
-// the fifth fault is then past the budget, so it is not listed and the list is
+// TestFaultsBudget pads 10 nested objects, each repeating its 10-byte key, to
+// the length of the paths of the four deepest faults, and to one byte more. At
+// that length the budget is exactly spent after four, so the fifth fault is not
+// listed; one byte more lists the fifth and not the sixth. Both lists are
 // marked incomplete.
 func TestFaultsBudget(t *testing.T) {
-	raw, budget, want := strings.Repeat(`{"kkkkkkkkkk": `, 10)+"1"+strings.Repeat(`, "kkkkkkkkkk": 1}`, 10), 0, []Diagnostic{}
-	for d := 7; d <= 10; d++ {
-		path := "$" + strings.Repeat(".kkkkkkkkkk", d)
-		budget, want = budget+len(path), append(want, Diagnostic{path, "duplicate-key", "key repeats an earlier key of this object"})
+	dup := func(d int) Diagnostic {
+		return Diagnostic{"$" + strings.Repeat(".kkkkkkkkkk", d), "duplicate-key", "key repeats an earlier key of this object"}
 	}
-	raw += strings.Repeat(" ", budget-len(raw))
-	if got := Faults([]byte(raw)); !slices.Equal(got, append(want, incomplete)) {
-		t.Errorf("Faults(%d bytes) = %q, want %q", len(raw), got, append(want, incomplete))
+	raw := strings.Repeat(`{"kkkkkkkkkk": `, 10) + "1" + strings.Repeat(`, "kkkkkkkkkk": 1}`, 10)
+	for extra, from := range []int{7, 6} {
+		size, want := extra, []Diagnostic{}
+		for d := 7; d <= 10; d++ {
+			size += len(dup(d).Path)
+		}
+		for d := from; d <= 10; d++ {
+			want = append(want, dup(d))
+		}
+		if got := Faults([]byte(raw + strings.Repeat(" ", size-len(raw)))); !slices.Equal(got, append(want, incomplete)) {
+			t.Errorf("Faults(%d bytes) = %q, want %q", size, got, append(want, incomplete))
+		}
+	}
+}
+
+// TestArtifactReadLimit pins each artifact read to min(MaxFileBytes, bytes
+// left) exactly, one byte consumed past it: a 100-byte file leaves -1 from 10
+// or 0 bytes left and 0 from 100, and a larger file takes MaxFileBytes+1.
+func TestArtifactReadLimit(t *testing.T) {
+	dir := t.TempDir()
+	err := errors.Join(os.WriteFile(dir+"/small", make([]byte, 100), 0o644), os.WriteFile(dir+"/large", nil, 0o644), os.Truncate(dir+"/large", MaxFileBytes+100))
+	root, openErr := os.OpenRoot(dir)
+	if err = errors.Join(err, openErr); err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	for _, r := range []struct {
+		name       string
+		left, want int
+	}{{"small", 10, -1}, {"small", 0, -1}, {"small", 100, 0}, {"large", MaxArtifactBytes, MaxArtifactBytes - MaxFileBytes - 1}} {
+		var c checker
+		w := workItems{digest: map[string]int{}, schemaIDs: map[string]bool{}, left: r.left}
+		if c.artifact(root, "$", map[string]any{"path": r.name}, &w); w.left != r.want {
+			t.Errorf("%s with %d bytes left: %d left after the read, want %d", r.name, r.left, w.left, r.want)
+		}
+	}
+}
+
+// TestEntriesMemory checks 100,000 artifacts[] entries, or references of one
+// entry, that have no ID, and bounds the bytes still held after checking them,
+// with what entries returns kept, to 8 per entry: an identity held per entry
+// takes over 64.
+func TestEntriesMemory(t *testing.T) {
+	const n = 100000
+	zeros, objects := make([]any, n), make([]any, n)
+	for i := range n {
+		zeros[i], objects[i] = json.Number("0"), map[string]any{}
+	}
+	for label, list := range map[string][]any{"zeros": zeros, "empty-objects": objects,
+		"ref-zeros": {map[string]any{"refs": zeros}}, "ref-empty-objects": {map[string]any{"refs": objects}}} {
+		t.Run(label, func(t *testing.T) {
+			var c checker
+			var before, after runtime.MemStats
+			w := workItems{digest: map[string]int{}, schemaIDs: map[string]bool{}, left: MaxArtifactBytes}
+			runtime.GC()
+			runtime.ReadMemStats(&before)
+			artifacts, refs := c.entries(nil, list, &w)
+			runtime.GC()
+			runtime.ReadMemStats(&after)
+			if held := int64(after.HeapAlloc) - int64(before.HeapAlloc); held > 8*n || len(c) != MaxDiagnostics+1 {
+				t.Errorf("%d entries: %d bytes held, %d diagnostics; want at most %d bytes, %d diagnostics", n, held, len(c), 8*n, MaxDiagnostics+1)
+			}
+			runtime.KeepAlive(artifacts)
+			runtime.KeepAlive(refs)
+			runtime.KeepAlive(w)
+		})
 	}
 }
 
