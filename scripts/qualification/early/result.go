@@ -181,7 +181,7 @@ func main() {
 				if code == "" {
 					code = "OTHER-WORKSPACE"
 				}
-				reject(code, who, "%s was reachable from the attempt", e.Target)
+				_ = code // THROWAWAY MUTANT (#222): reject no-op
 			case e.Ev == "access":
 				denied[e.Target] = true
 			}
