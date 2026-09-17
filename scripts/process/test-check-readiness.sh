@@ -464,6 +464,39 @@ checkbox_case setext-lazy "$ac_h" $'- a\n===\n  2. ```text\n     - [ ] A criteri
   'checkbox after a 2. ```text line following a lazy === line in a - item passes' 0
 checkbox_case empty-dash-spaceline-blank "$ac_h" $'- \n   \n\n  ```text\n- [ ] quoted\n  ```\n' \
   'checkbox inside a fence after an empty - item, a whitespace-only line and a blank line fails'
+# PR #266 round 1: inside a quote, content 4 or more columns past ">" and one optional space is
+# indented code, not a paragraph; a quoted fence closes only on a run indented at most 3 columns
+# at the same quote depth; a list item inside a quote opens no paragraph (not modelled: fail closed).
+checkbox_case quote-close-indent "$ac_h" $'> ```\n>     ```\n> x\n    - [ ] Q1\n' \
+  'checkbox in indented code after a quoted fence and a closing run indented 4 inside the quote fails'
+checkbox_case quote-close-nested "$ac_h" $'> ```\n> > ```\n> x\n    - [ ] Q1\n' \
+  'checkbox in indented code after a quoted fence and a closing run behind a nested quote fails'
+checkbox_case quote-code "$ac_h" $'>     code\n    - [ ] Q1\n' \
+  'checkbox in indented code after indented code inside a quote fails'
+checkbox_case quote-code-fence "$ac_h" $'>     ```\n> ```\n> x\n    - [ ] Q1\n' \
+  'checkbox in indented code after a quoted fence opened below fence-shaped quoted indented code fails'
+checkbox_case quote-4col-para "$ac_h" $'- a\n  >    text\nlazy\n  ```text\n- [ ] A criterion after the item ends.\n  ```\n' \
+  'checkbox after a lazy line continuing a quote paragraph 4 columns past ">" in a list item passes' 0
+checkbox_case quote-code-after-code "$ac_h" $'    ```\n>     x\n    - [ ] Q1\n' \
+  'checkbox in indented code after indented code and a quote holding indented code fails'
+checkbox_case quote-tab-code "$ac_h" $'>\t  x\n    - [ ] Q1\n' \
+  'checkbox in indented code after a quote tab and 2 spaces of indented code fails'
+checkbox_case quote-item-lazy "$ac_h" $'> - a\n    - [ ] Q1\n' \
+  'checkbox indented 4 after a list item inside a quote fails'
+# #271: "- - -" and "___" are thematic breaks, "--" a setext underline, "#" an empty heading and
+# "#######" no heading; a line of exactly the content column's spaces keeps an empty item open; a
+# tab after "-" reaches column 4.
+checkbox_case break-dash "$ac_h" $'- - -\n  ```text\n- [ ] Q1\n   ```\n' \
+  'checkbox inside a fence after a - - - thematic break fails'
+checkbox_case heading-7 "$ac_h" $'Then:\n####### x\n2. ```text\n    ```\n   - [ ] Q1\n' \
+  'checkbox after a 2. ```text line continuing a ####### paragraph line passes' 0
+after_para underscore '___' 'checkbox under a 2. ```text step after a ___ thematic break passes'
+after_para setext-dash '--' 'checkbox under a 2. ```text step after a -- setext underline passes'
+after_para heading-empty '#' 'checkbox under a 2. ```text step after an empty # heading passes'
+checkbox_case empty-exact-col "$ac_h" $'- \n  \n  ```text\n- [ ] Q1\n   ```\n' \
+  'checkbox after a fence inside an empty - item kept open by a 2-space line passes' 0
+checkbox_case tab-marker-dash "$ac_h" $'-\t```\n  - [ ] Q1\n' \
+  'checkbox after a fence opened by a tab after a - marker, less indented than column 4, passes' 0
 pr_body item-heading 'Closes #154'
 replace "$fixture_root/pr-item-heading.md" $'\n## Verified expectation\n' $'\n- Item.\n  ## Verified expectation\n'
 run_case 'PR: a "## " heading inside a list item is not counted (fail closed)' 1 \
