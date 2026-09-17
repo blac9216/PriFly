@@ -24,8 +24,13 @@
 # The secret check is a heuristic, not a scanner. It flags known token prefixes, any run
 # of 64 hex digits (the R2 secret access key shape; this also rejects a sha256 digest used
 # as a reference) and any 32+ character run of [A-Za-z0-9+/=_-] mixing upper case, lower
-# case and digits. It misses shorter or single-case secrets and ones split by other
-# punctuation, and it fails closed on some legitimate references (e.g. host:rk-01).
+# case and digits. In a value that starts as a location (scheme:// URL, op:// style vault
+# reference, or /absolute/path) a run without + or = is split at /, and then a piece of
+# 32+ [A-Za-z0-9_-] or 16+ [A-Za-z0-9] mixing all three is flagged; a run holding + or =
+# stays whole as base64. It misses shorter or single-case secrets, ones split by other
+# punctuation, and base64 inside a location that has no + or = and splits at / into
+# shorter pieces. It fails closed on some legitimate references (e.g. host:rk-01, or a
+# location whose query mixes = with a long mixed-case path).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -154,8 +159,11 @@ def check(s, v, path, out):
     return out
 
 def looks(x):
-    return bool(SECRET.search(x) or any(
-        all(re.search(c, r) for c in ('[a-z]', '[A-Z]', '[0-9]')) for r in re.findall(r'[A-Za-z0-9+/=_-]{32,}', x)))
+    runs = re.findall(r'[A-Za-z0-9+/=_-]{32,}', x)
+    if re.match(r'(?:[A-Za-z][A-Za-z0-9+.-]*:/)?/', x):
+        runs = [p for r in runs for p in ([r] if re.search('[+=]', r) else
+                                          re.findall(r'[A-Za-z0-9_-]{32,}', r) + re.findall(r'[A-Za-z0-9]{16,}', r))]
+    return bool(SECRET.search(x) or any(all(re.search(c, r) for c in ('[a-z]', '[A-Z]', '[0-9]')) for r in runs))
 
 def seg(path, k):
     return f"{path}.{'<redacted-key>' if looks(k) else json.dumps(k)[1:-1]}".lstrip('.')
