@@ -181,6 +181,7 @@ func TestDecodeJSON(t *testing.T) {
 		"pair-range-bottom":   {`["\ud800\udc00"]`, true, `"\U00010000"`},
 		"pair-range-top":      {`["\udbff\udfff"]`, true, `"\U0010ffff"`},
 		"lone-surrogate-top":  {`["\udfff"]`, false, ""},
+		"lone-high-top":       {`["\udbff"]`, false, ""},
 		"beside-surrogates":   {`["\ud7ff\ue000"]`, true, `"\ud7ff\ue000"`},
 		"escaped-backslash-u": {`["\\ud800"]`, true, `"\\ud800"`},
 		"duplicate-key":       {`[{"a": 1, "a": 1}]`, false, ""},
