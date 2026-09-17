@@ -69,11 +69,17 @@ var hostile = map[string]func(dir string) error{
 			replaceIn(dir, `"WorkItem/v1"`, `"\u001b[2K"`), replaceIn(dir, `"artifacts/baseline.json"`, `"\r\u202e"`), replaceIn(dir, `"`+bslSHA+`"`, `"\u001b[8m"`),
 			replaceIn(dir, `"wi_8887ffc`, `"wi_8887FFC`))
 	},
-	// Printable non-ASCII, which strconv.Quote would print raw and QuoteToASCII escapes:
-	// in a bundle ID, an artifact schema and an unknown key, and, needing its own bundle
-	// because inspect stops at it, in the manifest schema.
+	// Printable non-ASCII, which strconv.Quote would print raw and QuoteToASCII escapes,
+	// in every diagnostic detail a bundle can reach: a bundle ID, a revision, a digest, a
+	// job, an artifact path, an artifact schema and an unknown key; and, needing its own
+	// bundle because inspect stops at it, the manifest schema. The details whose value is
+	// validated to a fixed ASCII shape before it is rendered are unreachable this way and
+	// are pinned by TestBundleDiagnosticsRenderASCII instead.
 	"printable-non-ascii": func(dir string) error {
 		return errors.Join(replaceIn(dir, `"`+bundleID+`"`, `"bnd_8d0e1c6f026fef7621a0c7b017f12c1\u0430"`),
+			replaceIn(dir, `"revision": 1`, `"revision": "caf\u00e9"`), replaceIn(dir, `"`+wiSHA+`"`, `"caf\u00e9"`),
+			replaceIn(dir, `"reviewer.implementation/v1"`, `"reviewer.implementation/v1\u00e9"`),
+			replaceIn(dir, `"artifacts/baseline.json"`, `"artifacts/caf\u00e9.json"`),
 			replaceIn(dir, `"jobs": [`, `"caf\u00e9": 1, "jobs": [`), addArtifacts(dir, "bsl", `Baseline/v1\u00e9`, `{}`))
 	},
 	"non-ascii-bundle-schema": func(dir string) error {
@@ -99,8 +105,19 @@ var hostile = map[string]func(dir string) error{
 	},
 	"over-size-cap-artifact": func(dir string) error { return os.Truncate(dir+"/artifacts/baseline.json", bundle.MaxFileBytes+1) },
 	"absolute-artifact": func(dir string) error { // an absolute name resolving to a real file outside the bundle copy
-		if info, err := os.Stat(absoluteFile); err != nil || !info.Mode().IsRegular() {
-			return fmt.Errorf("%s is not an existing regular file, so this case would not exercise the confined read: %v", absoluteFile, err)
+		// The bytes are read, not stat-ed: the O11 mutant #242 names answers any os.ReadFile
+		// error with the confined-read refusal, so on a regular file this process cannot read
+		// the expected output would match and the case would pass with O11 uncaught. IsRegular
+		// is kept first so an unreadable path that is a FIFO reports rather than blocking here.
+		info, err := os.Stat(absoluteFile)
+		if err == nil && !info.Mode().IsRegular() {
+			err = fmt.Errorf("mode is %v", info.Mode())
+		}
+		if err == nil {
+			_, err = os.ReadFile(absoluteFile)
+		}
+		if err != nil {
+			return fmt.Errorf("%s is not a regular file this process can read, so this case would not exercise the confined read: %v", absoluteFile, err)
 		}
 		return replaceIn(dir, `"artifacts/baseline.json"`, `"`+absoluteFile+`"`)
 	},
@@ -132,9 +149,10 @@ var hostile = map[string]func(dir string) error{
 		err := addItems(dir, `{"kind": "ENABLER", "consumers": ["`+wiN(99)+`", "bsl_6e73c229223db574a3c8fa28dd5a1a5a", 7, "`+wiN(1)+`"], "dependencies": [{"work_item": "`+wiN(98)+`", "condition": "x"}, "`+wiN(0)+`", {"condition": "x"}, {"work_item": "wi_\u001b[2K", "condition": "x"}], `+traced+`}`, slice(), slice(97), slice(97))
 		return errors.Join(err, os.Remove(dir+"/artifacts/wi1.json")) // an unreadable Work Item is still one a consumer can name, and may name its own envelope
 	},
+	// wi3's kind carries printable non-ASCII: it is the only case reaching the invalid-kind detail.
 	"invalid-content": func(dir string) error { // wi1's own envelope is named only by content that cannot be read, so it is not reported
 		return addItems(dir, `[]`, `{"kind": "SLICE", "kind": "SLICE", "dependencies": [], `+traced+`}`, `{"dependencies": [], `+traced+`}`, // the last has item0's bytes: reported once
-			`{"kind": "slice\u001b[2K", "dependencies": [], `+traced+`}`, `{"kind": "SLICE", `+traced+`}`, `{"kind": "SLICE", "dependencies": {}, `+traced+`}`, `{"kind": 7, "dependencies": [], `+traced+`}`, `[]`)
+			`{"kind": "slice\u001b[2K\u00e9", "dependencies": [], `+traced+`}`, `{"kind": "SLICE", `+traced+`}`, `{"kind": "SLICE", "dependencies": {}, `+traced+`}`, `{"kind": 7, "dependencies": [], `+traced+`}`, `[]`)
 	},
 	"orphan-outcome": func(dir string) error { // the last content repeats the one before: reported once; bsl_0 is a Baseline/v2 entry
 		return errors.Join(addItems(dir, `{"kind": "SLICE", "dependencies": [], `+bound+`}`, `{"kind": "SLICE", "dependencies": [], "outcomes": [], `+bound+`}`,
@@ -149,16 +167,18 @@ var hostile = map[string]func(dir string) error{
 		err := addItems(dir, consumerEnabler, `{"kind": "ENABLER", "consumers": ["`+wiN(-1)+`"], "dependencies": [], `+traced+`}`, `{"kind": "slice", "dependencies": [], `+traced+`}`, slice(), consumerEnabler, `[]`)
 		return errors.Join(err, os.Remove(dir+"/artifacts/wi3.json"))
 	},
+	// worker_minutes carries printable non-ASCII: it is the only case reaching the invalid-bound detail.
 	"invalid-bound": func(dir string) error { // xen6 repeats xen2's bytes: reported once
-		bad := `{"bounds": {"attempts": 0, "repairs_per_attempt": -1, "attempt_minutes": 1.5, "worker_minutes": "360", "tokens\u001b[2K": 1}}`
+		bad := `{"bounds": {"attempts": 0, "repairs_per_attempt": -1, "attempt_minutes": 1.5, "worker_minutes": "36\u00e9", "tokens\u001b[2K": 1}}`
 		items := []string{}
 		for n := range 7 {
 			items = append(items, naming(fmt.Sprintf("xen_%032x", n), slice()))
 		}
 		return errors.Join(addArtifacts(dir, "xen", "ExecutionEnvelope/v1", `{}`, `{"bounds": []}`, bad, `{"bounds": {"attempts": 1e3, "repairs_per_attempt": null, "attempt_minutes": 90.0}}`, `[]`, `{"bounds": {"attempts": true, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 360}}`, bad), addItems(dir, items...))
 	},
+	// results[4] carries printable non-ASCII: it is the only case reaching the invalid-result detail.
 	"blocking-result": func(dir string) error { // qev4 repeats qev0's bytes: reported once; qev5 repeats a Work Item's bytes: still checked
-		item, results := `{"kind": "SLICE", "dependencies": [], `+traced+`, "results": [{"result": "FAIL"}]}`, `{"results": [{"result": "PASS"}, {"result": "FAIL"}, {"result": "NOT_APPLICABLE"}, {"result": "UNKNOWN"}, {"result": "fail\u001b[2K"}, {}, 7, {"result": null}, {"result": "NOT_APPLICABLE", "applicability": ""}, {"result": "NOT_APPLICABLE", "applicability": 7}]}`
+		item, results := `{"kind": "SLICE", "dependencies": [], `+traced+`, "results": [{"result": "FAIL"}]}`, `{"results": [{"result": "PASS"}, {"result": "FAIL"}, {"result": "NOT_APPLICABLE"}, {"result": "UNKNOWN"}, {"result": "fail\u001b[2K\u00e9"}, {}, 7, {"result": null}, {"result": "NOT_APPLICABLE", "applicability": ""}, {"result": "NOT_APPLICABLE", "applicability": 7}]}`
 		return errors.Join(addItems(dir, item), addArtifacts(dir, "qev", "QualityEvaluation/v1", results, `{}`, `{"results": {}}`, `[]`, results, item, `{"results": []}`))
 	},
 	"covered-bounded-passing": func(dir string) error {
@@ -234,8 +254,8 @@ const (
 	own      = "xen_<own>" // replaced by ownXen of the content naming it
 	// absoluteFile is the artifact-level absolute-path case's name: a real file
 	// outside the bundle copy. It is fixed, not a per-run temporary path, because
-	// this test compares exact output; its setup fails when it is not an existing
-	// regular file, so the case cannot pass vacuously.
+	// this test compares exact output; its setup reads the file and fails when the
+	// bytes do not come back, so the case cannot pass vacuously.
 	absoluteFile = "/etc/hostname"
 	envelope     = `{"bounds": {"attempts": 3, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 360}}`
 )
@@ -409,12 +429,14 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"invalid-artifact-revision": {"invalid-revision " + bsl + ".revision: want integer >= 1, got 0"},
 		"duplicate-key-trailing":    {notJSON, "duplicate-key $.revision" + repeated},
 		"duplicate-id":              {`duplicate-id $.artifacts[2].id: artifact ID "wi_8887ffc730f707abb82bb7cb7068e914" is already declared at ` + wi + ".id"},
+		// The repeated top-level key carries printable non-ASCII: a fault path is the only
+		// place Member renders a key outside an object check, and this is the case reaching it.
 		"duplicate-key": {
 			"duplicate-key " + wi + ".refs[0].id" + repeated,
 			"duplicate-key " + wi + ".sha256" + repeated,
 			"duplicate-key " + bsl + ".refs" + repeated,
 			"duplicate-key $.schema" + repeated,
-			`duplicate-key $["x\x1b[2K"]` + repeated},
+			`duplicate-key $["x\x1b[2K\u00e9"]` + repeated},
 		"duplicate-id-partial": {
 			`duplicate-id $.artifacts[5].id: artifact ID "bsl_6e73c229223db574a3c8fa28dd5a1a5a" is already declared at ` + bsl + ".id",
 			"missing-field $.artifacts[5].sha256" + missing,
@@ -471,8 +493,12 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"invalid-digest " + wi + `.refs[0].sha256: want 64 lowercase hex SHA-256, got ""`,
 			"invalid-digest " + wi + `.sha256: want 64 lowercase hex SHA-256, got ""`},
 		"printable-non-ascii": {
+			"invalid-digest " + wi + `.sha256: want 64 lowercase hex SHA-256, got "caf\u00e9"`,
+			"unreadable-artifact " + bsl + `.path: "artifacts/caf\u00e9.json" does not resolve to a file inside the bundle directory`,
 			`unsupported-schema $.artifacts[5].schema: artifact schema "Baseline/v1\u00e9" is not supported`,
 			`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "bnd_8d0e1c6f026fef7621a0c7b017f12c1\u0430"`,
+			`unsupported-job $.jobs[1]: job/version "reviewer.implementation/v1\u00e9" is not supported`,
+			`invalid-revision $.revision: want integer >= 1, got "caf\u00e9"`,
 			`unknown-field $["caf\u00e9"]` + notPartOf},
 		"non-ascii-bundle-schema": {`unsupported-schema $.schema: want "ExternalPlanningBundle/v1", got "ExternalPlanningBundle/v2\u00e9"`},
 		"all-schemas":             {"result: ok manifest_sha256=5d593a588706db9ee5a28e6c33238876c52fc3c998c0f362dbe82ecb1d999991 (nothing staged or started)"},
@@ -544,7 +570,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"invalid-bound " + at(2, ".bounds.attempt_minutes: want integer >= 1, got 1.5"),
 			"invalid-bound " + at(2, ".bounds.attempts: want integer >= 1, got 0"),
 			"invalid-bound " + at(2, ".bounds.repairs_per_attempt: want integer >= 1, got -1"),
-			"invalid-bound " + at(2, `.bounds.worker_minutes: want integer >= 1, got "360"`),
+			"invalid-bound " + at(2, `.bounds.worker_minutes: want integer >= 1, got "36\u00e9"`),
 			"unknown-field " + at(2, `.bounds["tokens\x1b[2K"]: field is not part of ExecutionEnvelope/v1`),
 			"invalid-bound " + at(3, ".bounds.attempt_minutes: want integer >= 1, got 90.0"),
 			"invalid-bound " + at(3, ".bounds.attempts: want integer >= 1, got 1e3"),
@@ -557,7 +583,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"blocking-result " + at(1, `.results[1].result: imported "FAIL" result rejects admission`),
 			"missing-applicability " + at(1, ".results[2].applicability: NOT_APPLICABLE result states no applicability path"),
 			"blocking-result " + at(1, `.results[3].result: imported "UNKNOWN" result rejects admission`),
-			"invalid-result " + at(1, `.results[4].result: want "PASS", "FAIL", "NOT_APPLICABLE" or "UNKNOWN", got "fail\x1b[2K"`),
+			"invalid-result " + at(1, `.results[4].result: want "PASS", "FAIL", "NOT_APPLICABLE" or "UNKNOWN", got "fail\x1b[2K\u00e9"`),
 			"missing-field " + at(1, ".results[5].result"+missing),
 			"invalid-type " + at(1, ".results[6]: want object"),
 			"invalid-result " + at(1, `.results[7].result: want "PASS", "FAIL", "NOT_APPLICABLE" or "UNKNOWN", got null`),
@@ -606,7 +632,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"invalid-content " + at(0, ": want one JSON object with unique keys and exact strings"),
 			"invalid-content " + at(1, ": want one JSON object with unique keys and exact strings"),
 			"missing-field " + at(2, ".kind"+missing),
-			"invalid-kind " + at(3, `.kind: want "SLICE" or "ENABLER", got "slice\x1b[2K"`),
+			"invalid-kind " + at(3, `.kind: want "SLICE" or "ENABLER", got "slice\x1b[2K\u00e9"`),
 			"missing-field " + at(4, ".dependencies"+missing)},
 	} {
 		t.Run(variant, func(t *testing.T) {
@@ -638,6 +664,9 @@ func TestBundleInspectFixtures(t *testing.T) {
 			case outputs := <-done:
 				if wantOut := fmt.Sprintf("exit=%d stderr=\"\"\n%s\n", code, strings.Join(want, "\n")); outputs[wantOut] != 20 {
 					t.Errorf("outputs over 20 runs = %v, want only %q", outputs, wantOut)
+				}
+				for out := range outputs { // no case may print a byte an operator's terminal can act on
+					printableASCII(t, "inspect output", out)
 				}
 			case <-time.After(30 * time.Second):
 				t.Fatal("inspect did not finish within 30s")
@@ -677,6 +706,10 @@ func zeroArtifacts(dir string, sizes map[string]int, names ...string) error {
 func TestArtifactBytesCap(t *testing.T) {
 	const over = ` exceeds the 134217728-byte cap on artifact bytes read per bundle
 `
+	// tampered carries a printable non-ASCII character, so the cap detail's own rendering
+	// of the artifact name is pinned here: this is the only case that reaches it, since
+	// TestBundleInspectFixtures never passes MaxArtifactBytes.
+	const tampered = "tamper\u00e9d"
 	zeros, fill := map[string]int{"zero": 16 << 20, "rest": 16<<20 - 764}, []string{"rest", "zero", "zero", "zero", "zero", "zero", "zero", "zero"}
 	for _, c := range []struct {
 		name  string
@@ -690,8 +723,8 @@ func TestArtifactBytesCap(t *testing.T) {
 ` + incomplete + "\nresult: invalid diagnostics-listed=3 (list incomplete; nothing staged or started)\n"},
 		{"at-cap", func(dir string) error { return zeroArtifacts(dir, zeros, fill...) }, bundle.MaxArtifactBytes, "result: ok"},
 		{"past-cap", func(dir string) error {
-			return errors.Join(os.WriteFile(dir+"/artifacts/tampered.json", []byte("tampered"), 0o644), zeroArtifacts(dir, zeros, append(fill, "tampered", "missing")...))
-		}, bundle.MaxArtifactBytes + 1, `unreadable-artifact $.artifacts[13].path: "artifacts/tampered.json"` + over + incomplete + "\nresult: invalid diagnostics-listed=2 (list incomplete; nothing staged or started)\n"},
+			return errors.Join(os.WriteFile(dir+"/artifacts/"+tampered+".json", []byte("tampered"), 0o644), zeroArtifacts(dir, zeros, append(fill, tampered, "missing")...))
+		}, bundle.MaxArtifactBytes + 1, `unreadable-artifact $.artifacts[13].path: "artifacts/tamper\u00e9d.json"` + over + incomplete + "\nresult: invalid diagnostics-listed=2 (list incomplete; nothing staged or started)\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := bundleCopy(t, "valid")
@@ -717,6 +750,7 @@ func TestArtifactBytesCap(t *testing.T) {
 			if want == "result: ok" {
 				want, wantCode = fmt.Sprintf("result: ok manifest_sha256=%x (nothing staged or started)\n", sha256.Sum256(manifest)), 0
 			}
+			printableASCII(t, "inspect stdout", stdout.String())
 			if code != wantCode || stdout.String() != want || stderr.Len() != 0 || after-before < wantRead || after-before >= wantRead+1024 {
 				t.Errorf("exit=%d, %d bytes read, stdout:\n%s\nstderr: %q; want exit %d, %d bytes read (+1,023), stdout:\n%s", code, after-before, stdout.String(), stderr.String(), wantCode, wantRead, want)
 			}
@@ -794,5 +828,133 @@ func TestBundleImportsNoNetworkOrProcess(t *testing.T) {
 	}
 	if scanned["."] < 2 || scanned["../../internal/bundle"] < 2 {
 		t.Errorf("scanned files per package = %v, want cmd/prifly and internal/bundle", scanned)
+	}
+}
+
+// printableASCII fails when s holds a byte outside printable ASCII. A newline is
+// allowed: it separates diagnostics. what names the output in the failure.
+func printableASCII(t *testing.T, what, s string) {
+	t.Helper()
+	for i := range len(s) {
+		if b := s[i]; b != '\n' && (b < 0x20 || b > 0x7e) {
+			t.Errorf("%s: byte %d is 0x%02x, outside printable ASCII, in %q", what, i, b, s)
+			return
+		}
+	}
+}
+
+// formatVerbs returns the fmt verbs of format in order, "%%" skipped.
+func formatVerbs(format string) (verbs []byte) {
+	for i := 0; i < len(format); i++ {
+		if format[i] != '%' {
+			continue
+		}
+		for i++; i < len(format) && strings.ContainsRune("+-# 0123456789.*", rune(format[i])); i++ {
+		}
+		if i < len(format) && format[i] != '%' {
+			verbs = append(verbs, format[i])
+		}
+	}
+	return verbs
+}
+
+// TestBundleDiagnosticsRenderASCII pins internal/bundle's diagnostic details to a
+// renderer that escapes non-ASCII, by reading the package's own non-test source:
+// it fails on a strconv quoting call that is not a ToASCII one, and on a %q verb
+// — %q is strconv.Quote — anywhere but the one checker.add whose %q argument is
+// this package's Schema constant, which is not bundle text.
+//
+// It is the negative control for the call sites no bundle can reach. Thirteen of
+// the 24 Quote call sites render a value the checker has already validated into a
+// fixed ASCII shape before the call — a typed ID (idRE), a decimal revision
+// (revisionRE), a 64-hex digest (digestRE), or the literal "FAIL"/"UNKNOWN" — so
+// strconv.Quote and strconv.QuoteToASCII return the same bytes there and no
+// fixture can separate them. The other 11 and both Member call sites are driven
+// end to end with a printable non-ASCII character by the cases above.
+//
+// The call-site counts are asserted so the enumeration stays by occurrence and
+// not by line: two lines of bundle.go carry two Quote calls each.
+func TestBundleDiagnosticsRenderASCII(t *testing.T) {
+	const pkg = "../../internal/bundle"
+	files, err := filepath.Glob(filepath.Join(pkg, "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset, calls, parsed := token.NewFileSet(), map[string]int{}, 0
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, file, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parsed++
+		schemaOnly := map[*ast.BasicLit]bool{} // formats whose every %q renders Schema
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := call.Fun.(*ast.Ident); ok {
+				calls[id.Name]++
+			}
+			s, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if x, isName := s.X.(*ast.Ident); isName && x.Name == "strconv" && !strings.HasSuffix(s.Sel.Name, "ToASCII") &&
+				(strings.HasPrefix(s.Sel.Name, "Quote") || strings.HasPrefix(s.Sel.Name, "AppendQuote")) {
+				t.Errorf("%s: strconv.%s leaves printable non-ASCII raw; bundle text is rendered by Quote or Member", fset.Position(s.Pos()), s.Sel.Name)
+			}
+			// checker.add is add(path, code, format string, args ...any).
+			if s.Sel.Name != "add" || len(call.Args) < 3 {
+				return true
+			}
+			lit, isLit := call.Args[2].(*ast.BasicLit)
+			if !isLit || lit.Kind != token.STRING {
+				return true
+			}
+			format, unquoted := strconv.Unquote(lit.Value)
+			if unquoted != nil {
+				return true
+			}
+			only := true
+			for k, verb := range formatVerbs(format) {
+				if verb != 'q' {
+					continue
+				} else if 3+k >= len(call.Args) {
+					only = false
+					continue
+				}
+				arg, isIdent := call.Args[3+k].(*ast.Ident)
+				only = only && isIdent && arg.Name == "Schema"
+			}
+			schemaOnly[lit] = only
+			return true
+		})
+		ast.Inspect(f, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING || schemaOnly[lit] {
+				return true
+			}
+			if s, err := strconv.Unquote(lit.Value); err == nil && slices.Contains(formatVerbs(s), 'q') {
+				t.Errorf("%s: %%q is strconv.Quote and leaves printable non-ASCII raw; render bundle text with Quote or Member", fset.Position(lit.Pos()))
+			}
+			return true
+		})
+	}
+	if parsed < 4 {
+		t.Errorf("parsed %d non-test files of %s, want at least 4", parsed, pkg)
+	}
+	for _, c := range []struct {
+		name string
+		want int
+	}{{"Quote", 24}, {"Member", 2}} {
+		if calls[c.name] != c.want {
+			t.Errorf("%s call sites in %s = %d, want %d: give a new site a case above driving a printable "+
+				"non-ASCII character through it, or, if its value is validated to a fixed ASCII shape before "+
+				"it is rendered, record that here with the count", c.name, pkg, calls[c.name], c.want)
+		}
 	}
 }
