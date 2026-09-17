@@ -242,7 +242,7 @@ func TestGraphNamesEveryCyclicComponentRandom(t *testing.T) {
 			got[least], named = true, named+1
 		}
 		components += len(want)
-		if !maps(want, got) {
+		if !sameKeys(want, got) {
 			t.Fatalf("deps %v ids %v: named the components of %v, want %v", deps, ids, keys(got), keys(want))
 		}
 	}
@@ -252,8 +252,8 @@ func TestGraphNamesEveryCyclicComponentRandom(t *testing.T) {
 	t.Logf("%d cyclic components over 20,000 graphs, each named once", components)
 }
 
-// maps reports whether a and b hold the same keys.
-func maps(a, b map[int]bool) bool { return len(a) == len(b) && slices.Equal(keys(a), keys(b)) }
+// sameKeys reports whether a and b hold the same keys.
+func sameKeys(a, b map[int]bool) bool { return len(a) == len(b) && slices.Equal(keys(a), keys(b)) }
 
 // keys is m's keys in order.
 func keys(m map[int]bool) []int {
