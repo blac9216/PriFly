@@ -35,7 +35,7 @@
 #   permissions are unchanged. The step fails if the sysctl is gone, and the
 #   probe step then fails the job if namespaces are still denied; nothing is
 #   skipped. TMPDIR stays unset (/tmp): the harness proof exits 1 on an
-#   upper-case TMPDIR (#240).
+#   upper-case TMPDIR.
 name: go-checks
 on:
   pull_request:
