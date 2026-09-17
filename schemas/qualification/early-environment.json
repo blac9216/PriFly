@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "prifly/qualification/early-environment/v1",
+  "title": "Early-probe (Q12/Q13) isolated environment preflight manifest",
+  "description": "References only, never secret values. Checked offline by scripts/qualification/early/preflight.sh; naming every reference does not authorize, run or pass any probe.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "host_reservation_ref", "isolated_host", "r2", "bootstrap_identity_ref", "subscription_tuples", "credential_refs", "test_mutation_authorization_ref", "envelope"],
+  "properties": {
+    "schema": {"const": "prifly/qualification/early-environment/v1"},
+    "host_reservation_ref": {"$ref": "#/$defs/ref", "description": "Recorded P1 shared-host reservation for this experiment."},
+    "isolated_host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host_ref", "engine_socket_path", "workspace_root_path"],
+      "properties": {
+        "host_ref": {"$ref": "#/$defs/ref"},
+        "engine_socket_path": {"$ref": "#/$defs/path"},
+        "workspace_root_path": {"$ref": "#/$defs/path"}
+      }
+    },
+    "r2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bucket_ref", "prefix"],
+      "properties": {
+        "bucket_ref": {"$ref": "#/$defs/ref"},
+        "prefix": {"type": "string", "pattern": "^prifly-[a-z0-9]+(-[a-z0-9]+)+/$", "description": "Isolated named prefix (P12a), test resource prefix form prifly-<issue-or-attempt>-<run-id>/."}
+      }
+    },
+    "bootstrap_identity_ref": {"$ref": "#/$defs/ref"},
+    "subscription_tuples": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"$ref": "#/$defs/tuple"},
+      "allOf": [
+        {"contains": {"type": "object", "required": ["harness", "harness_version"], "properties": {"harness": {"const": "codex-cli"}, "harness_version": {"const": "0.154.0"}}}},
+        {"contains": {"type": "object", "required": ["harness", "harness_version"], "properties": {"harness": {"const": "claude-code"}, "harness_version": {"const": "2.1.268"}}}}
+      ]
+    },
+    "credential_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["r2", "codex-cli", "claude-code"],
+      "properties": {
+        "r2": {"$ref": "#/$defs/credential"},
+        "codex-cli": {"$ref": "#/$defs/credential"},
+        "claude-code": {"$ref": "#/$defs/credential"}
+      }
+    },
+    "test_mutation_authorization_ref": {"type": "string", "pattern": "^https://[^\\s]+$", "description": "Link to the concrete owner authorization record for this subject and capability."},
+    "envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "scope"],
+      "properties": {
+        "ref": {"const": "docs/reference/deployment-parameters.md P12a"},
+        "scope": {"const": "shared-cumulative"}
+      }
+    }
+  },
+  "$defs": {
+    "ref": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#@-]{0,199}$"},
+    "path": {"type": "string", "pattern": "^/[A-Za-z0-9._/-]{1,255}$"},
+    "tuple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["harness", "harness_version", "interactive_mode", "model_id", "effort", "account_ref", "auth_mode"],
+      "properties": {
+        "harness": {"enum": ["codex-cli", "claude-code"]},
+        "harness_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "interactive_mode": {"const": "interactive"},
+        "model_id": {"$ref": "#/$defs/ref"},
+        "effort": {"$ref": "#/$defs/ref"},
+        "account_ref": {"$ref": "#/$defs/ref"},
+        "auth_mode": {"const": "subscription"}
+      }
+    },
+    "credential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mechanism", "ref"],
+      "properties": {
+        "mechanism": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"},
+        "ref": {"$ref": "#/$defs/ref"}
+      }
+    }
+  }
+}
