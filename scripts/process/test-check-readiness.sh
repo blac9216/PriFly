@@ -537,4 +537,6 @@ checkbox_case quote-item-fence-code "$ac_h" $'> - \n>     ~~~\n>\t- - [ ] Q1\n  
   'checkbox in indented code after a fence in an empty quoted list item fails'
 checkbox_case quote-item-code-5 "$ac_h" $'> -     code\n    - [ ] Q1\n' \
   'checkbox in indented code after a quoted list item and 5 spaces of indented code fails'
+checkbox_case quote-item-code-5-text "$ac_h" $'> -     code\ntext\n2. ```text\n   - [ ] Q1\n' \
+  'checkbox after a paragraph and a 2. ```text line following 5 spaces of quoted item code passes' 0
 echo "test-check-readiness: $passed cases passed"
