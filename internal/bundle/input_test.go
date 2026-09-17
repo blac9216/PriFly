@@ -2,6 +2,8 @@ package bundle
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -79,6 +81,79 @@ func TestReadRegular(t *testing.T) {
 	}
 }
 
+// TestReadChecked hands readChecked a file opened read-write (so opening a FIFO
+// does not block, but reading it would) with the checked info of another file,
+// as if the name had been swapped between the check and the open.
+func TestReadChecked(t *testing.T) {
+	dir := t.TempDir()
+	checked, other, fifo := filepath.Join(dir, "checked"), filepath.Join(dir, "other"), filepath.Join(dir, "fifo")
+	err := errors.Join(os.WriteFile(checked, []byte("{}"), 0o644), os.WriteFile(other, []byte("{}"), 0o644), syscall.Mkfifo(fifo, 0o644))
+	info, statErr := os.Stat(checked)
+	if err = errors.Join(err, statErr); err != nil {
+		t.Fatal(err)
+	}
+	const changed = "changed between the check and the open"
+	for label, c := range map[string]struct{ name, reason string }{
+		"same-file":       {checked, ""},
+		"swapped-regular": {other, changed},
+		"swapped-fifo":    {fifo, changed},
+	} {
+		t.Run(label, func(t *testing.T) {
+			f, err := os.OpenFile(c.name, os.O_RDWR, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			done := make(chan string, 1)
+			go func() {
+				_, reason := readChecked(f, info)
+				done <- reason
+			}()
+			select {
+			case reason := <-done:
+				if reason != c.reason {
+					t.Errorf("readChecked(%s) reason = %q, want %q", label, reason, c.reason)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatalf("readChecked(%s) did not return within 10s", label)
+			}
+		})
+	}
+}
+
+// countingReader serves n bytes, then io.EOF, and counts the bytes consumed.
+type countingReader struct{ n, consumed int }
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	k := min(len(p), r.n-r.consumed)
+	if k == 0 {
+		return 0, io.EOF
+	}
+	r.consumed += k
+	return k, nil
+}
+
+// TestReadCapped pins the read bound: with a 16-byte cap, readCapped consumes
+// at most 17 bytes of a 1 MiB input, however much the input holds.
+func TestReadCapped(t *testing.T) {
+	for label, c := range map[string]struct {
+		n, consumed int
+		reason      string
+	}{
+		"under-cap": {15, 15, ""},
+		"at-cap":    {16, 16, ""},
+		"over-cap":  {1 << 20, 17, "exceeds the 16-byte size cap"},
+	} {
+		t.Run(label, func(t *testing.T) {
+			r := &countingReader{n: c.n}
+			b, reason := readCapped(r, 16)
+			if reason != c.reason || r.consumed != c.consumed || reason == "" && len(b) != c.n {
+				t.Errorf("readCapped(%d bytes) = %d bytes, %q after consuming %d; want %q after consuming %d", c.n, len(b), reason, r.consumed, c.reason, c.consumed)
+			}
+		})
+	}
+}
+
 func TestDecodeJSON(t *testing.T) {
 	for label, c := range map[string]struct {
 		raw    string
@@ -141,6 +216,8 @@ func TestMember(t *testing.T) {
 		"forged-line":   {"x\nresult: ok\x1b[2K", `$["x\nresult: ok\x1b[2K"]`},
 		"bidi":          {"refs\u202e", `$["refs\u202e"]`},
 		"path-syntax":   {"a.b[0]", `$["a.b[0]"]`},
+		"dot":           {"a.b", `$["a.b"]`},
+		"index":         {"a[0]", `$["a[0]"]`},
 		"leading-digit": {"1a", `$["1a"]`},
 		"empty":         {"", `$[""]`},
 	} {
