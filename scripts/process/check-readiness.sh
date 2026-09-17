@@ -149,22 +149,22 @@ if missing_anchors:
 # in an open paragraph, never a fence or heading; outside a list a heading may be indented
 # up to 3 columns; a closing fence is the opening character, at least as long, with
 # nothing after it, indented at most 3 columns past that content column. No check reads a
-# "> " line, so of a quote only this is modelled: its content starts after ">" and one
-# optional space, and content 4 or more columns in is indented code; whether it leaves a
-# paragraph open; and a quoted fence running on over "> " lines until a closing run indented
-# at most 3 columns. After a marker followed by 5 or more columns, the content column is
-# marker width + 1 and the rest of the line is indented code. Read fail-closed, not modelled:
-# a list item or quote nested inside a quote opens no paragraph, and a nested quote opens no
-# fence. Not modelled: HTML blocks other than comments, an HTML comment ending with the list
-# item or quote it opened in, and setext headings or headings inside list items counting as
-# "## " headings.
+# "> " line, so of a quote only this is modelled: its content starts after each ">" and one
+# optional space; content 4 or more columns in, or after a list marker and 5 or more spaces, is
+# indented code; whether it leaves a paragraph open (which no marker after it is blocked by);
+# and a quoted fence running on over "> " lines of its quote depth until a closing run
+# indented at most 3 columns. After a marker followed by 5 or more columns, the content column
+# is marker width + 1 and the rest of the line is indented code. Not modelled: the columns of
+# list items inside a quote, HTML blocks other than comments, an HTML comment ending with the
+# list item or quote it opened in, and setext headings or headings inside list items counting
+# as "## " headings.
 MARKER_RE = re.compile(r'(?:[-*+]|(\d{1,9})[.)])(?:[ \t]+|$)')
 FENCE_OPEN_RE = re.compile(r'(`{3,}|~{3,})(.*)$')
 FENCE_CLOSE_RE = re.compile(r'^(`{3,}|~{3,})\s*$')
 HEADING_RE = re.compile(r'#{1,6}(?:[ \t]|$)')
 SETEXT_RE = re.compile(r'(?:=+|-+)$')
 BREAK_RE = re.compile(r'(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$')
-QUOTE_RE = re.compile(r'> ?')
+QUOTE_RE = re.compile(r' {0,3}> ?')
 ITEM_PREFIX_RE = re.compile(r'(?:(?:[+*-]|\d{1,9}[.)])(?:\s+|$))+')
 
 def clean_lines(text):
@@ -179,6 +179,26 @@ def starts_block(s):
     return bool(fence_at(s, 0) or HEADING_RE.match(s) or BREAK_RE.match(s)
                 or s.startswith('>') or s.startswith('<!--'))
 
+def unquote(s, most=99):
+    # s starts with ">": what follows up to `most` quote markers, each ">" and one optional
+    # space, and how many came off
+    n = 0
+    while n < most and (m := QUOTE_RE.match(s)):
+        s, n = s[m.end():], n + 1
+    return s, n
+
+def quote_open(s):
+    # s starts with ">" and no quoted fence is open: (opening run and quote depth of a fence the
+    # line opens, whether it leaves a paragraph open). Content 4 or more columns in, or after a
+    # list marker and 5 or more spaces, is indented code.
+    content, depth = unquote(s)
+    c0 = content.lstrip(' ')
+    m = ITEM_PREFIX_RE.match(c0)
+    rest = c0[m.end():] if m else c0
+    code = len(content) - len(c0) > 3 or bool(m and rest and m.group(0).endswith('     '))
+    f = not code and fence_at(rest, 0)
+    return ((f.group(1), depth) if f else None), not code and rest != '' and not starts_block(rest)
+
 def clean_numbered(text):
     # (index, line) for lines outside HTML comments and fenced or indented code, in document
     # order, where index is the line's position in text.splitlines(). A closing fence uses
@@ -187,7 +207,7 @@ def clean_numbered(text):
     fence_char, fence_len, fence_col = None, 0, 0
     items, in_para, para_depth = [], False, 0  # content columns of the open list items
     empty_item = False  # the previous line opened an item with no content
-    quote_fence = None  # the opening run of a fence open inside a "> " quote
+    quote_fence = None  # (opening run, quote depth) of a fence open inside a "> " quote
     for i, raw in enumerate(text.splitlines()):
         line = raw.expandtabs(4)
         stripped = line.strip()
@@ -236,18 +256,13 @@ def clean_numbered(text):
                     in_comment = True
                     continue
             elif stripped.startswith('>'):
-                content = QUOTE_RE.sub('', stripped, count=1)  # after ">" and one optional space
-                code = len(content) - len(content.lstrip(' ')) > 3  # indented code inside the quote
-                if was_quoted:  # a quoted fence goes on only over "> " lines
-                    c = not code and FENCE_CLOSE_RE.match(content.lstrip(' '))
-                    closes = c and c.group(1)[0] == was_quoted[0] and len(c.group(1)) >= len(was_quoted)
+                content, depth_q = unquote(stripped, was_quoted[1]) if was_quoted else ('', 0)
+                if was_quoted and depth_q == was_quoted[1]:  # a quoted fence goes on over "> " lines
+                    c = len(content) - len(content.lstrip(' ')) < 4 and FENCE_CLOSE_RE.match(content.lstrip(' '))
+                    closes = c and c.group(1)[0] == was_quoted[0][0] and len(c.group(1)) >= len(was_quoted[0])
                     quote_fence, in_para = None if closes else was_quoted, False
                 else:
-                    rest = ITEM_PREFIX_RE.sub('', content.lstrip(' '), count=1)
-                    f = not code and fence_at(rest, 0)
-                    quote_fence = f.group(1) if f else None
-                    # a list item or a quote nested in the quote opens no paragraph here (fail closed)
-                    in_para, para_depth = not code and rest == content.lstrip(' ') != '' and not starts_block(rest), -1
+                    (quote_fence, in_para), para_depth = quote_open(stripped), -1
             else:
                 pos, code = indent, False
                 while m:
@@ -261,6 +276,10 @@ def clean_numbered(text):
                 if code:
                     in_para = False
                     continue
+                if line.startswith('>', pos):  # a quote opened on a list item line
+                    (quote_fence, in_para), para_depth = quote_open(line[pos:]), -1
+                    out.append((i, raw))
+                    continue
                 f = fence_at(line, pos)
                 if f:
                     fence_char, fence_len = f.group(1)[0], len(f.group(1))
@@ -268,8 +287,7 @@ def clean_numbered(text):
                     continue
                 if HEADING_RE.match(line, pos) and not items:
                     in_para, raw = False, raw.lstrip(' ')
-                elif HEADING_RE.match(line, pos) or BREAK_RE.match(stripped) or empty_item \
-                        or line.startswith('>', pos):  # a quote in a list item: no paragraph, fail closed
+                elif HEADING_RE.match(line, pos) or BREAK_RE.match(stripped) or empty_item:
                     in_para = False
                 elif not in_para or pos > indent:
                     in_para, para_depth = True, len(items)
