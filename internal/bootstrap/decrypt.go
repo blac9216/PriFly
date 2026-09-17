@@ -46,12 +46,11 @@ type secret struct {
 	Value      string `json:"value"`
 }
 
-// Decrypt re-checks that v.Secrets still matches the digest Fetch verified,
-// decrypts it with the age identities read from identityFile into a 0600 file
-// inside a fresh 0700 directory under workDir, checks the plaintext schema and
-// calls provision with that file's path. The directory is removed before
-// Decrypt returns, on success and on every failure path, so the path is valid
-// only during provision.
+// Decrypt re-checks that v.Secrets still matches the digest Fetch verified, decrypts it with the age
+// identities read from identityFile into a 0600 file in a fresh 0700 directory created in workDir, an
+// absolute path, checks the plaintext schema and calls provision with that file's path. Nothing is
+// written outside workDir. The directory is removed before Decrypt returns, on success, on every failure
+// and when provision panics (the panic continues), so the path is valid only during provision.
 func Decrypt(v *Verified, identityFile, workDir string, provision func(path string) error) error {
 	if v == nil {
 		return ErrDigest
@@ -59,23 +58,32 @@ func Decrypt(v *Verified, identityFile, workDir string, provision func(path stri
 	if sum := sha256.Sum256(v.Secrets); hex.EncodeToString(sum[:]) != v.Manifest.SecretsSHA256 {
 		return ErrDigest
 	}
+	if !filepath.IsAbs(workDir) {
+		return fmt.Errorf("%w: work directory is not an absolute path", ErrTransient)
+	}
 	identities, err := readIdentities(identityFile)
 	if err != nil {
 		return err
 	}
-	tmp, err := os.MkdirTemp(workDir, "prifly-secrets-")
+	r, err := age.Decrypt(bytes.NewReader(v.Secrets), identities...)
 	if err != nil {
-		return fmt.Errorf("%w: directory", ErrTransient)
+		return fmt.Errorf("%w: no identity matches or header invalid", ErrDecrypt)
 	}
-	defer os.RemoveAll(tmp)
-	if os.Chmod(tmp, transientDirMode) != nil {
-		return fmt.Errorf("%w: directory mode", ErrTransient)
+	tmp, err := os.MkdirTemp(workDir, "prifly-secrets-")
+	defer os.RemoveAll(tmp) // tmp is "" after a MkdirTemp error, and RemoveAll("") does nothing
+	path, f := filepath.Join(tmp, plaintextName), (*os.File)(nil)
+	if err == nil && os.Chmod(tmp, transientDirMode) == nil {
+		f, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, transientFileMode)
 	}
-	path := filepath.Join(tmp, plaintextName)
-	if err := decryptTo(path, v.Secrets, identities); err != nil {
-		return err
+	if f == nil {
+		return fmt.Errorf("%w: cannot create", ErrTransient)
 	}
-	if err := checkSecrets(path, v.Manifest); err != nil {
+	defer f.Close()
+	n, err := io.Copy(f, r)
+	if err != nil {
+		return fmt.Errorf("%w: payload failed authentication or could not be stored", ErrDecrypt)
+	}
+	if err := checkSecrets(f, n, v.Manifest); err != nil {
 		return err
 	}
 	if provision(path) != nil {
@@ -99,33 +107,39 @@ func readIdentities(identityFile string) ([]age.Identity, error) {
 	return identities, nil
 }
 
-func decryptTo(path string, ciphertext []byte, identities []age.Identity) error {
-	r, err := age.Decrypt(bytes.NewReader(ciphertext), identities...)
-	if err != nil {
-		return fmt.Errorf("%w: no identity matches or header invalid", ErrDecrypt)
+// secretKeys are the member names checkSecrets accepts, spelled exactly. encoding/json alone matches names
+// case-insensitively and keeps the last duplicate, so a consumer of the file could read another value.
+var secretKeys = map[string]bool{"schema": true, "factory_id": true, "secrets": true, "id": true, "purpose": true, "generation": true, "value": true}
+
+// strictMembers rejects a duplicate or inexactly spelled member name at any depth of one JSON value.
+func strictMembers(dec *json.Decoder) error {
+	tok, err := dec.Token()
+	if err != nil || (tok != json.Delim('{') && tok != json.Delim('[')) {
+		return err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, transientFileMode)
-	if err != nil {
-		return fmt.Errorf("%w: file", ErrTransient)
+	seen := map[string]bool{}
+	for dec.More() {
+		if tok == json.Delim('{') {
+			name, err := dec.Token()
+			if key, _ := name.(string); err != nil || seen[key] || !secretKeys[key] {
+				return ErrSecrets
+			}
+			seen[name.(string)] = true
+		}
+		if err := strictMembers(dec); err != nil {
+			return err
+		}
 	}
-	_, err = io.Copy(f, r)
-	if closeErr := f.Close(); err != nil || closeErr != nil {
-		return fmt.Errorf("%w: payload failed authentication or could not be stored", ErrDecrypt)
-	}
-	return nil
+	_, err = dec.Token()
+	return err
 }
 
-func checkSecrets(path string, m Manifest) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("%w: file", ErrTransient)
-	}
-	defer f.Close()
+func checkSecrets(f io.ReaderAt, n int64, m Manifest) error {
 	var s secretsFile
-	dec := json.NewDecoder(f)
+	dec := json.NewDecoder(io.NewSectionReader(f, 0, n))
 	dec.DisallowUnknownFields()
-	if dec.Decode(&s) != nil || dec.Decode(&struct{}{}) != io.EOF {
-		return fmt.Errorf("%w: not exactly one object of known fields", ErrSecrets)
+	if strictMembers(json.NewDecoder(io.NewSectionReader(f, 0, n))) != nil || dec.Decode(&s) != nil || dec.Decode(&struct{}{}) != io.EOF {
+		return fmt.Errorf("%w: not exactly one object of known, unique, exactly spelled fields", ErrSecrets)
 	}
 	switch {
 	case s.Schema != SecretSchema || s.Schema != m.SecretSchema:
