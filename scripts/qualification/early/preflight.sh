@@ -24,8 +24,15 @@
 # The secret check is a heuristic, not a scanner. It flags known token prefixes, any run
 # of 64 hex digits (the R2 secret access key shape; this also rejects a sha256 digest used
 # as a reference) and any 32+ character run of [A-Za-z0-9+/=_-] mixing upper case, lower
-# case and digits. It misses shorter or single-case secrets and ones split by other
-# punctuation, and it fails closed on some legitimate references (e.g. host:rk-01).
+# case and digits. In a value that starts as a location (scheme:// URL, op:// style vault
+# reference, or /absolute/path) a run is checked whole when it holds + or = (base64) or a
+# 16+ [A-Za-z0-9] stretch mixing upper and lower case; any other run is split at / and
+# only its 32+ pieces are checked. It misses shorter or single-case secrets and ones split
+# by other punctuation. In a location it also misses a secret whose 16+ alphanumeric
+# stretches (between / _ -) are all single-case or absent and whose / pieces of 32+ lack a
+# class, e.g. base64 broken by / into pieces under 16, or a 32-hex R2 access key id under
+# op://Vault/Item/. It fails closed on some legitimate references (e.g. host:rk-01, a
+# location with a 16+ mixed-case name beside a digit, or a query mixing = with a path).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -154,8 +161,12 @@ def check(s, v, path, out):
     return out
 
 def looks(x):
-    return bool(SECRET.search(x) or any(
-        all(re.search(c, r) for c in ('[a-z]', '[A-Z]', '[0-9]')) for r in re.findall(r'[A-Za-z0-9+/=_-]{32,}', x)))
+    runs = re.findall(r'[A-Za-z0-9+/=_-]{32,}', x)
+    if re.match(r'(?:[A-Za-z][A-Za-z0-9+.-]*:/)?/', x):
+        runs = [p for r in runs for p in ([r] if re.search('[+=]', r) or any(
+            re.search('[a-z]', q) and re.search('[A-Z]', q) for q in re.findall(r'[A-Za-z0-9]{16,}', r))
+                                          else re.findall(r'[A-Za-z0-9_-]{32,}', r))]
+    return bool(SECRET.search(x) or any(all(re.search(c, r) for c in ('[a-z]', '[A-Z]', '[0-9]')) for r in runs))
 
 def seg(path, k):
     return f"{path}.{'<redacted-key>' if looks(k) else json.dumps(k)[1:-1]}".lstrip('.')

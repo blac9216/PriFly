@@ -97,6 +97,31 @@ unsupported form in unreached items|3|form: additionalProperties other than fals
 unsupported form in unreached contains|3|form: additionalProperties other than false|open(W + '/s.json', 'w').write(json.dumps({'properties': {'x': {'contains': {'additionalProperties': {}}}}})); args = ['--schema', W + '/s.json']
 schema checked before manifest|3|form: unsupported type|open(W + '/s.json', 'w').write(json.dumps({'type': 'integer'})); args = ['--schema', W + '/s.json', '--manifest', W + '/absent.json']
 secret-shaped duplicate key|4|INVALID: <redacted-key>: duplicate key|leak = ''.join('0123456789abcdef'[i * 7 % 16] for i in range(64)).upper(); raw = '{"' + leak + '": 1, ' + json.dumps(m)[1:-1] + ', "' + leak + '": 2}'
+blob permalink authorization|0|VERDICT: every reference named|m['test_mutation_authorization_ref'] = 'https://github.com/blac9216/PriFly/blob/' + ''.join('0123456789abcdef'[i * 5 % 16] for i in range(40)) + '/docs/process/security.md#L33'
+discussion authorization|0|VERDICT: every reference named|m['test_mutation_authorization_ref'] = 'https://github.com/blac9216/PriFly/discussions/12345'
+issue-comment authorization|0|VERDICT: every reference named|m['test_mutation_authorization_ref'] = 'https://github.com/blac9216/PriFly/issues/42#issuecomment-5703224625'
+vault path reference|0|VERDICT: every reference named|m['credential_refs']['r2']['ref'] = 'op://Vault2026/Cloudflare-R2-Token/secret'
+with-secrets reference name|0|VERDICT: every reference named|m['credential_refs']['r2'] = {'mechanism': 'with-secrets', 'ref': 'PRIFLY_Q12_R2_SECRET_ACCESS_KEY'}
+r2 bucket reference|0|VERDICT: every reference named|m['r2']['bucket_ref'] = 'https://dash.cloudflare.com/' + ''.join('0123456789abcdef'[i * 3 % 16] for i in range(32)) + '/r2/default/buckets/prifly-q12-2026'
+mixed-case host paths|0|VERDICT: every reference named|m['isolated_host']['engine_socket_path'] = '/tmp/prifly-early-harness-tests.aB3xYz/success-trace/control/engine'; m['isolated_host']['workspace_root_path'] = '/srv/PriFly2026/workspaces/attempt-roots'
+r2 secret key in vault reference|4|INVALID: credential_refs.r2.ref: looks like|m['credential_refs']['r2']['ref'] = 'op://Vault2026/R2/' + ''.join('0123456789abcdef'[i * 7 % 16] for i in range(64))
+cloudflare token shape|4|INVALID: credential_refs.r2.ref: looks like|m['credential_refs']['r2']['ref'] = ''.join(chr(65 + i * 7 % 26) + chr(97 + i * 11 % 26) + str(i % 10) + '_-'[i % 2] for i in range(10))
+cloudflare token in url|4|INVALID: test_mutation_authorization_ref: looks like|m['test_mutation_authorization_ref'] = 'https://example.invalid/hooks/' + ''.join(chr(65 + i * 7 % 26) + chr(97 + i * 11 % 26) + str(i % 10) + '_-'[i % 2] for i in range(10))
+base64 key in url|4|INVALID: test_mutation_authorization_ref: looks like|m['test_mutation_authorization_ref'] = 'https://example.invalid/k/' + ''.join(chr(65 + i * 7 % 26) + chr(97 + i * 11 % 26) + str(i % 10) + '/+/'[i % 3] for i in range(11)) + '='
+unpadded base64 in url|4|INVALID: test_mutation_authorization_ref: looks like|t = ''.join(chr(65 + i * 7 % 26) + chr(97 + i * 11 % 26) + str(i % 10) for i in range(6)); m['test_mutation_authorization_ref'] = 'https://example.invalid/keys/' + t + '/' + t[::-1]
+github token in url path|4|INVALID: test_mutation_authorization_ref: looks like|m['test_mutation_authorization_ref'] = 'https://example.invalid/hook/' + 'gh' + 'p_fake'
+slack token in url query|4|INVALID: test_mutation_authorization_ref: looks like|m['test_mutation_authorization_ref'] = 'https://example.invalid/hook?token=' + 'xo' + 'xb-fake'
+webhook tail in url|4|INVALID: test_mutation_authorization_ref: looks like|m['test_mutation_authorization_ref'] = 'https://example.invalid/services/T0SYNTH01/B0SYNTH0001/' + ''.join(chr(65 + i * 7 % 26) + chr(97 + i * 11 % 26) for i in range(12))
+aws-style key in vault reference|4|INVALID: credential_refs.r2.ref: looks like|m['credential_refs']['r2']['ref'] = 'op://Vault/Item/' + ''.join(chr(65 + i * 7 % 26) + chr(97 + i * 11 % 26) + str(i % 10) for i in range(4)) + '/' + ''.join(chr(65 + i * 5 % 26) + chr(97 + i * 3 % 26) for i in range(9))
+mixed-case 16 in path|4|INVALID: isolated_host.workspace_root_path: looks like|m['isolated_host']['workspace_root_path'] = '/srv/prifly2026/' + ''.join(chr(65 + i * 5 % 26) + chr(97 + i * 3 % 26) for i in range(8)) + '/workspaces'
+mixed-case 15 in path|0|VERDICT: every reference named|m['isolated_host']['workspace_root_path'] = '/srv/prifly2026/' + ''.join(chr(65 + i * 5 % 26) + chr(97 + i * 3 % 26) for i in range(8))[:15] + '/workspaces'
+32-char piece in url|4|INVALID: test_mutation_authorization_ref: looks like|m['test_mutation_authorization_ref'] = 'https://example.invalid/a/' + ''.join(chr(65 + i * 7 % 26) + chr(97 + i * 11 % 26) + str(i % 10) + '_-'[i % 2] for i in range(8))
+31-char piece in url|0|VERDICT: every reference named|m['test_mutation_authorization_ref'] = 'https://example.invalid/a/' + ''.join(chr(65 + i * 7 % 26) + chr(97 + i * 11 % 26) + str(i % 10) + '_-'[i % 2] for i in range(8))[:31]
+non-location value not split|4|INVALID: credential_refs.r2.ref: looks like|m['credential_refs']['r2']['ref'] = 'secret-ref:' + '/'.join(''.join(chr(65 + (i + j) * 7 % 26) + chr(97 + (i + j) * 11 % 26) + str((i + j) % 10) for i in range(4)) for j in range(3))
+base64 plus only in url|4|INVALID: test_mutation_authorization_ref: looks like|m['test_mutation_authorization_ref'] = 'https://example.invalid/k/' + ''.join(chr(65 + i * 7 % 26) + chr(97 + i * 11 % 26) + str(i % 10) + '/+'[i % 2] for i in range(11))
+base64 equals only in url|4|INVALID: test_mutation_authorization_ref: looks like|m['test_mutation_authorization_ref'] = 'https://example.invalid/k/' + '/'.join(chr(65 + i * 7 % 26) + chr(97 + i * 11 % 26) + str(i % 10) for i in range(11)) + '=='
+ulid under mixed-case path|0|VERDICT: every reference named|m['isolated_host']['workspace_root_path'] = '/srv/PriFly2026/attempts/01' + ''.join('0123456789ABCDEFGHJKMNPQRSTVWXYZ'[i * 7 % 32] for i in range(24))
+vault item id reference|0|VERDICT: every reference named|m['credential_refs']['r2']['ref'] = 'op://Private/' + ''.join('abcdefghijklmnopqrstuvwxyz0123456789'[i * 11 % 36] for i in range(26)) + '/password'
 EOF
 )
 
@@ -157,7 +182,7 @@ schema|"additionalProperties": false,\n      "required": ["mechanism", "ref"]|"r
 schema|"additionalProperties": false,\n      "required": ["ref", "scope"]|"required": ["ref", "scope"]|per-probe allowance
 schema|{"const": "shared-cumulative"}|{"type": "string"}|per-probe scope
 preflight|AGE-SECRET-KEY-|AGE-SECRET-KEY-DISABLED|known secret shape
-preflight|{32,}|{9999,}|high-entropy value
+preflight|=_-]{32,}|=_-]{9999,}|high-entropy value,cloudflare token shape
 preflight|out.append(('hold', f"{path}.{key}".lstrip('.'), None))|pass|host reservation absent
 preflight|v.get(key) in (None, '')|key not in v|credential ref empty
 preflight|'credential_refs': 11|'credential_refs': 13|r2 credential absent
@@ -179,16 +204,16 @@ preflight|secrets(doc, '')|pass|known secret shape
 preflight|-----BEGIN|-----BEGIN-DISABLED|pem shape
 preflight|[sr]k-|[r]k-|sk shape
 preflight|[sr]k-|[s]k-|rk shape
-preflight|gh[pousr]_|gh[pousr]_DISABLED|github token shape
+preflight|gh[pousr]_|gh[pousr]_DISABLED|github token shape,github token in url path
 preflight|github_pat_|github_pat_DISABLED|github pat shape
-preflight|xox[abpr]-|xox[abpr]-DISABLED|slack token shape
+preflight|xox[abpr]-|xox[abpr]-DISABLED|slack token shape,slack token in url query
 preflight|AKIA[0-9A-Z]{12}|AKIA-DISABLED|aws key shape
 preflight|eyJ[A-Za-z0-9_-]{8}|eyJ-DISABLED|jwt shape
 preflight|cannot read manifest: {e}", file=sys.stderr); sys.exit(2)|cannot read manifest: {e}", file=sys.stderr); sys.exit(0)|non-JSON manifest
 preflight|is accepted only as the sole argument" >&2; exit 2|is accepted only as the sole argument" >&2; exit 0|help beside manifest
 preflight|cannot read schema: {e}", file=sys.stderr); sys.exit(3)|cannot read schema: {e}", file=sys.stderr); sys.exit(0)|schema file missing
 preflight|unsupported(f"keyword(s) {sorted(bad)}")|pass|unsupported schema keyword
-preflight|[0-9A-Fa-f]{64}|DISABLED|64-hex secret value,64-hex secret key
+preflight|[0-9A-Fa-f]{64}|DISABLED|64-hex secret value,64-hex secret key,r2 secret key in vault reference
 preflight|'<redacted-key>' if looks(k) else json.dumps(k)[1:-1]|'<redacted-key>' if looks(k) else k|newline key forges no verdict
 preflight|secrets(x, seg(path, k))|secrets(x, f"{path}.{k}".lstrip('.'))|value under secret-shaped key
 preflight|all(r[0] == 'hold' for r in check(s['contains'], item, path, []))|any(r[0] == 'hold' for r in check(s['contains'], item, path, [])) or not check(s['contains'], item, path, [])|harness null with wrong version
@@ -216,6 +241,21 @@ preflight|*s.get('allOf', []), ||unsupported form in allOf
 preflight|, *(s[k] for k in ('items', 'contains') if k in s)||unsupported form in unreached items,unsupported form in unreached contains
 preflight|try:\n    lint(schema)\nexcept (AttributeError, TypeError, RecursionError) as e:\n    unsupported(f"form: {type(e).__name__}")\ntry:\n    doc = json.load(open(sys.argv[2], encoding='utf-8'), object_pairs_hook=unique)\nexcept (OSError, ValueError, RecursionError) as e:\n    print(f"preflight: cannot read manifest: {e}", file=sys.stderr); sys.exit(2)\nif depth(doc) > 32:\n    print("preflight: cannot read manifest: nested more than 32 levels deep", file=sys.stderr); sys.exit(2)\n|try:\n    doc = json.load(open(sys.argv[2], encoding='utf-8'), object_pairs_hook=unique)\nexcept (OSError, ValueError, RecursionError) as e:\n    print(f"preflight: cannot read manifest: {e}", file=sys.stderr); sys.exit(2)\nif depth(doc) > 32:\n    print("preflight: cannot read manifest: nested more than 32 levels deep", file=sys.stderr); sys.exit(2)\ntry:\n    lint(schema)\nexcept (AttributeError, TypeError, RecursionError) as e:\n    unsupported(f"form: {type(e).__name__}")\n|schema checked before manifest
 preflight|(seg('', k), 'duplicate key')|(k, 'duplicate key')|secret-shaped duplicate key
+preflight|r'(?:[A-Za-z][A-Za-z0-9+.-]*:/)?/'|r'/'|blob permalink authorization,discussion authorization,vault path reference
+preflight|-]*:/)?/'|-]*:/)/'|mixed-case host paths
+preflight|re.search('[+=]', r)|False|base64 key in url,base64 plus only in url,base64 equals only in url
+preflight|'[+=]'|'[=]'|base64 plus only in url
+preflight|'[+=]'|'[+]'|base64 equals only in url
+preflight|re.findall(r'[A-Za-z0-9_-]{32,}', r)|[]|cloudflare token in url,32-char piece in url
+preflight|_-]{32,}', r)|_-]{33,}', r)|32-char piece in url
+preflight|_-]{32,}', r)|_-]{31,}', r)|31-char piece in url
+preflight|re.search('[a-z]', q) and re.search('[A-Z]', q)|False|unpadded base64 in url,webhook tail in url,aws-style key in vault reference,mixed-case 16 in path
+preflight|re.search('[a-z]', q) and ||ulid under mixed-case path
+preflight| and re.search('[A-Z]', q)||vault item id reference
+preflight|{16,}|{17,}|mixed-case 16 in path
+preflight|{16,}|{15,}|mixed-case 15 in path
+preflight|re.match(r'(?:|re.search(r'(?:|non-location value not split
+preflight|:/)?/', x)|:/)?', x)|non-location value not split
 EOF
 )
 survived=0
