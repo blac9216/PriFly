@@ -115,3 +115,7 @@ All publication is performed by Provider Broker under recorded identities. Model
 | PF-GIT-09 | PR creation follows confirmed candidate publication and includes the Implementer's admitted PR Draft before review begins. |
 | PF-GIT-10 | Native reviews, checks, and ordinary comments have distinct identities/semantics; the configured representation must satisfy actual repository protections. |
 | PF-GIT-11 | A required native approval uses an eligible provider identity independent of the PR author; model role labels do not bypass provider restrictions. |
+
+### Initial non-bypassing App profile
+
+The initial candidate profile uses a repository-scoped GitHub App installation identity without effective ruleset bypass, squash merge, strict current code/docs checks with trusted producer and tested-subject identity, and every effective native-approval rule. Structured Factory review comments are not native approvals. A required distinct native reviewer must be qualified or integration blocks. API expected-head does not compare-and-swap the base; real provider races must establish the claimed strict freshness behavior before admission. Serialize unresolved merges per repository/target, refresh after each, and independently review every new head/base candidate. Observe actual merged SHA and target inclusion; no blind retry after possible send.

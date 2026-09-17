@@ -132,3 +132,7 @@ A multi-target run produces results per target/scenario. One successful path can
 | PF-VAL-08 | Incomplete or infrastructure-failed runs do not establish product success or automatically establish product defect. |
 | PF-VAL-09 | Late results cannot clear a newer target revision or an unexecuted target. |
 | PF-VAL-10 | Passing validation uses supported operator behavior without improvised workarounds. |
+
+### Initial handover validation
+
+The initial profile validates two real PriFly code Work Items implemented concurrently across Codex and Claude Code, including current correction, Factory-driven PR integration and observed target version set. Validation runs against a separate representative candidate stack and includes stale results, environment blocks and defect-fix accounting. Host-loss recovery and candidate-controller activation are exercised through supported operator commands. Undocumented manual repair prevents a scenario pass. Imported follow-up fixes retain target/defect links through external planning; normal scheduling decides the next current-revision run.
