@@ -13,11 +13,11 @@
 # signal-sig sends SIG to the runner (this call's session leader, refused unless its argv
 # holds --launcher) once the writers run; signal-twice sends TERM there, then its stop sends
 # INT and HUP to the runner (only while that pid is still the runner) and takes 3s before
-# stopping. signal-group[-twice]
-# sends TERM there, then its stop and its inventory each send INT and HUP once [twice] to the
-# runner's process group (refused unless the runner leads that group, so the suite is never
-# hit), 1.5s apart. hang-VERB does that call's work, then ignores TERM for 20s. Every call
-# appends its pid to $FAKE_STATE/launchers so the test can find a launcher left behind.
+# stopping. signal-group[-twice] sends TERM there, then its stop and its inventory each send
+# INT and HUP once [twice] to the runner's process group (refused unless the runner leads
+# that group, so the suite is never hit), 1.5s apart. hang-VERB does that call's work, then
+# ignores TERM for 20s. Every call appends its pid to $FAKE_STATE/launchers so the test can
+# find a launcher left behind.
 # shellcheck disable=SC2016  # the sh -c bodies expand inside the child shell
 set -euo pipefail
 st="$FAKE_STATE" mode="$FAKE_MODE" verb="$1"
