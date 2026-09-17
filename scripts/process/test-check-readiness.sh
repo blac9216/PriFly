@@ -327,7 +327,7 @@ run_case 'PR fence: a 2. ```sh line directly after a paragraph line is not a lis
 pr_body fence-heading-like "Closes #154"$'\n'"$(step 1. '```' sh one)"
 replace "$fixture_root/pr-fence-heading-like.md" $'\n## Verified expectation\n' $'\n'
 replace "$fixture_root/pr-fence-heading-like.md" $'   echo one\n' $'   echo one\n   ## Verified expectation\n'
-# #198: an indented "## " line is never a heading here, fence or not; the checkbox cases below
+# #198: an indented "## " line inside a list-item fence is no heading; the checkbox cases below
 # are the ones that go red when list-item fences stop opening.
 run_case 'PR fence: an indented "## " line inside a list-item fence does not count as a heading' 1 \
   'MISSING: all template sections present (missing: Verified expectation)' \
@@ -374,5 +374,71 @@ checkbox_case empty-dash-para "$ac_h" $'Then:\n- \n  ```text\n- [ ] quoted\n  ``
   'checkbox inside a fence after an empty - item directly after a paragraph line fails'
 checkbox_case empty-dash-blank "$ac_h" $'- \n\n  ```text\n- [ ] quoted\n  ```\n' \
   'checkbox inside a fence after an empty - item and a blank line fails'
+
+# #223: an empty item's content column is marker width + 1, whatever spaces follow the marker;
+# an item-opening line ends no paragraph; a whitespace-only line reaching the column keeps the
+# empty item open, as GitHub renders it.
+checkbox_case empty-one-col "$ac_h" $'1. \n  ```text\n- [ ] quoted\n  ```\n' \
+  'checkbox inside a fence indented one column less than an empty 1. item fails'
+checkbox_case empty-dash-col "$ac_h" $'- \n  ```text\n- [ ] A criterion after the item ends.\n' \
+  'checkbox after a fence inside an empty - item passes' 0
+checkbox_case empty-dash-spaces "$ac_h" $'-   \n  ```text\n- [ ] A criterion after the item ends.\n' \
+  'checkbox after a fence inside an empty - item with trailing spaces passes' 0
+checkbox_case empty-dash-bare "$ac_h" $'-\n  ```text\n- [ ] A criterion after the item ends.\n' \
+  'checkbox after a fence inside an empty bare - item passes' 0
+checkbox_case empty-nested "$ac_h" $'- \n  2. ```text\n     - [ ] quoted\n     ```\n' \
+  'checkbox inside a fence on a 2. item nested in an empty - item fails'
+checkbox_case empty-dash-spaceline "$ac_h" $'- \n   \n  ```text\n- [ ] A criterion after the item ends.\n  ```\n' \
+  'checkbox after an empty - item, a whitespace-only line and a fence inside it passes' 0
+# #210: the * marker opens a list item.
+checkbox_case list-star "$ac_h" $'* ```text\n  - [ ] Quoted inside a list-item fence.\n  ```\n' \
+  'checkbox only inside a fence opened on a * item line fails'
+# #220: a heading, an HTML comment, a thematic break, a setext underline and a fence end a
+# paragraph; a less-indented marker is no continuation; a marker line starts its own paragraph.
+after_para() {  # after_para TAG LINE CASE-NAME: LINE between a paragraph line and a 2. ```text step
+  checkbox_case "para-$1" "$ac_h" "Then:"$'\n'"$2"$'\n2. ```text\n   ```\n   - [ ] A criterion under the step.\n' "$3" 0
+}
+after_para heading '### Steps' 'checkbox under a 2. ```text step after a heading passes'
+after_para comment '<!-- note -->' 'checkbox under a 2. ```text step after an HTML comment passes'
+after_para break '***' 'checkbox under a 2. ```text step after a thematic break passes'
+after_para setext '===' 'checkbox under a 2. ```text step after a setext underline passes'
+after_para fence $'```text\nx\n```' 'checkbox under a 2. ```text step after a fence passes'
+checkbox_case less-indented "$ac_h" $'- a\n2. ```text\n   ```\n   - [ ] A criterion under the step.\n' \
+  'checkbox under a 2. ```text step less indented than a - item passes' 0
+checkbox_case marker-para "$ac_h" $'Then:\n- a\n  2. ```text\n     - [ ] A criterion under the item.\n     ```\n' \
+  'checkbox after a 2. ```text line continuing an item that interrupted a paragraph passes' 0
+checkbox_case star-break "$ac_h" $'* * *\n  ```text\n- [ ] quoted\n  ```\n' \
+  'checkbox inside a fence after a * * * thematic break fails'
+# #219: a lazy continuation line keeps its list item open, so "2. ```text" stays paragraph text.
+checkbox_case lazy-ordered "$ac_h" $'- a\nlazy\n  2. ```text\n     x\n     ```\n  - [ ] quoted\n     ```\n' \
+  'checkbox inside a list fence after a lazy line and a 2. ```text line fails'
+# #218: a tab after a list marker advances to the next multiple of 4 columns.
+pr_body tab-marker 'Closes #154'
+replace "$fixture_root/pr-tab-marker.md" $'\n## Verified expectation\n' $'\n1.\t```sh\n   bash x.sh\n   ```\n## Verified expectation\n'
+run_case 'PR fence: a 1.<TAB>```sh step with 3-space lines hides the next heading' 1 \
+  'MISSING: all template sections present (missing: Verified expectation)' \
+  --root "$root" --body "$fixture_root/pr-tab-marker.md" "${pr[@]}"
+# #192: a line indented 4 columns is indented code, never a fence; a heading may be indented 3.
+pr_body code-fence 'Closes #154'
+replace "$fixture_root/pr-code-fence.md" $'\n## Verified expectation\n' $'\n    ```\nx\n```\n## Verified expectation\n'
+run_case 'PR fence: a fence line indented 4 spaces is code, so the next fence line hides the next heading' 1 \
+  'MISSING: all template sections present (missing: Verified expectation)' \
+  --root "$root" --body "$fixture_root/pr-code-fence.md" "${pr[@]}"
+checkbox_case code-checkbox "$ac_h" $'    - [ ] Quoted as indented code.\n' \
+  'checkbox only in a 4-space-indented code block fails'
+pr_body indented-heading 'Closes #154'
+replace "$fixture_root/pr-indented-heading.md" $'\n## Verified expectation\n' $'\n   ## Verified expectation\n'
+run_case 'PR: a heading indented 3 spaces counts' 0 'check-readiness: 2/2 as expected' \
+  --root "$root" --body "$fixture_root/pr-indented-heading.md" "${pr[@]}"
+# #192: a "> " quote line ends a paragraph, a quoted fence goes on only over "> " lines, and a
+# quoted paragraph cannot stop a marker after it from opening an item.
+checkbox_case quote-para "$ac_h" $'> text\n2. ```text\n   - [ ] quoted\n   ```\n' \
+  'checkbox inside a fence on a 2. item directly after a quote line fails'
+checkbox_case quote-fence "$ac_h" $'Then:\n> ```text\n2. ```text\n   ```\n   - [ ] A criterion under the step.\n' \
+  'checkbox under a 2. ```text step after a quoted fence passes' 0
+checkbox_case quote-fence-code "$ac_h" $'> ```text\n> x\n    - [ ] Quoted as indented code.\n' \
+  'checkbox in indented code after a quoted fence fails'
+checkbox_case quote-lazy "$ac_h" $'- a\n  > text\nlazy\n  ```text\n- [ ] A criterion after the item ends.\n  ```\n' \
+  'checkbox after a lazy line continuing a quote inside a list item passes' 0
 
 echo "test-check-readiness: $passed cases passed"
