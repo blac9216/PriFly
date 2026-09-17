@@ -91,7 +91,7 @@ func (c *checker) graph(items []workItem) {
 			j, found := index[e.id]
 			if e.id != "" && !found {
 				c.add(e.path(w), "unresolved-work-item", "no Work Item in this bundle has ID %s", Quote(e.id))
-			} else if found && m < len(w.deps) && index[w.id] == i && w.id != "" {
+			} else if found && m < len(w.deps) {
 				deps[i], dependents[j], pending[i] = append(deps[i], m), append(dependents[j], i), pending[i]+1
 			}
 		}

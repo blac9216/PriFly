@@ -97,8 +97,8 @@ var hostile = map[string]func(dir string) error{
 	"duplicate-key-trailing": func(dir string) error {
 		return errors.Join(replaceIn(dir, `"revision": 1`, `"revision": 1, "revision": 1`), replaceIn(dir, "\n}\n", "\n}\n}"))
 	},
-	"dependency-cycle": func(dir string) error { // a self-loop, a 2-cycle, a 3-cycle closed at a second dependency, a tail into the 2-cycle
-		return addItems(dir, slice(0), slice(2), slice(1), slice(4), slice(5), slice(-1, 3), slice(-1, 1), slice(-1))
+	"dependency-cycle": func(dir string) error { // a self-loop; a 2-cycle; a tail into a 2-cycle closed at a second dependency; a later tail
+		return addItems(dir, slice(0), slice(2), slice(1), slice(4), slice(5), slice(-1, 4), slice(-1, 1), slice(-1))
 	},
 	"unnamed-consumer": func(dir string) error {
 		return addItems(dir, `{"kind": "ENABLER", "dependencies": []}`, `{"kind": "ENABLER", "consumers": [], "dependencies": []}`,
@@ -264,7 +264,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"dependency-cycle": {
 			"dependency-cycle " + at(0, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(0) + `" -> "` + wiN(0) + `"`,
 			"dependency-cycle " + at(2, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(1) + `" -> "` + wiN(2) + `" -> "` + wiN(1) + `"`,
-			"dependency-cycle " + at(5, `.dependencies[1].work_item`) + `: Work Items depend in a cycle: "` + wiN(3) + `" -> "` + wiN(4) + `" -> "` + wiN(5) + `" -> "` + wiN(3) + `"`},
+			"dependency-cycle " + at(5, `.dependencies[1].work_item`) + `: Work Items depend in a cycle: "` + wiN(4) + `" -> "` + wiN(5) + `" -> "` + wiN(4) + `"`},
 		"unnamed-consumer": {
 			"unnamed-consumer " + at(0, ".consumers: ENABLER names no consuming Work Item"),
 			"unnamed-consumer " + at(1, ".consumers: ENABLER names no consuming Work Item"),
