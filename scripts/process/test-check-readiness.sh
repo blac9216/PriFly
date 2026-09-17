@@ -536,6 +536,16 @@ checkbox_case comment-item-blank "$ac_h" $'- a\n  <!--\n\n  -->\n- [ ] Q1\n' \
   'checkbox after a comment holding a blank line and closed inside its - item passes' 0
 checkbox_case comment-item-deeper "$ac_h" $'- a\n   <!--\n  x -->\n- [ ] Q1\n' \
   'checkbox after a comment indented past its - item and closed inside it passes' 0
+checkbox_case comment-item-one-less "$ac_h" $'- a\n  <!--\n x -->\n- [ ] Q1\n' \
+  'checkbox after a comment whose - item ended at a line one column short of it fails'
+checkbox_case comment-nested-item "$ac_h" $'- a\n  - b\n    <!--\n  x -->\n- [ ] Q1\n' \
+  'checkbox after a comment whose nested - item ended before its --> fails'
+checkbox_case comment-nested-item-line "$ac_h" $'- - <!--\n  x -->\n- [ ] Q1\n' \
+  'checkbox after a comment opened on a nested - item line that ended before its --> fails'
+checkbox_case comment-item-line-para "$ac_h" $'- <!--\n  -->\n2. ```text\n   - [ ] Q1\n' \
+  'checkbox inside a fence opened after a comment closed in its - item line fails'
+checkbox_case comment-item-line-closed "$ac_h" $'- <!-- x -->\n- [ ] Q1\n' \
+  'checkbox after a comment opened and closed on a - item line passes' 0
 # In PR mode only the checks for a line that must be present fail closed after such a comment:
 # a later Refs line is still checked for its form and for a closing keyword naming it.
 pr_body item-comment-refs $'Closes #154\nThis also fixes #57 in part.\n'
@@ -550,6 +560,14 @@ replace "$fixture_root/pr-item-comment-hidden.md" $'Body text for Verified expec
 run_case 'PR: a Refs line hidden after a comment that outlived its list item is not counted as present' 1 \
   "MISSING: a Closes #<N> line or a Refs #<N> line present" \
   --root "$root" --body "$fixture_root/pr-item-comment-hidden.md" "${pr[@]}"
+pr_body refs-trailing-space $'Closes #154\nThis fixes #57 partly.\nRefs #57 \nRemainder: r\nClosing issue: #133\n'
+run_case 'PR: a Refs line with trailing spaces is still checked' 1 \
+  'MISSING: no closing keyword for Refs #57 anywhere in the body' \
+  --root "$root" --body "$fixture_root/pr-refs-trailing-space.md" "${pr[@]}"
+pr_body refs-text-after $'Refs #57 x\n'
+run_case 'PR: a Refs line with text after the number is not counted as present' 1 \
+  "MISSING: a Closes #<N> line or a Refs #<N> line present" \
+  --root "$root" --body "$fixture_root/pr-refs-text-after.md" "${pr[@]}"
 # A line indented 4 or more columns that continues a paragraph is text, not a checkbox, here after
 # a fence the checker reads as indented code in a quoted list item; 5 spaces after a quoted list
 # marker start indented code.
