@@ -238,12 +238,17 @@ func TestClaimWorkDir(t *testing.T) {
 		"0755 directory":              func(p string) { mkdir(p, 0o755) },
 		"0700 regular file":           func(p string) { write(p, 0o700) },
 		"another owner":               func(p string) { mkdir(p, 0o700); currentUID = func() int { return os.Getuid() + 1 } },
+		"unremovable leftover":        func(p string) { _ = os.MkdirAll(p+"/sub/d", 0o700); _ = os.Chmod(p+"/sub", 0o500) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(func() { currentUID = os.Getuid })
 			work := t.TempDir()
 			path := filepath.Join(work, "prifly-secrets-9")
+			if name == "unremovable leftover" && os.Geteuid() == 0 {
+				t.Skip("root removes it regardless of mode")
+			}
 			plant(path)
+			t.Cleanup(func() { os.Chmod(path+"/sub", 0o700) }) // runs before TempDir's removal
 			_, err := ClaimWorkDir(work)
 			if _, lerr := os.Lstat(path); !errors.Is(err, ErrTransient) || strings.Contains(err.Error(), work) || lerr != nil {
 				t.Fatalf("err = %v, want redacted ErrTransient; entry still present: %t", err, lerr == nil)
@@ -263,18 +268,18 @@ func TestClaimWorkDir(t *testing.T) {
 }
 
 // TestClaimWorkDirPathSwap renames the work directory away and puts a symbolic link to another directory holding
-// a same-named leftover in its place, once right after the lock and once right before the sweep. The first must
-// block and the second must sweep the renamed, locked directory; neither may delete anything the link reaches.
+// a same-named 0700 leftover in its place: right after the lock (must block), and right before the sweep, where the
+// locked leftover is 0700 (must be swept) or 0500 (must block); nothing the link reaches may be deleted.
 func TestClaimWorkDirPathSwap(t *testing.T) {
 	t.Cleanup(func() { claimHook = func(int) {} })
-	for stage, wantErr := range []bool{true, false} {
+	for i, mode := range []os.FileMode{0o700, 0o700, 0o500} { // stage min(i, 1); only i == 1 may succeed
 		work, other := filepath.Join(t.TempDir(), "work"), t.TempDir()
-		if os.Mkdir(work, 0o700) != nil || os.Mkdir(filepath.Join(work, "prifly-secrets-1"), 0o700) != nil ||
+		if os.Mkdir(work, 0o700) != nil || os.Mkdir(filepath.Join(work, "prifly-secrets-1"), mode) != nil ||
 			os.Mkdir(filepath.Join(other, "prifly-secrets-1"), 0o700) != nil {
 			t.Fatal("directory fixture")
 		}
 		claimHook = func(s int) {
-			if s == stage && (os.Rename(work, work+".old") != nil || os.Symlink(other, work) != nil) {
+			if s == min(i, 1) && (os.Rename(work, work+".old") != nil || os.Symlink(other, work) != nil) {
 				t.Error("swap fixture")
 			}
 		}
@@ -284,8 +289,8 @@ func TestClaimWorkDirPathSwap(t *testing.T) {
 		}
 		_, otherErr := os.Lstat(filepath.Join(other, "prifly-secrets-1"))
 		_, oldErr := os.Lstat(filepath.Join(work+".old", "prifly-secrets-1"))
-		if errors.Is(err, ErrTransient) != wantErr || otherErr != nil || wantErr == (oldErr != nil) {
-			t.Fatalf("swap at stage %d: err = %v; entry behind the link kept: %t; locked leftover removed: %t", stage, err, otherErr == nil, oldErr != nil)
+		if errors.Is(err, ErrTransient) != (i != 1) || otherErr != nil || (i != 1) == (oldErr != nil) {
+			t.Fatalf("swap case %d: err = %v; entry behind the link kept: %t; locked leftover removed: %t", i, err, otherErr == nil, oldErr != nil)
 		}
 	}
 }
