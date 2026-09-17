@@ -80,8 +80,11 @@ func Decrypt(v *Verified, identityFile, workDir string, provision func(path stri
 	}
 	defer f.Close()
 	n, err := io.Copy(f, r)
+	if pathErr := (*os.PathError)(nil); errors.As(err, &pathErr) { // only writing f can; age reads in-memory bytes
+		return fmt.Errorf("%w: cannot write", ErrTransient)
+	}
 	if err != nil {
-		return fmt.Errorf("%w: payload failed authentication or could not be stored", ErrDecrypt)
+		return fmt.Errorf("%w: payload failed authentication", ErrDecrypt)
 	}
 	if err := checkSecrets(f, n, v.Manifest); err != nil {
 		return err
@@ -117,8 +120,7 @@ func strictMembers(dec *json.Decoder) error {
 	if err != nil || (tok != json.Delim('{') && tok != json.Delim('[')) {
 		return err
 	}
-	seen := map[string]bool{}
-	for dec.More() {
+	for seen := map[string]bool{}; dec.More(); {
 		if tok == json.Delim('{') {
 			name, err := dec.Token()
 			if key, _ := name.(string); err != nil || seen[key] || !secretKeys[key] {

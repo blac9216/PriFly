@@ -58,8 +58,6 @@ func seal(t *testing.T, id *age.X25519Identity, plaintext string, damage ...int)
 // capture runs f with file descriptors 1 and 2 redirected to files and returns what each received.
 func capture(t *testing.T, f func()) (stdout, stderr string) {
 	t.Helper()
-	got := [2]string{}
-	defer func() { stdout, stderr = got[0], got[1] }()
 	for i, fd := range []int{1, 2} {
 		file, err := os.Create(filepath.Join(t.TempDir(), "fd"))
 		saved, dupErr := unix.Dup(fd)
@@ -69,7 +67,7 @@ func capture(t *testing.T, f func()) (stdout, stderr string) {
 		defer func() {
 			_, _ = unix.Dup2(saved, fd), unix.Close(saved)
 			data, _ := os.ReadFile(file.Name())
-			got[i] = string(data)
+			*[]*string{&stdout, &stderr}[i] = string(data)
 			file.Close()
 		}()
 	}
@@ -77,20 +75,18 @@ func capture(t *testing.T, f func()) (stdout, stderr string) {
 	return
 }
 
-var errPanic = errors.New("provision panicked") // the decrypt helper recovers an error panic as err
+// errPanic is provision's panic value in the "provision panic" row; inWork stands for the helper's work directory.
+var errPanic, inWork = errors.New("provision panicked"), "<work>"
 
-const inWork = "<work>" // the decrypt helper replaces it with its fresh work directory
-
-// decrypt runs Decrypt in dir with TMPDIR pointed at an empty directory. It asserts on the filesystem that provision's
-// file is in a directory created in work while TMPDIR is empty and that both are empty afterwards, and that neither
-// the canary, an age identity nor work's path reaches stdout, stderr or the error.
-func decrypt(t *testing.T, v *Verified, identityFile, dir string, provision func(string) error) (stdout, stderr string, err error) {
+// decrypt runs Decrypt in dir with TMPDIR empty, asserts on the filesystem that provision's file is in a directory created in
+// work while TMPDIR is empty and that both are empty afterwards, and that no canary, age identity or work path is output.
+func decrypt(t *testing.T, v *Verified, identityFile, dir string, provision func(string) error) (stdout, stderr string, err error, panicked bool) {
 	t.Helper()
 	work, tmpdir, at := t.TempDir(), t.TempDir(), ""
 	count := func(dir string) int { entries, _ := os.ReadDir(dir); return len(entries) }
 	t.Setenv("TMPDIR", tmpdir)
 	stdout, stderr = capture(t, func() {
-		defer func() { r, _ := recover().(error); err = cmp.Or(r, err) }()
+		defer func() { p := recover(); r, _ := p.(error); err, panicked = cmp.Or(r, err), p != nil }()
 		err = Decrypt(v, identityFile, strings.Replace(dir, inWork, work, 1), func(path string) error {
 			at = filepath.Dir(filepath.Dir(path)) + strings.Repeat(" and TMPDIR", count(tmpdir))
 			return provision(path)
@@ -104,7 +100,7 @@ func decrypt(t *testing.T, v *Verified, identityFile, dir string, provision func
 			t.Fatalf("%s exposes a secret, identity or path: %q", where, text)
 		}
 	}
-	return stdout, stderr, err
+	return stdout, stderr, err, panicked
 }
 
 func TestDecrypt(t *testing.T) {
@@ -121,8 +117,7 @@ func TestDecrypt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
-	substituted := seal(t, id, secretsJSON(`"r2"`, `"other"`))
-	substituted.Manifest.SecretsSHA256 = valid.Manifest.SecretsSHA256
+	substituted := &Verified{Manifest: valid.Manifest, Secrets: seal(t, id, secretsJSON(`"r2"`, `"other"`)).Secrets}
 	otherSchema := *valid
 	otherSchema.Manifest.SecretSchema = "prifly.secrets/v2"
 	with := func(old, new string) *Verified { return seal(t, id, secretsJSON(old, new)) }
@@ -133,10 +128,8 @@ func TestDecrypt(t *testing.T) {
 		data, err := os.ReadFile(path)
 		fmt.Fprint(os.Stdout, "prifly-capture-stdout")
 		fmt.Fprint(os.Stderr, "prifly-capture-stderr")
-		if err != nil || fmt.Sprint(dir.Mode(), file.Mode()) != "drwx------ -rw-------" || !strings.Contains(string(data), canary) {
-			return errors.New("transient plaintext unprotected")
-		}
-		return nil
+		ok := err == nil && fmt.Sprint(dir.Mode(), file.Mode()) == "drwx------ -rw-------" && strings.Contains(string(data), canary)
+		return map[bool]error{false: errors.New("transient plaintext unprotected")}[ok]
 	}
 	calls := 0
 	refuse := func(string) error { calls++; return nil }
@@ -159,6 +152,7 @@ func TestDecrypt(t *testing.T) {
 		"nil result":           {nil, identityFile, inWork, "|", refuse, ErrDigest},
 		"empty work dir":       {valid, identityFile, "", "|", refuse, ErrTransient},
 		"relative work dir":    {valid, identityFile, canary, "|", refuse, ErrTransient},
+		"write failure":        {valid, identityFile, inWork, "|", refuse, ErrTransient}, // RLIMIT_FSIZE below the plaintext size
 		"missing work dir":     {valid, identityFile, inWork + "/" + canary, "|", refuse, ErrTransient},
 		"schema":               {with(SecretSchema, "prifly.secrets/v0"), identityFile, inWork, "|", refuse, ErrSecrets},
 		"manifest schema id":   {&otherSchema, identityFile, inWork, "|", refuse, ErrSecrets},
@@ -176,10 +170,14 @@ func TestDecrypt(t *testing.T) {
 		"provision panic":      {valid, identityFile, inWork, "|", func(string) error { panic(errPanic) }, errPanic},
 	} {
 		t.Run(name, func(t *testing.T) {
+			if lim := (unix.Rlimit{}); name == "write failure" && unix.Getrlimit(unix.RLIMIT_FSIZE, &lim) == nil {
+				defer unix.Setrlimit(unix.RLIMIT_FSIZE, &lim) // the limit is process-wide, so it is lifted when the row ends
+				_ = unix.Setrlimit(unix.RLIMIT_FSIZE, &unix.Rlimit{Cur: 16, Max: lim.Max})
+			}
 			before := calls
-			stdout, stderr, err := decrypt(t, c.v, c.identity, c.dir, c.provision)
-			if !errors.Is(err, c.want) || (c.want == nil) != (err == nil) || calls != before || stdout+"|"+stderr != c.output {
-				t.Fatalf("err = %v, want %v; refused provision called %t; output %q|%q", err, c.want, calls != before, stdout, stderr)
+			stdout, stderr, err, panicked := decrypt(t, c.v, c.identity, c.dir, c.provision)
+			if !errors.Is(err, c.want) || (c.want == nil) != (err == nil) || calls != before || stdout+"|"+stderr != c.output || panicked != (name == "provision panic") {
+				t.Fatalf("err = %v, want %v; refused provision called %t; output %q|%q; panicked %t", err, c.want, calls != before, stdout, stderr, panicked)
 			}
 		})
 	}
