@@ -208,7 +208,9 @@ func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self i
 	self = c.ident(m, p, prefix)
 	for i, r := range c.list(m, p, "refs") {
 		rp := fmt.Sprintf("%s.refs[%d]", p, i)
-		refs = append(refs, c.ident(c.object(r, rp, Schema, "id", "revision", "sha256"), rp, ""))
+		if ref := c.ident(c.object(r, rp, Schema, "id", "revision", "sha256"), rp, ""); ref.id != "" {
+			refs = append(refs, ref) // closure compares only references with an ID
+		}
 	}
 	isItem, b := schema == "WorkItem/v1", -1
 	if schema == "ExecutionEnvelope/v1" && self.id != "" && !w.schemaIDs[schema+" "+self.id] {
@@ -244,6 +246,19 @@ func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self i
 		b = w.read(c, p, schema, got, content)
 	}
 	return self, refs
+}
+
+// entries checks each artifacts[] entry of list and returns the identities
+// closure compares: only artifacts and references with an ID, so an entry
+// without one, such as 0 or {}, is checked but not held.
+func (c *checker) entries(root *os.Root, list []any, w *workItems) (artifacts, refs []identity) {
+	for i, a := range list {
+		self, r := c.artifact(root, fmt.Sprintf("$.artifacts[%d]", i), a, w)
+		if refs = append(refs, r...); self.id != "" {
+			artifacts = append(artifacts, self)
+		}
+	}
+	return artifacts, refs
 }
 
 // closure rejects a repeated artifact ID and resolves each reference by ID,
@@ -309,13 +324,8 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 			c.add(fmt.Sprintf("$.jobs[%d]", i), "unsupported-job", "job/version %s is not supported", Quote(j))
 		}
 	}
-	var artifacts, refs []identity
 	w := workItems{digest: map[string]int{}, schemaIDs: map[string]bool{}, left: MaxArtifactBytes}
-	for i, a := range c.list(top, "$", "artifacts") {
-		self, r := c.artifact(root, fmt.Sprintf("$.artifacts[%d]", i), a, &w)
-		artifacts, refs = append(artifacts, self), append(refs, r...)
-	}
-	c.closure(artifacts, refs)
+	c.closure(c.entries(root, c.list(top, "$", "artifacts"), &w))
 	c.graph(w)
 	complete = w.left >= 0
 	return
