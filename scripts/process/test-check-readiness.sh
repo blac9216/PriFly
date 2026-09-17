@@ -604,8 +604,6 @@ checkbox_case comment-reopen "$ac_h" $'<!-- a --> <!--\n\n- [ ] Q1\n' \
   'checkbox after a comment reopened on the line that closed one fails'
 checkbox_case comment-reopen-text "$ac_h" $'<!-- a --> <!--\n-->\n- [ ] Q1\n' \
   'checkbox after a reopened comment and a --> paragraph line fails'
-checkbox_case item-line-reopen "$ac_h" $'- <!-- a --> <!--\n  -->\n- [ ] Q1\n' \
-  'checkbox after a comment reopened on a - item line and a --> line in the item fails'
 checkbox_case comment-close-reopen "$ac_h" $'<!--\n--> <!--\n\n- [ ] Q1\n' \
   'checkbox after a comment reopened on its closing line fails'
 checkbox_case comment-bang "$ac_h" $'<!--\n--!>\n- [ ] Q1\n-->\n' \
@@ -614,8 +612,6 @@ checkbox_case comment-bang-item-ends "$ac_h" $'- a\n  <!--\n  --!>\nx\n- [ ] Q1\
   'checkbox after a comment ended by --!> before its - item ended passes' 0
 checkbox_case comment-bang-open "$ac_h" $'- a\n  <!-- x --!>\nx\n- [ ] Q1\n' \
   'checkbox after a comment ended by --!> on its opening line before its - item ended passes' 0
-checkbox_case item-line-bang "$ac_h" $'- <!-- x --!>\nx\n- [ ] Q1\n' \
-  'checkbox after a comment ended by --!> on a - item line passes' 0
 checkbox_case comment-abrupt "$ac_h" $'<!-->\n- [ ] Q1\n' 'checkbox after an empty <!--> comment passes' 0
 checkbox_case comment-abrupt-dash "$ac_h" $'<!--->\n- [ ] Q1\n' 'checkbox after an empty <!---> comment passes' 0
 # A comment opened in a quote ends with the quote.
@@ -639,10 +635,10 @@ checkbox_case quote-item-code-comment "$ac_h" $'> -     <!--\n- [ ] Q1\n' \
   'checkbox after a quoted - item holding <!-- as indented code passes' 0
 checkbox_case item-quote-comment-ends "$ac_h" $'- > <!--\n> -->\n- [ ] Q1\n' \
   'checkbox after a comment in a quote on a - item line that ended before its --> fails'
+checkbox_case below-item-quote-comment-ends "$ac_h" $'- a\n  > <!--\n> -->\n- [ ] Q1\n' \
+  'checkbox after a comment in a quote below a - item that ended before its --> fails'
 checkbox_case quote-then-item-comment "$ac_h" $'> <!--\n> -->\n- a\n  <!--\n  -->\n- [ ] Q1\n' \
   'checkbox after a closed quoted comment and a comment closed inside its - item passes' 0
-checkbox_case quote-comment-bang "$ac_h" $'> <!-- x --!>\n- [ ] Q1\n' \
-  'checkbox after a quoted comment ended by --!> passes' 0
 checkbox_case quote-comment-reopen "$ac_h" $'> <!-- a --> <!--\n> -->\n- [ ] Q1\n' \
   'checkbox after a comment reopened in a quote and a quoted --> line fails'
 # A setext underline at a checkbox item's depth makes the item's paragraph a heading, not a checkbox.

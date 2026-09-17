@@ -234,8 +234,8 @@ def comment_open(s, inside=False):
             inside = not s.startswith(('>', '->'), pos)
 
 def quote_comment(s):
-    # s starts with ">": (quote depth, content column of the list item in the quote or 0) when the
-    # quoted content opens an HTML comment block, else None; the second value is the comment's text
+    # s starts with ">": when the quoted content opens an HTML comment block, (quote depth, content
+    # column of the list item it is in inside the quote, or 0) and the text from its "<!--"; else (None, '')
     content, depth = unquote(s)
     c0 = content.lstrip(' ')
     m = ITEM_PREFIX_RE.match(c0)
@@ -245,8 +245,8 @@ def quote_comment(s):
     return (depth, start if m else 0), content[start:]
 
 def quote_left(s, quote):
-    # whether s, from the content column of the list item the quote is in, is not a line of the
-    # comment's quote (depth, item column) or of the list item inside it
+    # whether s, read from the content column of any list item the quote is in, leaves the quote a
+    # comment opened in (depth, content column of the list item inside the quote), or that list item
     if quote is None:
         return False
     content, n = unquote(s, quote[0])
@@ -265,6 +265,17 @@ def clean_numbered(text, para=None, fail_closed=True):
     comment_col, gone = 0, False  # the content column of the item a comment opened in, and whether it ended
     hidden, comment_quote = False, None  # whether the HTML comment is open; the quote it opened in
     para_first = 0  # the index of the open paragraph's first line
+
+    def open_comment(s, col, quote=None):
+        # s starts with "<!--": unless the comment block and its HTML comment both end on this line,
+        # a comment opens in the item (content column col) or quote (depth, item column) it is in
+        nonlocal in_comment, comment_col, gone, hidden, comment_quote
+        hidden = comment_open(s)
+        if '-->' in s and not hidden:
+            return False
+        in_comment, comment_col, gone, comment_quote = True, col, '-->' in s, quote
+        return True
+
     fence_char, fence_len, fence_col = None, 0, 0
     items, in_para, para_depth = [], False, 0  # content columns of the open list items
     empty_item = False  # the previous line opened an item with no content
@@ -331,9 +342,7 @@ def clean_numbered(text, para=None, fail_closed=True):
             del items[depth:]
             if stripped.startswith('<!--'):
                 in_para = False
-                if '-->' not in stripped or comment_open(stripped):
-                    in_comment, comment_col, gone = True, (items[-1] if items else 0), '-->' in stripped
-                    hidden, comment_quote = comment_open(stripped), None
+                if open_comment(stripped, items[-1] if items else 0):
                     continue
             elif stripped.startswith('>'):
                 content, depth_q = unquote(stripped, was_quoted[1]) if was_quoted else ('', 0)
@@ -345,9 +354,8 @@ def clean_numbered(text, para=None, fail_closed=True):
                 else:
                     (quote_fence, in_para), para_depth = quote_open(stripped), -1
                     q, c = quote_comment(stripped)
-                    if q and ('-->' not in c or comment_open(c)):
-                        in_comment, comment_col, gone = True, (items[-1] if items else 0), '-->' in c
-                        hidden, comment_quote = comment_open(c), q
+                    if q:
+                        open_comment(c, items[-1] if items else 0, q)
             else:
                 pos, code = indent, False
                 while m:
@@ -364,14 +372,12 @@ def clean_numbered(text, para=None, fail_closed=True):
                 if line.startswith('>', pos):  # a quote opened on a list item line
                     (quote_fence, in_para), para_depth = quote_open(line[pos:]), -1
                     q, c = quote_comment(line[pos:])
-                    if q and ('-->' not in c or comment_open(c)):
-                        in_comment, comment_col, gone = True, items[-1], '-->' in c
-                        hidden, comment_quote = comment_open(c), q
+                    if q:
+                        open_comment(c, items[-1], q)
                     out.append((i, raw))
                     continue
-                if line.startswith('<!--', pos) and ('-->' not in line or comment_open(line)):  # on an item line
-                    in_comment, comment_col, gone, in_para = True, items[-1], '-->' in line, False
-                    hidden, comment_quote = comment_open(line), None
+                if line.startswith('<!--', pos) and open_comment(line, items[-1]):  # a comment opened on an item line
+                    in_para = False
                     continue
                 f = fence_at(line, pos)
                 if f:
