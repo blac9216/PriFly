@@ -1,6 +1,7 @@
 // Package bundle inspects local external planning bundles. This file is its
-// input-safety layer: every read of bundle content goes through ReadRegular,
-// every JSON document through DecodeJSON (Inspect applies its two checks,
+// input-safety layer: every read of bundle content goes through ReadRegular
+// (bundle.json) or readRegular (artifacts, within MaxArtifactBytes), every
+// JSON document through DecodeJSON (Inspect applies its two checks,
 // decodeValue and faults, separately), and every bundle-derived string that
 // reaches output through Quote or Member.
 package bundle
@@ -26,9 +27,13 @@ const MaxFileBytes = 16 << 20
 // cap. It is an implementation guard: no planning document fixes a value.
 const MaxArtifactBytes = 8 * MaxFileBytes
 
-// Incomplete ends a diagnostic list that stopped at a bound: MaxDiagnostics,
+// incomplete ends a diagnostic list that stopped at a bound: MaxDiagnostics,
 // the path budget of Faults or MaxArtifactBytes.
-var Incomplete = Diagnostic{"$", "incomplete-diagnostics", "list is incomplete: inspect stopped at a bound and diagnostics past it are not listed"}
+var incomplete = Diagnostic{"$", "incomplete-diagnostics", "list is incomplete: inspect stopped at a bound and diagnostics past it are not listed"}
+
+// Incomplete reports whether d is the diagnostic ending a list that stopped at
+// a bound.
+func (d Diagnostic) Incomplete() bool { return d == incomplete }
 
 // ReadRegular reads name through root, so the name cannot resolve outside the
 // root by "..", an absolute path or a symlink. The file must be a regular file,

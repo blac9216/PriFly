@@ -18,7 +18,7 @@ func runBundle(args []string, stdout, stderr io.Writer) int {
 	for _, d := range diags {
 		fmt.Fprintln(stdout, d)
 	}
-	if n := len(diags); n > 0 && diags[n-1] == bundle.Incomplete {
+	if n := len(diags); n > 0 && diags[n-1].Incomplete() {
 		fmt.Fprintf(stdout, "result: invalid diagnostics-listed=%d (list incomplete; nothing staged or started)\n", n)
 		return 1
 	} else if n > 0 {

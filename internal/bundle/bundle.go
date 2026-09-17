@@ -6,6 +6,7 @@
 package bundle
 
 import (
+	"container/heap"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -45,38 +46,46 @@ func (d Diagnostic) String() string { return d.Code + " " + d.Path + ": " + d.De
 // implementation guard: no planning document fixes a value.
 const MaxDiagnostics = 1000
 
-// checker collects diagnostics, holding at most 2*MaxDiagnostics+1: past that
-// it keeps only the MaxDiagnostics+1 first in sorted order, so what done lists
-// never depends on the order diagnostics were added in.
+// checker collects diagnostics as a heap whose top is the last in order,
+// holding at most MaxDiagnostics+1: past that, a diagnostic replaces the top
+// only if it comes before it, so what done lists never depends on the order
+// diagnostics were added in.
 type checker []Diagnostic
 
 func (c *checker) add(path, code, format string, args ...any) {
-	if *c = append(*c, Diagnostic{path, code, fmt.Sprintf(format, args...)}); len(*c) > 2*MaxDiagnostics+1 {
-		*c = c.sorted()[:MaxDiagnostics+1]
+	if d := (Diagnostic{path, code, fmt.Sprintf(format, args...)}); len(*c) <= MaxDiagnostics {
+		heap.Push(c, d)
+	} else if order(d, (*c)[0]) < 0 {
+		(*c)[0] = d
+		heap.Fix(c, 0)
 	}
 }
 
-// sorted sorts c by path, then code, then detail.
-func (c checker) sorted() checker {
-	slices.SortFunc(c, func(a, b Diagnostic) int {
-		if a.Path != b.Path {
-			return strings.Compare(a.Path, b.Path)
-		} else if a.Code != b.Code {
-			return strings.Compare(a.Code, b.Code)
-		}
-		return strings.Compare(a.Detail, b.Detail)
-	})
-	return c
+// Len, Less, Swap, Push and Pop implement heap.Interface for add.
+func (c checker) Len() int           { return len(c) }
+func (c checker) Less(i, j int) bool { return order(c[i], c[j]) > 0 }
+func (c checker) Swap(i, j int)      { c[i], c[j] = c[j], c[i] }
+func (c *checker) Push(d any)        { *c = append(*c, d.(Diagnostic)) }
+func (c *checker) Pop() (d any)      { d, *c = (*c)[len(*c)-1], (*c)[:len(*c)-1]; return d }
+
+// order compares diagnostics by path, then code, then detail.
+func order(a, b Diagnostic) int {
+	if a.Path != b.Path {
+		return strings.Compare(a.Path, b.Path)
+	} else if a.Code != b.Code {
+		return strings.Compare(a.Code, b.Code)
+	}
+	return strings.Compare(a.Detail, b.Detail)
 }
 
-// done returns c sorted and cut to its first MaxDiagnostics, followed by
-// Incomplete when it held more or complete is false.
+// done returns c in order and cut to its first MaxDiagnostics, followed by
+// incomplete when it held more or complete is false.
 func (c checker) done(complete bool) []Diagnostic {
-	if c = c.sorted(); len(c) > MaxDiagnostics {
+	if slices.SortFunc(c, order); len(c) > MaxDiagnostics {
 		c, complete = c[:MaxDiagnostics], false
 	}
 	if !complete {
-		c = append(c, Incomplete)
+		c = append(c, incomplete)
 	}
 	return c
 }
@@ -175,7 +184,8 @@ func (c *checker) ident(m map[string]any, p, prefix string) identity {
 }
 
 // artifact checks one artifacts[] entry at path p, compares the SHA-256 of its
-// file's exact bytes, read through ReadRegular, with the declared digest, and
+// file's exact bytes, read through readRegular within the artifact bytes left
+// (w.left), with the declared digest, and
 // returns the artifact's identity and its references' identities; a WorkItem/v1
 // entry is added to w with the body read from its bytes, every entry's schema
 // and ID, and each first ExecutionEnvelope/v1 ID, are added to w, and
