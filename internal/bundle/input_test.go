@@ -231,7 +231,7 @@ func TestFaultsMemory(t *testing.T) {
 // lists 2n IDs, n unresolved (bytes parsed, edges held or diagnostics reported
 // per entry sharing it are quadratic).
 func TestGraphMemory(t *testing.T) {
-	wi := func(i int) string { return fmt.Sprintf(`{"work_item": "wi_%032x"}`, i) }
+	wi := func(i int) string { return fmt.Sprintf(`{"work_item": "wi_%032x", "condition": "c"}`, i) }
 	perItem := func(n int, shared bool) uint64 {
 		contents, keys, want := make([][]byte, n), make([]string, n), 1
 		for i := range contents {
@@ -242,15 +242,15 @@ func TestGraphMemory(t *testing.T) {
 					deps = append(deps, wi(j))
 				}
 			}
-			contents[i] = []byte(`{"kind": "SLICE", "dependencies": [` + strings.Join(deps, ", ") + `]}`)
+			contents[i] = []byte(`{"kind": "SLICE", "dependencies": [` + strings.Join(deps, ", ") + `], "outcomes": [{"baseline": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "obligation": "o"}]}`)
 		}
 		var c checker
 		var before, after runtime.MemStats
-		w := workItems{digest: map[string]int{}}
+		w := workItems{digest: map[string]int{}, baselines: map[string]bool{"bsl_6e73c229223db574a3c8fa28dd5a1a5a": true}}
 		runtime.GC()
 		runtime.ReadMemStats(&before)
 		for i, content := range contents {
-			w.items = append(w.items, workItem{"$", fmt.Sprintf("wi_%032x", i), w.read(&c, "$", keys[i], content)})
+			w.items = append(w.items, workItem{"$", fmt.Sprintf("wi_%032x", i), w.read(&c, "$", "WorkItem/v1", keys[i], content)})
 		}
 		c.graph(w)
 		runtime.ReadMemStats(&after)
