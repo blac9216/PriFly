@@ -25,7 +25,7 @@
       "required": ["bucket_ref", "prefix"],
       "properties": {
         "bucket_ref": {"$ref": "#/$defs/ref"},
-        "prefix": {"type": "string", "pattern": "^prifly-[a-z0-9]+(-[a-z0-9]+)+/$", "description": "Isolated named prefix (P12a), test resource prefix form prifly-<issue-or-attempt>-<run-id>/."}
+        "prefix": {"type": "string", "pattern": "^prifly-[a-z0-9]+(-[a-z0-9]+)+/$", "description": "Isolated named prefix (P12a) in the test resource prefix form prifly-<issue-or-attempt>-<run-id> (docs/process/testing.md, docs/process/maintenance.md). The required trailing / is an implementation choice so the value names one key-path segment; neither source writes it."}
       }
     },
     "bootstrap_identity_ref": {"$ref": "#/$defs/ref"},
@@ -70,7 +70,7 @@
       "properties": {
         "harness": {"enum": ["codex-cli", "claude-code"]},
         "harness_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-        "interactive_mode": {"const": "interactive"},
+        "interactive_mode": {"const": "interactive", "description": "Implementation choice: the fixed value 'interactive' is not sourced. C5 (#38 design comment) only says every Route pins an interactive mode, and P3 names candidate interactive modes."},
         "model_id": {"$ref": "#/$defs/ref"},
         "effort": {"$ref": "#/$defs/ref"},
         "account_ref": {"$ref": "#/$defs/ref"},

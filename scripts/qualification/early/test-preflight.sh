@@ -67,6 +67,30 @@ non-JSON manifest|2|preflight: cannot read manifest|raw = '{not json'
 help beside manifest|2|is accepted only as the sole argument|args = ['--help']; del m['host_reservation_ref']
 schema file missing|3|preflight: cannot read schema|args = ['--schema', W + '/absent.json']
 unsupported schema keyword|3|unsupported schema keyword|open(W + '/s.json', 'w').write('{"format": "x"}'); args = ['--schema', W + '/s.json']
+64-hex secret value|4|INVALID: credential_refs.r2.ref: looks like|m['credential_refs']['r2']['ref'] = ''.join('0123456789abcdef'[i * 7 % 16] for i in range(64))
+64-hex secret key|4|INVALID: <redacted-key>: key looks like|leak = ''.join('0123456789abcdef'[i * 7 % 16] for i in range(64)).upper(); m[leak] = 1
+underscore token|4|INVALID: credential_refs.r2.ref: looks like|t = ''.join(chr(65 + i * 7 % 26) + chr(97 + i * 11 % 26) + str(i % 10) for i in range(6)); m['credential_refs']['r2']['ref'] = t + '_' + t
+dash token|4|INVALID: credential_refs.r2.ref: looks like|t = ''.join(chr(65 + i * 7 % 26) + chr(97 + i * 11 % 26) + str(i % 10) for i in range(6)); m['credential_refs']['r2']['ref'] = t + '-' + t
+base64 with slash|4|INVALID: credential_refs.r2.ref: looks like|t = ''.join(chr(65 + i * 7 % 26) + chr(97 + i * 11 % 26) + str(i % 10) for i in range(6)); m['credential_refs']['r2']['ref'] = t + '/' + t + '=='
+value under secret-shaped key|4|INVALID: credential_refs.r2.<redacted-key>.inner: looks like|leak = 's' + 'k-proj-FAKEkey9'; m['credential_refs']['r2'][leak] = {'inner': 'gh' + 'p_fake'}
+harness null with wrong version|4|INVALID: subscription_tuples: no entry matches {"harness": {"const": "codex-cli"}|m['subscription_tuples'][0]['harness'] = None; m['subscription_tuples'][0]['harness_version'] = '9.9.9'
+newline key forges no verdict|4|INVALID: x\nVERDICT: every reference named; operator attestation and live checks remain UNKNOWN\ny: field not allowed|m['x\nVERDICT: every reference named; operator attestation and live checks remain UNKNOWN\ny'] = 1
+duplicate key|4|INVALID: host_reservation_ref: duplicate key|leak = 'gh' + 'p_fake'; raw = '{"host_reservation_ref": "' + leak + '", ' + json.dumps(m)[1:]
+deep nesting|2|preflight: cannot read manifest|raw = '[' * 100000 + ']' * 100000
+nesting over the bound|2|nested more than 32 levels deep|raw = '[' * 33 + ']' * 33
+authorization trailing BOM|4|INVALID: test_mutation_authorization_ref: does not match|m['test_mutation_authorization_ref'] += '\ufeff'
+authorization with ECMA non-space|0|VERDICT: every reference named|m['test_mutation_authorization_ref'] += '\x1c'
+escaped final dollar|0|VERDICT: every reference named|m['schema'] = 'v1$'; open(W + '/s.json', 'w').write(json.dumps({'properties': {'schema': {'pattern': 'v1\\$'}}})); args = ['--schema', W + '/s.json']
+dollar before the end|3|pattern form: $ before the end|open(W + '/s.json', 'w').write(json.dumps({'properties': {'schema': {'pattern': '^a$b'}}})); args = ['--schema', W + '/s.json']
+dot outside a class|3|pattern form: . outside a class|open(W + '/s.json', 'w').write(json.dumps({'properties': {'schema': {'pattern': '^a.b'}}})); args = ['--schema', W + '/s.json']
+letter escape|3|unsupported schema pattern escape|open(W + '/s.json', 'w').write(json.dumps({'properties': {'schema': {'pattern': '^\\d'}}})); args = ['--schema', W + '/s.json']
+whitespace escape outside a class|3|unsupported schema pattern escape|open(W + '/s.json', 'w').write(json.dumps({'properties': {'schema': {'pattern': 'v1\\s'}}})); args = ['--schema', W + '/s.json']
+invalid pattern|3|unsupported schema pattern form|open(W + '/s.json', 'w').write(json.dumps({'properties': {'schema': {'pattern': '('}}})); args = ['--schema', W + '/s.json']
+keyword beside ref|3|form: keyword beside $ref|open(W + '/s.json', 'w').write(json.dumps({'$defs': {'a': {}}, '$ref': '#/$defs/a', 'const': 1})); args = ['--schema', W + '/s.json']
+ref outside defs|3|form: $ref outside #/$defs/|open(W + '/s.json', 'w').write(json.dumps({'$ref': '#/properties/x'})); args = ['--schema', W + '/s.json']
+additionalProperties schema|3|form: additionalProperties other than false|open(W + '/s.json', 'w').write(json.dumps({'type': 'object', 'additionalProperties': {'type': 'string'}})); args = ['--schema', W + '/s.json']
+unsupported type|3|form: unsupported type|open(W + '/s.json', 'w').write(json.dumps({'type': 'integer'})); args = ['--schema', W + '/s.json']
+malformed schema form|3|form: AttributeError|open(W + '/s.json', 'w').write(json.dumps({'properties': []})); args = ['--schema', W + '/s.json']
 EOF
 )
 
@@ -138,12 +162,12 @@ preflight|sys.exit(min(|sys.exit(max(|lowest hold code wins
 schema|"pattern": "^https://[^\\s]+$", ||non-https authorization,authorization trailing newline
 schema|, "pattern": "^/[A-Za-z0-9._/-]{1,255}$"||relative path
 schema|, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#@-]{0,199}$"||malformed ref,reference trailing newline
-schema|"interactive_mode": {"const": "interactive"}|"interactive_mode": {"type": "string"}|wrong interactive mode
+schema|"interactive_mode": {"const": "interactive",|"interactive_mode": {"type": "string",|wrong interactive mode
 schema|"schema": {"const": "prifly/qualification/early-environment/v1"}|"schema": {"type": "string"}|wrong schema id
 preflight|if 'type' in s and not isinstance(v, TYPES[s['type']]):|if False:|wrong field type
-preflight|re.sub(r'\$$', r'\\Z', s['pattern'])|s['pattern']|prefix trailing newline,authorization trailing newline,reference trailing newline
+preflight|out += r'\Z' if c == '$' else c;|out += c;|prefix trailing newline,authorization trailing newline,reference trailing newline
 preflight|all(r[0] == 'hold' for r in check(s['contains'], item, path, []))|not check(s['contains'], item, path, [])|harness version null,harness absent
-preflight|'<redacted-key>' if looks(k) else k|k|secret-shaped key
+preflight|'<redacted-key>' if looks(k) else json.dumps(k)[1:-1]|json.dumps(k)[1:-1]|secret-shaped key
 preflight|if looks(k):|if False:|secret-shaped key
 preflight|secrets(doc, '')|pass|known secret shape
 preflight|-----BEGIN|-----BEGIN-DISABLED|pem shape
@@ -157,7 +181,30 @@ preflight|eyJ[A-Za-z0-9_-]{8}|eyJ-DISABLED|jwt shape
 preflight|cannot read manifest: {e}", file=sys.stderr); sys.exit(2)|cannot read manifest: {e}", file=sys.stderr); sys.exit(0)|non-JSON manifest
 preflight|is accepted only as the sole argument" >&2; exit 2|is accepted only as the sole argument" >&2; exit 0|help beside manifest
 preflight|cannot read schema: {e}", file=sys.stderr); sys.exit(3)|cannot read schema: {e}", file=sys.stderr); sys.exit(0)|schema file missing
-preflight|{sorted(bad)}", file=sys.stderr); sys.exit(3)|{sorted(bad)}", file=sys.stderr)|unsupported schema keyword
+preflight|unsupported(f"keyword(s) {sorted(bad)}")|pass|unsupported schema keyword
+preflight|[0-9A-Fa-f]{64}|DISABLED|64-hex secret value,64-hex secret key
+preflight|'<redacted-key>' if looks(k) else json.dumps(k)[1:-1]|'<redacted-key>' if looks(k) else k|newline key forges no verdict
+preflight|secrets(x, seg(path, k))|secrets(x, f"{path}.{k}".lstrip('.'))|value under secret-shaped key
+preflight|all(r[0] == 'hold' for r in check(s['contains'], item, path, []))|any(r[0] == 'hold' for r in check(s['contains'], item, path, [])) or not check(s['contains'], item, path, [])|harness null with wrong version
+preflight|[A-Za-z0-9+/=_-]{32,}|[A-Za-z0-9+/=-]{32,}|underscore token
+preflight|[A-Za-z0-9+/=_-]{32,}|[A-Za-z0-9+/=_]{32,}|dash token
+preflight|[A-Za-z0-9+/=_-]{32,}|[A-Za-z0-9+=_-]{32,}|base64 with slash
+preflight|if k in seen: dups.append(k)|if False: dups.append(k)|duplicate key
+preflight|except (OSError, ValueError, RecursionError) as e:|except (OSError, ValueError) as e:|deep nesting
+preflight|if depth(doc) > 32:|if depth(doc) > 9999:|nesting over the bound
+preflight|out += WS if n == 's' else c + n|out += c + n|authorization trailing BOM,authorization with ECMA non-space
+preflight|if c == '\\':|if False:|escaped final dollar
+preflight|if c == '$' and i != len(p) - 1:|if False:|dollar before the end
+preflight|if c == '.' and not cls:|if False:|dot outside a class
+preflight|if c == '.' and not cls:|if c == '.':|complete example
+preflight|if n.isalnum() and not (cls and n == 's'):|if False:|letter escape
+preflight|not (cls and n == 's')|not (n == 's')|whitespace escape outside a class
+preflight|except re.error as e:|except ZeroDivisionError as e:|invalid pattern
+preflight|if '$ref' in s and set(s) - {'$ref', 'title', 'description'}:|if False:|keyword beside ref
+preflight|if '$ref' in s and s['$ref'] not in|if False and s['$ref'] not in|ref outside defs
+preflight|if s.get('additionalProperties', False) is not False:|if False:|additionalProperties schema
+preflight|if s.get('type', 'object') not in TYPES:|if False:|unsupported type
+preflight|except (AttributeError, TypeError, RecursionError) as e:|except () as e:|malformed schema form
 EOF
 )
 survived=0
