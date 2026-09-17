@@ -594,11 +594,11 @@ for ((k = 0; k < ${#para_ends[@]}; k += 2)); do
 done
 # GitHub hides what follows an HTML comment while the comment is open in its HTML, where a comment ends
 # at "-->" or "--!>" and a "<!--" after a "-->" on a line of the comment block opens another.
-pr_body comment-bang-refs $'Closes #154\nThis fixes #57 partly.\n'
+pr_body comment-bang-refs $'Closes #1\nThis fixes #2 partly.\n'
 replace "$fixture_root/pr-comment-bang-refs.md" $'Body text for Verified expectation.\n' \
-  $'<!--\n--!>\n\nRefs #57\nRemainder: r\nClosing issue: #133\n-->\n'
+  $'<!--\n--!>\n\nRefs #2\nRemainder: r\nClosing issue: #3\n-->\n'
 run_case 'PR: a Refs line after a comment ended by --!> is still checked' 1 \
-  'MISSING: no closing keyword for Refs #57 anywhere in the body' \
+  'MISSING: no closing keyword for Refs #2 anywhere in the body' \
   --root "$root" --body "$fixture_root/pr-comment-bang-refs.md" "${pr[@]}"
 pr_body refs-in-comment $'Closes #154\n<!--\nRefs #57\n-->\n'
 run_case 'PR: a Refs line inside a closed HTML comment is not checked' 0 'check-readiness: 2/2 as expected' \
