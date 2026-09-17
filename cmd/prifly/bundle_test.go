@@ -97,8 +97,12 @@ var hostile = map[string]func(dir string) error{
 	"duplicate-key-trailing": func(dir string) error {
 		return errors.Join(replaceIn(dir, `"revision": 1`, `"revision": 1, "revision": 1`), replaceIn(dir, "\n}\n", "\n}\n}"))
 	},
-	"dependency-cycle": func(dir string) error { // a self-loop; a 2-cycle; a tail into a 2-cycle closed at a second dependency; a later tail; an acyclic chain
-		return addItems(dir, slice(0), slice(2), slice(1), slice(4), slice(5), slice(-1, 4), slice(-1, 1), slice(8), slice(-1))
+	"dependency-cycle": func(dir string) error { // a self-loop; a 2-cycle; a tail into a 2-cycle closed at a second dependency; a later tail; an acyclic chain;
+		// a 2-cycle beside a repeated dependency, and a repeated dependency outside it
+		return addItems(dir, slice(0), slice(2), slice(1), slice(4), slice(5), slice(-1, 4), slice(-1, 1), slice(8), slice(-1), slice(11, 11, 10), slice(9), slice(), slice(11, 11))
+	},
+	"enabler-consumer": func(dir string) error { // two SLICEs with the same bytes, each depending twice on the ENABLER naming both
+		return addItems(dir, slice(2, 2), slice(2, 2), `{"kind": "ENABLER", "consumers": ["`+wiN(0)+`", "`+wiN(1)+`"], "dependencies": []}`)
 	},
 	"unnamed-consumer": func(dir string) error {
 		return addItems(dir, `{"kind": "ENABLER", "dependencies": []}`, `{"kind": "ENABLER", "consumers": [], "dependencies": []}`,
@@ -109,8 +113,8 @@ var hostile = map[string]func(dir string) error{
 		return errors.Join(err, os.Remove(dir+"/artifacts/item1.json")) // an unreadable Work Item is still one a consumer can name
 	},
 	"invalid-content": func(dir string) error {
-		return addItems(dir, `[]`, `{"kind": "SLICE", "kind": "SLICE", "dependencies": []}`, `{"dependencies": []}`,
-			`{"kind": "slice\u001b[2K", "dependencies": []}`, `{"kind": "SLICE"}`, `{"kind": "SLICE", "dependencies": {}}`, `{"kind": 7, "dependencies": []}`)
+		return addItems(dir, `[]`, `{"kind": "SLICE", "kind": "SLICE", "dependencies": []}`, `{"dependencies": []}`, // the last has item0's bytes: reported once
+			`{"kind": "slice\u001b[2K", "dependencies": []}`, `{"kind": "SLICE"}`, `{"kind": "SLICE", "dependencies": {}}`, `{"kind": 7, "dependencies": []}`, `[]`)
 	},
 	"invalid-utf8": func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, "\"wi_\xff\xfe8887ffc") },
 	"lone-surrogate": func(dir string) error { // a high, a low before a pair, and a pair beside an escaped backslash
@@ -262,7 +266,9 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"symlink-escape-artifact": {baseline + "does not resolve to a file inside the bundle directory"},
 		"over-size-cap-artifact":  {baseline + "exceeds the 16777216-byte size cap"},
 		"top-level-array":         {notObject}, "top-level-null": {notObject}, "top-level-string": {notObject},
+		"enabler-consumer": {"result: ok manifest_sha256=d72147c7e751181bf47b247a5fb65896eec7013ca0513b01c1fb2085807ca6ba (nothing staged or started)"},
 		"dependency-cycle": {
+			"dependency-cycle " + at(10, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(9) + `" -> "` + wiN(10) + `" -> "` + wiN(9) + `"`,
 			"dependency-cycle " + at(0, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(0) + `" -> "` + wiN(0) + `"`,
 			"dependency-cycle " + at(2, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(1) + `" -> "` + wiN(2) + `" -> "` + wiN(1) + `"`,
 			"dependency-cycle " + at(5, `.dependencies[1].work_item`) + `: Work Items depend in a cycle: "` + wiN(4) + `" -> "` + wiN(5) + `" -> "` + wiN(4) + `"`},
@@ -298,7 +304,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 				}
 			}
 			before := snapshot(filepath.Dir(dir))
-			if variant != "valid" {
+			if !strings.HasPrefix(want[0], "result: ok") {
 				code, want = 1, append(want, fmt.Sprintf("result: invalid diagnostics=%d (nothing staged or started)", len(want)))
 			}
 			done := make(chan map[string]int, 1)

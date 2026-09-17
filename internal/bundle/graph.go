@@ -19,29 +19,57 @@ type edge struct {
 	id   string // "" when absent or invalid
 }
 
-// workItem is one WorkItem/v1 artifact entry at path with its ID ("" when
-// invalid) and the references read from its content.
-type workItem struct {
-	path, id    string
-	deps, users []edge
-}
-
-func (e edge) path(w workItem) string {
+func (e edge) path(p string) string {
 	if e.list == "consumers" {
-		return fmt.Sprintf("%s.content.consumers[%d]", w.path, e.k)
+		return fmt.Sprintf("%s.content.consumers[%d]", p, e.k)
 	}
-	return fmt.Sprintf("%s.content.dependencies[%d].work_item", w.path, e.k)
+	return fmt.Sprintf("%s.content.dependencies[%d].work_item", p, e.k)
 }
 
-// workItem reads kind, dependencies and, for an ENABLER, consumers from the
+// body is the references read from one distinct content, reported at path, the
+// first Work Item entry naming those bytes; next is the position in deps of
+// the first dependency left after removal, found once for every walk.
+type body struct {
+	path        string
+	deps, users []edge
+	next        int
+}
+
+// workItem is one WorkItem/v1 artifact entry at path with its ID ("" when
+// invalid) and the index of its bytes' body (-1 when they were not read).
+type workItem struct {
+	path, id string
+	body     int
+}
+
+// workItems holds the Work Item entries and the bodies they name, parsed once
+// per SHA-256 of exact bytes: entries sharing bytes share their references and
+// diagnostics, so memory is linear in the bundle's bytes, not entries × bytes.
+type workItems struct {
+	items  []workItem
+	bodies []body
+	digest map[string]int
+}
+
+// read returns the index of the body of content, whose SHA-256 is digest, at
+// the Work Item entry path p, reading it only the first time those bytes are seen.
+func (w *workItems) read(c *checker, p, digest string, content []byte) int {
+	if b, seen := w.digest[digest]; seen {
+		return b
+	}
+	w.digest[digest], w.bodies = len(w.bodies), append(w.bodies, c.body(p, content))
+	return len(w.bodies) - 1
+}
+
+// body reads kind, dependencies and, for an ENABLER, consumers from the
 // artifact content at path p (reported as p.content).
-func (c *checker) workItem(p, id string, content []byte) workItem {
-	w, cp := workItem{path: p, id: id}, p+".content"
+func (c *checker) body(p string, content []byte) body {
+	b, cp := body{path: p}, p+".content"
 	doc, ok := DecodeJSON(content)
 	m, isObject := doc.(map[string]any)
 	if !ok || !isObject {
 		c.add(cp, "invalid-content", "want one JSON object with unique keys and exact strings")
-		return w
+		return b
 	}
 	for _, key := range []string{"kind", "dependencies"} {
 		if _, present := m[key]; !present {
@@ -55,7 +83,7 @@ func (c *checker) workItem(p, id string, content []byte) workItem {
 		} else if _, present := o["work_item"]; !present {
 			c.add(dp+".work_item", "missing-field", "required field is absent")
 		} else {
-			w.deps = append(w.deps, edge{"dependencies", k, c.idValue(o["work_item"], dp+".work_item", "wi")})
+			b.deps = append(b.deps, edge{"dependencies", k, c.idValue(o["work_item"], dp+".work_item", "wi")})
 		}
 	}
 	switch kind, present := m["kind"]; {
@@ -65,39 +93,47 @@ func (c *checker) workItem(p, id string, content []byte) workItem {
 			c.add(cp+".consumers", "unnamed-consumer", "ENABLER names no consuming Work Item")
 		}
 		for k, u := range users {
-			w.users = append(w.users, edge{"consumers", k, c.idValue(u, fmt.Sprintf("%s.consumers[%d]", cp, k), "wi")})
+			b.users = append(b.users, edge{"consumers", k, c.idValue(u, fmt.Sprintf("%s.consumers[%d]", cp, k), "wi")})
 		}
 	case present && kind != "SLICE":
 		c.add(cp+".kind", "invalid-kind", `want "SLICE" or "ENABLER", got %s`, Quote(kind))
 	}
-	return w
+	return b
 }
 
 // graph rejects a dependency or consumer naming no Work Item in the bundle and
 // names one cycle per disjoint walk of the dependencies left after removing,
-// iteratively, every Work Item whose dependencies are all removed (Kahn). Time
-// and memory are linear in the Work Items and edges; nothing recurses.
-func (c *checker) graph(items []workItem) {
+// iteratively, every Work Item whose dependencies are all removed (Kahn). A
+// body is a node every entry naming it depends on, so shared bytes' edges are
+// held once. Time and memory are linear in the Work Items, bodies and body
+// edges; nothing recurses.
+func (c *checker) graph(w workItems) {
+	items, n := w.items, len(w.items)
 	index := map[string]int{}
-	for i, w := range items {
-		if _, seen := index[w.id]; w.id != "" && !seen {
-			index[w.id] = i
+	for i, it := range items {
+		if _, seen := index[it.id]; it.id != "" && !seen {
+			index[it.id] = i
 		}
 	}
-	// deps[i] holds the positions in items[i].deps of its resolved dependencies.
-	deps, dependents, pending := make([][]int, len(items)), make([][]int, len(items)), make([]int, len(items))
-	for i, w := range items {
-		for m, e := range slices.Concat(w.deps, w.users) {
+	// Node i < n is Work Item entry i; node n+b is body b.
+	dependents, pending := make([][]int, n+len(w.bodies)), make([]int, n+len(w.bodies))
+	for i, it := range items {
+		if it.body >= 0 {
+			dependents[n+it.body], pending[i] = append(dependents[n+it.body], i), 1
+		}
+	}
+	for b, body := range w.bodies {
+		for m, e := range slices.Concat(body.deps, body.users) {
 			j, found := index[e.id]
 			if e.id != "" && !found {
-				c.add(e.path(w), "unresolved-work-item", "no Work Item in this bundle has ID %s", Quote(e.id))
-			} else if found && m < len(w.deps) {
-				deps[i], dependents[j], pending[i] = append(deps[i], m), append(dependents[j], i), pending[i]+1
+				c.add(e.path(body.path), "unresolved-work-item", "no Work Item in this bundle has ID %s", Quote(e.id))
+			} else if found && m < len(body.deps) {
+				dependents[j], pending[n+b] = append(dependents[j], n+b), pending[n+b]+1
 			}
 		}
 	}
 	queue := []int{}
-	for i := range items {
+	for i := range pending {
 		if pending[i] == 0 {
 			queue = append(queue, i)
 		}
@@ -112,14 +148,14 @@ func (c *checker) graph(items []workItem) {
 	}
 	// Every Work Item left has a dependency left, so a walk along the first one
 	// either closes a new cycle or reaches an earlier walk.
-	walked, pos, via, walk := make([]int, len(items)), make([]int, len(items)), make([]edge, len(items)), []int{}
+	walked, pos, via, walk := make([]int, n), make([]int, n), make([]edge, n), []int{}
 	for s := range items {
 		cur := s
 		for walk = walk[:0]; pending[cur] > 0 && walked[cur] == 0; {
 			walked[cur], pos[cur], walk = s+1, len(walk), append(walk, cur)
-			for _, m := range deps[cur] {
-				if t := index[items[cur].deps[m].id]; pending[t] > 0 {
-					via[cur], cur = items[cur].deps[m], t
+			for b := &w.bodies[items[cur].body]; b.next < len(b.deps); b.next++ {
+				if t, found := index[b.deps[b.next].id]; found && pending[t] > 0 {
+					via[cur], cur = b.deps[b.next], t
 					break
 				}
 			}
@@ -129,10 +165,10 @@ func (c *checker) graph(items []workItem) {
 		}
 		cycle := walk[pos[cur]:]
 		names := make([]string, 0, len(cycle)+1)
-		for _, n := range cycle {
-			names = append(names, Quote(items[n].id))
+		for _, i := range cycle {
+			names = append(names, Quote(items[i].id))
 		}
 		last := cycle[len(cycle)-1]
-		c.add(via[last].path(items[last]), "dependency-cycle", "Work Items depend in a cycle: %s", strings.Join(append(names, names[0]), " -> "))
+		c.add(via[last].path(items[last].path), "dependency-cycle", "Work Items depend in a cycle: %s", strings.Join(append(names, names[0]), " -> "))
 	}
 }

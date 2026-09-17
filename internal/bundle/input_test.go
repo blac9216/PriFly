@@ -224,29 +224,48 @@ func TestFaultsMemory(t *testing.T) {
 	}
 }
 
-// TestGraphMemory runs graph over a ring of 1,000 and of 16,000 Work Items, the
-// longest possible cycle, and bounds the bytes allocated per Work Item at the
-// larger size to twice those at the smaller: a cycle name or walk copied per
-// step would allocate quadratically, about 16 times as much per item.
+// TestGraphMemory bounds the bytes allocated per Work Item by reading bodies and
+// running graph at the larger size to twice those at the smaller: for a ring of
+// 1,000 and of 16,000 Work Items (the longest cycle; a cycle name or walk copied
+// per step is quadratic), and for 200 and 800 entries naming one content that
+// lists 2n IDs, n unresolved (bytes parsed, edges held or diagnostics reported
+// per entry sharing it are quadratic).
 func TestGraphMemory(t *testing.T) {
-	perItem := func(n int) uint64 {
-		items := make([]workItem, n)
-		for i := range items {
-			items[i] = workItem{path: "$", id: fmt.Sprintf("wi_%032x", i), deps: []edge{{"dependencies", 0, fmt.Sprintf("wi_%032x", (i+1)%n)}}}
+	wi := func(i int) string { return fmt.Sprintf(`{"work_item": "wi_%032x"}`, i) }
+	perItem := func(n int, shared bool) uint64 {
+		contents, keys, want := make([][]byte, n), make([]string, n), 1
+		for i := range contents {
+			deps := []string{wi((i + 1) % n)}
+			if keys[i] = fmt.Sprint(i); shared {
+				deps, keys[i], want = []string{}, "shared", n+1
+				for j := range 2 * n {
+					deps = append(deps, wi(j))
+				}
+			}
+			contents[i] = []byte(`{"kind": "SLICE", "dependencies": [` + strings.Join(deps, ", ") + `]}`)
 		}
 		var c checker
 		var before, after runtime.MemStats
+		w := workItems{digest: map[string]int{}}
 		runtime.GC()
 		runtime.ReadMemStats(&before)
-		c.graph(items)
+		for i, content := range contents {
+			w.items = append(w.items, workItem{"$", fmt.Sprintf("wi_%032x", i), w.read(&c, "$", keys[i], content)})
+		}
+		c.graph(w)
 		runtime.ReadMemStats(&after)
-		if len(c) != 1 || c[0].Code != "dependency-cycle" {
-			t.Errorf("ring of %d: got %d diagnostics, want one dependency-cycle", n, len(c))
+		if len(c) != want || c[len(c)-1].Code != "dependency-cycle" {
+			t.Errorf("%d Work Items, shared %v: got %d diagnostics, want %d ending in dependency-cycle", n, shared, len(c), want)
 		}
 		return (after.TotalAlloc - before.TotalAlloc) / uint64(n)
 	}
-	if small, large := perItem(1000), perItem(16000); large > 2*small {
-		t.Errorf("graph allocated %d bytes per Work Item for 16,000, %d for 1,000 (limit 2x)", large, small)
+	for _, s := range []struct {
+		small, large int
+		shared       bool
+	}{{1000, 16000, false}, {200, 800, true}} {
+		if small, large := perItem(s.small, s.shared), perItem(s.large, s.shared); large > 2*small {
+			t.Errorf("shared %v: %d bytes per Work Item for %d, %d for %d (limit 2x)", s.shared, large, s.large, small, s.small)
+		}
 	}
 }
 
