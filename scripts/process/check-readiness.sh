@@ -274,7 +274,7 @@ def clean_numbered(text, para=None, fail_closed=True):
     para_first = 0  # the index of the open paragraph's first line
 
     def open_comment(s, col, quote=None):
-        # s starts with "<!--": unless the comment block and its HTML comment both end on this line,
+        # s holds a "<!--" (text from it, or a whole item line): unless both block and comment end here,
         # a comment opens in the item (content column col) or quote (depth, item column) it is in
         nonlocal in_comment, comment_col, gone, hidden, comment_quote
         hidden = comment_open(s)
