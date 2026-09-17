@@ -2,9 +2,5 @@
   "schema": "ExternalPlanningBundle/v1",
   "bundle_id": "id: bnd_8d0e1c6f026fef7621a0c7b017f12c12",
   "revision": 0,
-  "jobs": "implementer.implementation/v1",
-  "artifacts": [
-    {"id": "wi_8887ffc730f707abb82bb7cb7068e9140", "revision": 1, "schema": "WorkItem/v1", "path": ["artifacts/work-item.json"], "sha256": "e7d95ce6f478a7f82dbca4bee40b67d11efe93cdb245a22a03a28703024fa143"},
-    {"id": "wi_6e73c229223db574a3c8fa28dd5a1a5a", "schema": "Baseline/v1", "path": "../valid/artifacts/baseline.json", "sha256": "70E2A30E1B5A5D53B311FAF4E2EB50ACAED9C4BE464FDCA8F8EB72C6416EFE34"}
-  ]
+  "jobs": "implementer.implementation/v1"
 }
