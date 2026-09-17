@@ -613,9 +613,9 @@ func zeroArtifacts(dir string, sizes map[string]int, names ...string) error {
 // TestArtifactBytesCap runs inspect once per case, as each reads about 128 MiB,
 // and asserts its exact output and the bytes this process reads meanwhile (rchar
 // in /proc/self/io): the manifest, the first /proc/self/io read and the artifact
-// bytes, one past MaxArtifactBytes once it is passed, plus under 4,096 bytes of
-// other reads by the process, which vary between runs, so a read limit even
-// 4,096 bytes too high fails.
+// bytes, one past MaxArtifactBytes once it is passed, plus under 1,024 bytes of
+// other reads by the process, which vary between runs, so a read limit 1,024
+// bytes too high fails. TestArtifactReadLimit pins each read's limit exactly.
 //   - over-cap: $.artifacts[12], 16 MiB, is reached with 8 MiB - 702 B left, and
 //     [13] is not read.
 //   - at-cap: the artifacts total exactly MaxArtifactBytes, which is not passed.
@@ -664,8 +664,8 @@ func TestArtifactBytesCap(t *testing.T) {
 			if want == "result: ok" {
 				want, wantCode = fmt.Sprintf("result: ok manifest_sha256=%x (nothing staged or started)\n", sha256.Sum256(manifest)), 0
 			}
-			if code != wantCode || stdout.String() != want || stderr.Len() != 0 || after-before < wantRead || after-before >= wantRead+4096 {
-				t.Errorf("exit=%d, %d bytes read, stdout:\n%s\nstderr: %q; want exit %d, %d bytes read (+4,095), stdout:\n%s", code, after-before, stdout.String(), stderr.String(), wantCode, wantRead, want)
+			if code != wantCode || stdout.String() != want || stderr.Len() != 0 || after-before < wantRead || after-before >= wantRead+1024 {
+				t.Errorf("exit=%d, %d bytes read, stdout:\n%s\nstderr: %q; want exit %d, %d bytes read (+1,023), stdout:\n%s", code, after-before, stdout.String(), stderr.String(), wantCode, wantRead, want)
 			}
 		})
 	}
