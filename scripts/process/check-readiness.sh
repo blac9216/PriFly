@@ -133,7 +133,11 @@ if missing_anchors:
         )
     sys.exit(3)
 
-FENCE_RE = re.compile(r'^(`{3,}|~{3,})')
+# A fence opens after optional indentation and list markers ("1. ", "- ", "* ", "+ ",
+# nested too) and a backtick fence's info string holds no backtick; it closes on a line
+# holding only the opening character, at least as long. Both follow CommonMark (#176).
+FENCE_OPEN_RE = re.compile(r'^(\s*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)*)(`{3,}|~{3,})(.*)$')
+FENCE_CLOSE_RE = re.compile(r'^(`{3,}|~{3,})\s*$')
 
 def clean_lines(text):
     return [line for _, line in clean_numbered(text)]
@@ -143,27 +147,31 @@ def clean_numbered(text):
     # where index is the line's position in text.splitlines(). Fence open/close
     # follows CommonMark: a closing fence uses the opening fence's character and is at
     # least as long, so a ``` line inside an open ~~~ fence is content, not a delimiter.
+    # A fence opened on a list-item line belongs to that item, so a non-blank line
+    # indented less than the fence ends the item and the fence with it (#176).
     out, in_comment = [], False
-    fence_char, fence_len = None, 0
+    fence_char, fence_len, fence_indent = None, 0, 0
     for i, line in enumerate(text.splitlines()):
         stripped = line.strip()
         if in_comment:
             if '-->' in line:
                 in_comment = False
             continue
-        if fence_char is None and stripped.startswith('<!--') and '-->' not in stripped:
+        if fence_char is not None and stripped and fence_indent \
+                and len(line) - len(line.lstrip()) < fence_indent:
+            fence_char, fence_len, fence_indent = None, 0, 0
+        if fence_char is not None:
+            m = FENCE_CLOSE_RE.match(stripped)
+            if m and m.group(1)[0] == fence_char and len(m.group(1)) >= fence_len:
+                fence_char, fence_len, fence_indent = None, 0, 0
+            continue
+        if stripped.startswith('<!--') and '-->' not in stripped:
             in_comment = True
             continue
-        m = FENCE_RE.match(stripped)
-        if m:
-            char, length = m.group(1)[0], len(m.group(1))
-            if fence_char is None:
-                fence_char, fence_len = char, length
-                continue
-            if char == fence_char and length >= fence_len:
-                fence_char, fence_len = None, 0
-                continue
-        if fence_char is not None:
+        m = FENCE_OPEN_RE.match(line)
+        if m and not (m.group(2)[0] == '`' and '`' in m.group(3)):
+            fence_char, fence_len = m.group(2)[0], len(m.group(2))
+            fence_indent = len(m.group(1)) if m.group(1).strip() else 0
             continue
         out.append((i, line))
     return out

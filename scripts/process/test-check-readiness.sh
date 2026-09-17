@@ -244,12 +244,15 @@ form_case 'lowercase Closing issue label' $'Refs #57\nRemainder: the retry path\
   "a 'Closing issue: #<M>' line directly after the Remainder line"
 form_case 'trailing text after the Closing issue #M' $'Refs #57\nRemainder: the retry path\nClosing issue: #133 and more\n' \
   "a 'Closing issue: #<M>' line directly after the Remainder line"
+# #177: the Closing issue label's space is part of the label, as the Remainder label's is.
+form_case 'Closing issue label with no space' $'Refs #57\nRemainder: the retry path\nClosing issue:#133\n' \
+  "a 'Closing issue: #<M>' line directly after the Remainder line"
 # #168: a check that depends on a failed line is skipped, not reported as a second MISSING line.
 CASE_ABSENT='the Remainder text is non-empty' form_case 'missing Remainder line without a cascade' \
   $'Refs #57\nClosing issue: #133\n' "a 'Remainder: <text>' line directly after it (next line is 'Closing issue: #133'; its text"
 CASE_ABSENT='the Closing issue is not #57 itself' form_case 'malformed Closing issue line without a cascade' \
   $'Refs #57\nRemainder: the retry path\nClosing issue: other-org/other-repo#12\n' \
-  "a 'Closing issue: #<M>' line directly after the Remainder line (line after that is"
+  "a 'Closing issue: #<M>' line directly after the Remainder line (line after that is 'Closing issue: other-org/other-repo#12'; the M != N check is skipped)"
 # #168: every Refs line's form is checked, not only the first one's.
 pr_body second-refs "$pr_refs"$'Refs #58\nClosing issue: #133\n'
 run_case 'PR form: second Refs line with an incomplete form fails' 1 \
@@ -287,5 +290,34 @@ for kw in 'resolves other-org/other-repo#57' 'fixes other-org/PriFly#57' 'fixes 
   run_case "PR: '$kw' is not a closing keyword for #57" 0 'check-readiness: 8/8 as expected' \
     --root "$root" --body "$fixture_root/pr-kw-$k.md" "${pr[@]}"
 done
+
+# #176: a fence opened on a list-item line ("1. ```sh") is a fence, and its indented closing
+# line closes it rather than opening a new one, whatever the number of such steps.
+step() { printf '%s %s%s\n   echo %s\n   %s\n' "$1" "$2" "$3" "$4" "$2"; }  # MARKER FENCE INFO TEXT
+fence_case() {  # fence_case NAME PREAMBLE EXPECTED_EXIT EXPECTED_LINE
+  pr_body "fence-$1" "$2"
+  run_case "PR fence: $1" "$3" "$4" --root "$root" --body "$fixture_root/pr-fence-$1.md" "${pr[@]}"
+}
+fence_case 'odd count of 1. ```sh steps keeps later headings' \
+  "Closes #154"$'\n'"$(step 1. '```' sh one)"$'\n'"$(step 2. '```' sh two)"$'\n'"$(step 3. '```' sh three)" \
+  0 'check-readiness: 2/2 as expected'
+fence_case 'even count of 1. ```sh steps keeps the prose between them' \
+  "$(step 1. '```' sh one)"$'\nCloses #154\n'"$(step 2. '```' sh two)" 0 'check-readiness: 2/2 as expected'
+fence_case 'odd count of - ~~~text steps keeps later headings' \
+  "Closes #154"$'\n'"$(step - '~~~' text one)" 0 'check-readiness: 2/2 as expected'
+fence_case 'closing line with an info string does not close the fence' \
+  $'Closes #154\n* ```sh\n  echo one\n  ```text\n  ```' 0 'check-readiness: 2/2 as expected'
+fence_case 'a ```-run with a backtick after it is a code span, not a fence' \
+  $'Closes #154\n```inline``` code, not a fence' 0 'check-readiness: 2/2 as expected'
+fence_case 'unclosed list fence ends at the next less-indented line' \
+  "Closes #154"$'\n1. ```sh\n   echo one\n' 0 'check-readiness: 2/2 as expected'
+pr_body fence-heading-like "Closes #154"$'\n'"$(step 1. '```' sh one)"
+replace "$fixture_root/pr-fence-heading-like.md" $'\n## Verified expectation\n' $'\n'
+replace "$fixture_root/pr-fence-heading-like.md" $'   echo one\n' $'   echo one\n   ## Verified expectation\n'
+run_case 'PR fence: heading-like line inside a list-item fence is not a heading' 1 \
+  'MISSING: all template sections present (missing: Verified expectation)' \
+  --root "$root" --body "$fixture_root/pr-fence-heading-like.md" "${pr[@]}"
+checkbox_case list-fence "$ac_h" $'1. ```text\n   - [ ] Quoted inside a list-item fence.\n   ```\n' \
+  'checkbox only inside a fence opened on a list-item line fails'
 
 echo "test-check-readiness: $passed cases passed"

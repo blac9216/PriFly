@@ -159,13 +159,21 @@ against the committed templates, so the headings live in one place:
   [`.github/PULL_REQUEST_TEMPLATE.md`](../../.github/PULL_REQUEST_TEMPLATE.md) and either
   a `Closes #<N>` line or the partial-delivery form below.
 
+The issue-body part of that shape applies to **Work Items**: the planned, owner-released
+items of a milestone package, such as the DP4 items. A **deferred filing** — an issue
+carrying the `deferred` label, filed mid-work — takes the short form instead:
+`## Summary / Goal`, `## Motivation / Current Behavior`, `## Required Outcomes`,
+`## Acceptance Criteria — merge-time evidence` with provable checkboxes, and `## Home`
+carrying the `Spawned by …` provenance line and the `Unit:` line
+([planning ruling on #178](https://github.com/blac9216/PriFly/issues/178#issuecomment-5706675614)).
+
 A PR that deliberately delivers only part of an issue uses the partial-delivery form
 instead of `Closes #<N>`. The form is fixed by the
 [planning ruling on #157](https://github.com/blac9216/PriFly/issues/157#issuecomment-5705920335):
 the body carries a `Refs #<N>` line,
 directly after it a `Remainder: <text>` line and then a `Closing issue: #<M>` line,
 where `<text>` is non-empty and names what this PR does not deliver, and `#<M>` (M ≠ N)
-names the issue whose PR will close #<N>. For example (illustrative numbers):
+names the issue whose PR will close `#<N>`. For example (illustrative numbers):
 
 ```text
 Refs #12
@@ -181,7 +189,7 @@ holds only `#<M>` after it, so `Remainder:x`, `remainder: x` and
 Nothing else about their wording or position is part of the form. The
 body then carries no closing keyword anywhere — not on its own line and not inside
 prose, since GitHub treats a phrase like "closes #N" in prose as a closing reference
-the same as a dedicated line — for the referenced issue #<N>. The gate accepts this
+the same as a dedicated line — for the referenced issue `#<N>`. The gate accepts this
 form in place of `Closes #<N>`, per the `github-workflow` skill's own convention
 (`references/templates/implementer.md`: "`Closes #<N>` on its own line in the PR
 **body** (or `Refs` + exact remainder)"). [PR #134](https://github.com/blac9216/PriFly/pull/134)'s
@@ -196,7 +204,9 @@ retained, deterministic checker for the Work Item **issue-body** part of this sh
 ([#126](https://github.com/blac9216/PriFly/issues/126)): every `## ` heading of
 `work-item.md`, read from the committed template rather than hard-coded; an
 acceptance-criteria checkbox inside the body's Acceptance Criteria section; and one type
-plus one `area:*` label, read from `labels.md`. It exits 2 on a usage error or a missing,
+plus one `area:*` label, read from `labels.md`. It checks the Work Item shape only, so a
+short-form deferred filing reported as missing `work-item.md` headings is expected, not a
+filing defect. It exits 2 on a usage error or a missing,
 unreadable or non-UTF-8 body. It exits 3 if a doc or template file it reads is missing,
 unreadable or not UTF-8, if the template has no `## ` headings, or if the rule text above
 or the `labels.md` rows it relies on have been reworded. Run
@@ -205,7 +215,7 @@ or the `labels.md` rows it relies on have been reworded. Run
 regressions. With `--mode pr --repo blac9216/PriFly` instead of `--labels` (passing both
 is a usage error, and so is `--repo` without `--mode pr`) it checks a **PR body**: every
 `## ` heading of `PULL_REQUEST_TEMPLATE.md`, a `Closes #<N>` or `Refs #<N>` line, for
-each `Refs #<N>` no closing keyword for #<N> in the raw body, and the `Remainder:` and
+each `Refs #<N>` no closing keyword for `#<N>` in the raw body, and the `Remainder:` and
 `Closing issue:` lines of the form above, each part reported by name. A part that
 depends on a failed line is skipped, and the failed line's message says so: the
 Remainder text and the Closing issue line after a missing `Remainder:` line, and
