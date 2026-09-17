@@ -51,9 +51,11 @@ tar -C <scratch-path> -xzf "<scratch-path>/$GO_ARCHIVE"
 A digest that is not the pinned one makes `sha256sum -c` exit 1; stop there. Otherwise
 put `<scratch-path>/go/bin` first on `PATH` and export `GOTOOLCHAIN=local` and
 `GOFLAGS=-mod=readonly`. The recipe checks the pinned digest, not a live read of the
-go.dev index. No digest is pinned for any other OS or architecture. To bump Go, change
-`go.mod`, `GO_ARCHIVE` and `GO_ARCHIVE_SHA256` in one change, taking the new digest from
-`https://go.dev/dl/?mode=json&include=all`.
+go.dev index. No digest is pinned for any other OS or architecture. The Go toolchain row
+of the dependency inventory in [source-register.md](../reference/source-register.md)
+restates both values as the identity it dispositions; the workflow is the source of truth.
+To bump Go, change `go.mod`, `GO_ARCHIVE`, `GO_ARCHIVE_SHA256` and that inventory row in
+one change, taking the new digest from `https://go.dev/dl/?mode=json&include=all`.
 
 | Suite | Command | Environment |
 |---|---|---|

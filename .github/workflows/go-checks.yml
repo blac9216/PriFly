@@ -3,13 +3,17 @@
 #
 # Dispositions:
 # - The Go toolchain is the go.dev archive named by GO_ARCHIVE, verified against
-#   the SHA-256 pinned in GO_ARCHIVE_SHA256 before it is extracted. This is the
-#   one committed record of that digest; the local recipe in
-#   docs/process/testing.md reads both values from this file. actions/setup-go
-#   is not used: it installs a repackaged actions/go-versions archive, or a
-#   runner tool-cache copy, and checks no digest. A go.mod `go` directive that
-#   no longer matches GO_ARCHIVE fails the step; bump both together, with the
-#   new digest read from https://go.dev/dl/?mode=json&include=all.
+#   the SHA-256 pinned in GO_ARCHIVE_SHA256 before it is extracted. These two
+#   values are the pin and the source of truth: the local recipe in
+#   docs/process/testing.md reads both from this file, and the dependency
+#   inventory in docs/reference/source-register.md restates them only as the
+#   identity its dispositions cover. If the two files disagree, this file is
+#   what CI installs and the inventory row is stale. actions/setup-go is not
+#   used: it installs a repackaged actions/go-versions archive, or a runner
+#   tool-cache copy, and checks no digest. A go.mod `go` directive that no
+#   longer matches GO_ARCHIVE fails the step; bump go.mod, both values and the
+#   inventory row together, with the new digest read from
+#   https://go.dev/dl/?mode=json&include=all.
 # - No module or build cache: no go.sum exists yet (no dependencies). Add one in
 #   the same change that adds a go.sum.
 # - runs-on: ubuntu-latest is a mutable GitHub-hosted runner image. This job
