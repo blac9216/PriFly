@@ -200,16 +200,18 @@ var hostile = map[string]func(dir string) error{
 	},
 }
 
+// incomplete is the diagnostic ending a list that stopped at a bound.
+const incomplete = "incomplete-diagnostics $: list is incomplete: inspect stopped at a bound and diagnostics past it are not listed"
+
 const (
-	incomplete = "incomplete-diagnostics $: list is incomplete: inspect stopped at a bound and diagnostics past it are not listed"
-	bundleID   = "bnd_8d0e1c6f026fef7621a0c7b017f12c12"
-	bslSHA     = "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34"
-	wiSHA      = "e75149f5b53460eacd7e4bdb6af989a3903fb87754a129c906cb038f396646b3"
-	xenID      = "xen_dd00d1cf54fb4ef059011c2dc206e701"
-	xen2ID     = "xen_e2fdb6cef203d6f22cd9815948d7665f"
-	xenSHA     = "926292edd0e04fef4e8208bec6d1bc8ef899e12183b8942de1e0fc12802f03e9"
-	own        = "xen_<own>" // replaced by ownXen of the content naming it
-	envelope   = `{"bounds": {"attempts": 3, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 360}}`
+	bundleID = "bnd_8d0e1c6f026fef7621a0c7b017f12c12"
+	bslSHA   = "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34"
+	wiSHA    = "e75149f5b53460eacd7e4bdb6af989a3903fb87754a129c906cb038f396646b3"
+	xenID    = "xen_dd00d1cf54fb4ef059011c2dc206e701"
+	xen2ID   = "xen_e2fdb6cef203d6f22cd9815948d7665f"
+	xenSHA   = "926292edd0e04fef4e8208bec6d1bc8ef899e12183b8942de1e0fc12802f03e9"
+	own      = "xen_<own>" // replaced by ownXen of the content naming it
+	envelope = `{"bounds": {"attempts": 3, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 360}}`
 )
 
 // nested writes bundle.json as d objects, each nesting the next under a 10-byte
@@ -568,10 +570,12 @@ func TestBundleInspectFixtures(t *testing.T) {
 				}
 			}
 			before := snapshot(filepath.Dir(dir))
-			if result := "diagnostics=%d ("; want[len(want)-1] == incomplete {
-				code, want = 1, append(want, fmt.Sprintf("result: invalid diagnostics-listed=%d (list incomplete; nothing staged or started)", len(want)))
-			} else if !strings.HasPrefix(want[0], "result: ok") {
-				code, want = 1, append(want, fmt.Sprintf("result: invalid "+result+"nothing staged or started)", len(want)))
+			if !strings.HasPrefix(want[0], "result: ok") {
+				result := fmt.Sprintf("diagnostics=%d (", len(want))
+				if want[len(want)-1] == incomplete {
+					result = fmt.Sprintf("diagnostics-listed=%d (list incomplete; ", len(want))
+				}
+				code, want = 1, append(want, "result: invalid "+result+"nothing staged or started)")
 			}
 			done := make(chan map[string]int, 1)
 			go func() {
