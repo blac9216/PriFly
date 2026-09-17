@@ -101,7 +101,7 @@ var hostile = map[string]func(dir string) error{
 		// a 2-cycle beside a repeated dependency, and a repeated dependency outside it; two entries sharing bytes that depend on the second
 		return addItems(dir, slice(0), slice(2), slice(1), slice(4), slice(5), slice(-1, 4), slice(-1, 1), slice(8), slice(-1), slice(11, 11, 10), slice(9), slice(), slice(11, 11), slice(14), slice(14))
 	},
-	"enabler-consumer": func(dir string) error { // two SLICEs with the same bytes, each depending twice on the ENABLER naming both
+	"enabler-consumer": func(dir string) error { // two SLICEs with the same bytes, so one envelope, each depending twice on the ENABLER naming both
 		return addItems(dir, slice(2, 2), slice(2, 2), `{"kind": "ENABLER", "consumers": ["`+wiN(0)+`", "`+wiN(1)+`"], "dependencies": [], `+traced+`}`)
 	},
 	"unnamed-consumer": func(dir string) error {
@@ -110,17 +110,16 @@ var hostile = map[string]func(dir string) error{
 	},
 	"unresolved-work-item": func(dir string) error {
 		// the last two contents share bytes, so their unresolved reference is reported once, at the first
-		err := addItems(dir, `{"kind": "ENABLER", "consumers": ["`+wiN(99)+`", "bsl_6e73c229223db574a3c8fa28dd5a1a5a", 7, "`+wiN(1)+`"], "dependencies": [{"work_item": "`+wiN(98)+`", "condition": "x"}, "`+wiN(0)+`", {"condition": "x"}, {"work_item": "wi_\u001b[2K", "condition": "x"}], `+traced+`}`, "{}", slice(97), slice(97))
-		return errors.Join(err, os.Remove(dir+"/artifacts/wi1.json")) // an unreadable Work Item is still one a consumer can name
+		err := addItems(dir, `{"kind": "ENABLER", "consumers": ["`+wiN(99)+`", "bsl_6e73c229223db574a3c8fa28dd5a1a5a", 7, "`+wiN(1)+`"], "dependencies": [{"work_item": "`+wiN(98)+`", "condition": "x"}, "`+wiN(0)+`", {"condition": "x"}, {"work_item": "wi_\u001b[2K", "condition": "x"}], `+traced+`}`, slice(), slice(97), slice(97))
+		return errors.Join(err, os.Remove(dir+"/artifacts/wi1.json")) // an unreadable Work Item is still one a consumer can name, and may name its own envelope
 	},
-	"invalid-content": func(dir string) error {
-		return addItems(dir, `[]`, `{"kind": "SLICE", "kind": "SLICE", "dependencies": []}`, `{"dependencies": [], `+traced+`}`, // the last has item0's bytes: reported once
+	"invalid-content": func(dir string) error { // wi1's own envelope is named only by content that cannot be read, so it is not reported
+		return addItems(dir, `[]`, `{"kind": "SLICE", "kind": "SLICE", "dependencies": [], `+traced+`}`, `{"dependencies": [], `+traced+`}`, // the last has item0's bytes: reported once
 			`{"kind": "slice\u001b[2K", "dependencies": [], `+traced+`}`, `{"kind": "SLICE", `+traced+`}`, `{"kind": "SLICE", "dependencies": {}, `+traced+`}`, `{"kind": 7, "dependencies": [], `+traced+`}`, `[]`)
 	},
 	"orphan-outcome": func(dir string) error { // the last content repeats the one before: reported once; bsl_0 is a Baseline/v2 entry
-		outcomes := `"outcomes": [7, {}, {"baseline": "bsl_` + fmt.Sprintf("%032x", 99) + `", "obligation": ""}, {"baseline": "` + wiN(-1) + `", "obligation": 7}, {"baseline": "bsl_\u001b[2K", "obligation": "x"}, {"baseline": "bsl_` + fmt.Sprintf("%032x", 0) + `", "obligation": "x"}, {"baseline": "bsl_6e73c229223db574a3c8fa28dd5a1a5a"}]`
 		return errors.Join(addItems(dir, `{"kind": "SLICE", "dependencies": [], `+bound+`}`, `{"kind": "SLICE", "dependencies": [], "outcomes": [], `+bound+`}`,
-			`{"kind": "SLICE", "dependencies": [], "outcomes": "AT-08", `+bound+`}`, `{"kind": "SLICE", "dependencies": [], `+outcomes+`, `+bound+`}`, `{"kind": "SLICE", "dependencies": [], `+outcomes+`, `+bound+`}`),
+			`{"kind": "SLICE", "dependencies": [], "outcomes": "AT-08", `+bound+`}`, badOutcomes, badOutcomes),
 			addArtifacts(dir, "bsl", "Baseline/v2", `{}`))
 	},
 	"missing-condition": func(dir string) error {
@@ -128,13 +127,16 @@ var hostile = map[string]func(dir string) error{
 		return addItems(dir, `{"kind": "SLICE", "dependencies": [`+w+`}, `+w+`, "condition": ""}, `+w+`, "condition": 7}, `+w+`, "condition": null}, {"condition": "x"}, 7, {}], `+traced+`}`)
 	},
 	"non-slice-consumer": func(dir string) error { // wi4 repeats wi0's bytes: reported once; wi3 is unreadable
-		enabler := `{"kind": "ENABLER", "consumers": ["` + wiN(1) + `", "` + wiN(2) + `", "` + wiN(-1) + `", "` + wiN(3) + `", "` + wiN(0) + `", "` + wiN(5) + `"], "dependencies": [], ` + traced + `}`
-		err := addItems(dir, enabler, `{"kind": "ENABLER", "consumers": ["`+wiN(-1)+`"], "dependencies": [], `+traced+`}`, `{"kind": "slice", "dependencies": [], `+traced+`}`, slice(), enabler, `[]`)
+		err := addItems(dir, consumerEnabler, `{"kind": "ENABLER", "consumers": ["`+wiN(-1)+`"], "dependencies": [], `+traced+`}`, `{"kind": "slice", "dependencies": [], `+traced+`}`, slice(), consumerEnabler, `[]`)
 		return errors.Join(err, os.Remove(dir+"/artifacts/wi3.json"))
 	},
 	"invalid-bound": func(dir string) error { // xen6 repeats xen2's bytes: reported once
 		bad := `{"bounds": {"attempts": 0, "repairs_per_attempt": -1, "attempt_minutes": 1.5, "worker_minutes": "360", "tokens\u001b[2K": 1}}`
-		return addArtifacts(dir, "xen", "ExecutionEnvelope/v1", `{}`, `{"bounds": []}`, bad, `{"bounds": {"attempts": 1e3, "repairs_per_attempt": null, "attempt_minutes": 90.0}}`, `[]`, `{"bounds": {"attempts": true, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 360}}`, bad)
+		items := []string{}
+		for n := range 7 {
+			items = append(items, naming(fmt.Sprintf("xen_%032x", n), slice()))
+		}
+		return errors.Join(addArtifacts(dir, "xen", "ExecutionEnvelope/v1", `{}`, `{"bounds": []}`, bad, `{"bounds": {"attempts": 1e3, "repairs_per_attempt": null, "attempt_minutes": 90.0}}`, `[]`, `{"bounds": {"attempts": true, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 360}}`, bad), addItems(dir, items...))
 	},
 	"blocking-result": func(dir string) error { // qev4 repeats qev0's bytes: reported once; qev5 repeats a Work Item's bytes: still checked
 		item, results := `{"kind": "SLICE", "dependencies": [], `+traced+`, "results": [{"result": "FAIL"}]}`, `{"results": [{"result": "PASS"}, {"result": "FAIL"}, {"result": "NOT_APPLICABLE"}, {"result": "UNKNOWN"}, {"result": "fail\u001b[2K"}, {}, 7, {"result": null}, {"result": "NOT_APPLICABLE", "applicability": ""}, {"result": "NOT_APPLICABLE", "applicability": 7}]}`
@@ -142,7 +144,7 @@ var hostile = map[string]func(dir string) error{
 	},
 	"covered-bounded-passing": func(dir string) error {
 		bsl := `{"baseline": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "obligation": `
-		return errors.Join(addItems(dir, slice(-1), `{"kind": "ENABLER", "consumers": ["`+wiN(0)+`", "`+wiN(-1)+`"], "dependencies": [{"work_item": "`+wiN(-1)+`", "condition": " "}], "outcomes": [`+bsl+`"a"}, `+bsl+`"b"}], `+bound+`}`),
+		return errors.Join(addItems(dir, slice(-1), `{"kind": "ENABLER", "consumers": ["`+wiN(0)+`", "`+wiN(-1)+`"], "dependencies": [{"work_item": "`+wiN(-1)+`", "condition": " "}], "outcomes": [`+bsl+`"a"}, `+bsl+`"b"}], `+naming(fmt.Sprintf("xen_%032x", 0), bound)+`}`),
 			addArtifacts(dir, "xen", "ExecutionEnvelope/v1", `{"bounds": {"attempts": 8, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 123456789012345678901234567890}, "note": "x"}`),
 			addArtifacts(dir, "qev", "QualityEvaluation/v1", `{"results": [{"result": "PASS", "criterion": "x"}, {"result": "NOT_APPLICABLE", "applicability": " "}]}`))
 	},
@@ -154,6 +156,30 @@ var hostile = map[string]func(dir string) error{
 			item(`, "execution_envelope": "xen_\u001b[2K"`), item(`, "execution_envelope": "xen_`+fmt.Sprintf("%032x", 99)+`"`), item(`, "execution_envelope": "xen_`+fmt.Sprintf("%032x", 0)+`"`), item(""),
 			`{"kind": "ENABLER", "consumers": ["`+wiN(0)+`"], "dependencies": [], "outcomes": [{"baseline": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "obligation": "x"}]}`, `{"kind": "SLICE", "dependencies": []}`),
 			addArtifacts(dir, "xen", "ExecutionEnvelope/v2", `{}`))
+	},
+	"shared-envelope": func(dir string) error { return addItems(dir, naming(xen2ID, slice())) }, // with the valid ENABLER
+	"shared-envelope-many": func(dir string) error { // with the valid SLICE; the last two share bytes
+		return addItems(dir, naming(xenID, slice(-1)), naming(xenID, slice()), naming(xenID, slice()))
+	},
+	"orphan-envelope": func(dir string) error { // wi0 and wi1 repeat the valid SLICE's ID: wi0 alone names xen1, wi1 names xen4 before wi2; xen2 repeats xen0's ID; xen3's ID is invalid
+		return errors.Join(addItems(dir, naming(fmt.Sprintf("xen_%032x", 1), slice()), naming(fmt.Sprintf("xen_%032x", 4), slice()), naming(fmt.Sprintf("xen_%032x", 4), slice(-1))),
+			addArtifacts(dir, "xen", "ExecutionEnvelope/v1", `{}`, envelope, envelope, envelope, envelope), replaceIn(dir, `"`+wiN(0)+`"`, `"`+wiN(-1)+`"`), replaceIn(dir, `"`+wiN(1)+`"`, `"`+wiN(-1)+`"`),
+			replaceIn(dir, fmt.Sprintf(`"xen_%032x"`, 2), fmt.Sprintf(`"xen_%032x"`, 0)), replaceIn(dir, fmt.Sprintf(`"xen_%032x"`, 3), `"xen_\u001b[2K"`))
+	},
+	// Each unknown-binding bundle holds one Work Item whose binding is unknown beside an unnamed envelope.
+	"unknown-binding-missing":     unknownBinding(strings.Replace(slice(), ", "+bound, "", 1)),
+	"unknown-binding-type":        unknownBinding(strings.Replace(slice(), `"`+own+`"`, "7", 1)),
+	"unknown-binding-id":          unknownBinding(naming(`xen_\u001b[2K`, slice())),
+	"unknown-binding-unresolved":  unknownBinding(naming(fmt.Sprintf("xen_%032x", 99), slice())),
+	"unknown-binding-workitem-v2": func(dir string) error { return addArtifacts(dir, "wi", "WorkItem/v2", slice()) }, // its own envelope is unnamed
+	"unrelated-unsupported-schemas": func(dir string) error { // QualityEvaluation/v2 and ExecutionEnvelope/v2 entries beside an unnamed envelope
+		return errors.Join(addArtifacts(dir, "qev", "QualityEvaluation/v2", `{}`), addArtifacts(dir, "xen", "ExecutionEnvelope/v1", envelope, `{}`),
+			replaceIn(dir, `"ExecutionEnvelope/v1", "path": "artifacts/xen1.json"`, `"ExecutionEnvelope/v2", "path": "artifacts/xen1.json"`))
+	},
+	"envelope-cardinality": func(dir string) error { // wi4 repeats wi3's bytes; wi7 repeats wi0's bytes and ID; the invalid IDs leave unknown whether xen0 is named
+		unresolved, invalid := fmt.Sprintf("xen_%032x", 99), `xen_\u001b[2K`
+		return errors.Join(addItems(dir, naming(xenID, slice()), naming(xen2ID, slice()), naming(xen2ID, slice(-1)), naming(unresolved, slice()), naming(unresolved, slice()),
+			naming(invalid, slice()), naming(invalid, slice(-1)), naming(xenID, slice())), addArtifacts(dir, "xen", "ExecutionEnvelope/v1", envelope), replaceIn(dir, `"`+wiN(7)+`"`, `"`+wiN(0)+`"`))
 	},
 	"invalid-utf8": func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, "\"wi_\xff\xfe8887ffc") },
 	"lone-surrogate": func(dir string) error { // a high, a low before a pair, and a pair beside an escaped backslash
@@ -167,7 +193,31 @@ const (
 	bslSHA   = "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34"
 	wiSHA    = "e75149f5b53460eacd7e4bdb6af989a3903fb87754a129c906cb038f396646b3"
 	xenID    = "xen_dd00d1cf54fb4ef059011c2dc206e701"
+	xen2ID   = "xen_e2fdb6cef203d6f22cd9815948d7665f"
+	xenSHA   = "926292edd0e04fef4e8208bec6d1bc8ef899e12183b8942de1e0fc12802f03e9"
+	own      = "xen_<own>" // replaced by ownXen of the content naming it
+	envelope = `{"bounds": {"attempts": 3, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 360}}`
 )
+
+// unknownBinding adds content as a Work Item and an unnamed envelope.
+func unknownBinding(content string) func(dir string) error {
+	return func(dir string) error {
+		return errors.Join(addItems(dir, content), addArtifacts(dir, "xen", "ExecutionEnvelope/v1", envelope))
+	}
+}
+
+// ownXen is the envelope ID a content naming own names once added: identical
+// contents name one envelope.
+func ownXen(content string) string { return fmt.Sprintf("xen_%x", sha256.Sum256([]byte(content)))[:36] }
+
+// naming is content with own replaced by the envelope ID id.
+func naming(id, content string) string { return strings.ReplaceAll(content, own, id) }
+
+// consumerEnabler is ENABLER content naming the consumers of non-slice-consumer.
+var consumerEnabler = `{"kind": "ENABLER", "consumers": ["` + wiN(1) + `", "` + wiN(2) + `", "` + wiN(-1) + `", "` + wiN(3) + `", "` + wiN(0) + `", "` + wiN(5) + `"], "dependencies": [], ` + traced + `}`
+
+// badOutcomes is Work Item content whose outcomes are each faulty.
+var badOutcomes = `{"kind": "SLICE", "dependencies": [], "outcomes": [7, {}, {"baseline": "bsl_` + fmt.Sprintf("%032x", 99) + `", "obligation": ""}, {"baseline": "` + wiN(-1) + `", "obligation": 7}, {"baseline": "bsl_\u001b[2K", "obligation": "x"}, {"baseline": "bsl_` + fmt.Sprintf("%032x", 0) + `", "obligation": "x"}, {"baseline": "bsl_6e73c229223db574a3c8fa28dd5a1a5a"}], ` + bound + `}`
 
 // wiN is the Work Item ID addItems gives its n-th content; -1 is the valid fixture's work item.
 func wiN(n int) string {
@@ -190,8 +240,8 @@ func slice(ns ...int) string {
 // baseline, then bound.
 const traced = `"outcomes": [{"baseline": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "obligation": "AT-08"}], ` + bound
 
-// bound is an execution_envelope field naming the valid fixture's envelope.
-const bound = `"execution_envelope": "` + xenID + `"`
+// bound is an execution_envelope field naming the content's own envelope.
+const bound = `"execution_envelope": "` + own + `"`
 
 // addItems writes each content to artifacts/wi<n>.json and declares it, by
 // its exact-bytes digest, as Work Item wiN(n) after the valid fixture's artifacts.
@@ -201,16 +251,23 @@ func addItems(dir string, contents ...string) error {
 
 // addArtifacts is addItems for an artifact schema whose IDs have type prefix
 // prefix: content n is artifacts/<prefix><n>.json with ID <prefix>_<n as 32 hex>.
+// own in a content becomes ownXen; for Work Items, each such envelope is declared
+// with the valid envelope's bytes after every artifact any call adds.
 func addArtifacts(dir, prefix, schema string, contents ...string) error {
-	entries := ""
+	entries, envelopes := "", ""
 	for n, content := range contents {
+		if id := ownXen(content); strings.Contains(content, own) {
+			if content = naming(id, content); prefix == "wi" && !strings.Contains(envelopes, id) {
+				envelopes += `, {"id": "` + id + `", "revision": 1, "schema": "ExecutionEnvelope/v1", "path": "artifacts/envelope.json", "sha256": "` + xenSHA + `", "refs": []}`
+			}
+		}
 		name := fmt.Sprintf("artifacts/%s%d.json", prefix, n)
 		entries += fmt.Sprintf(`, {"id": "%s_%032x", "revision": 1, "schema": "%s", "path": "%s", "sha256": "%x", "refs": []}`, prefix, n, schema, name, sha256.Sum256([]byte(content)))
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			return err
 		}
 	}
-	return replaceIn(dir, "}\n  ]\n}", "}"+entries+"\n  ]\n}")
+	return replaceIn(dir, "}\n  ", "}"+entries+"\n  "+envelopes)
 }
 
 func replaceIn(dir, old, new string) error {
@@ -239,9 +296,12 @@ func TestBundleInspectFixtures(t *testing.T) {
 		orphan     = "outcome names no baseline obligation"
 		orphanWI   = "Work Item names no outcome traced to a baseline obligation"
 	)
-	at := func(n int, rest string) string { return fmt.Sprintf(item, n+4) + rest }
+	at := func(n int, rest string) string { return fmt.Sprintf(item, n+5) + rest }
+	shared := func(content string, count int, id string) string {
+		return fmt.Sprintf(`shared-envelope %s.execution_envelope: ExecutionEnvelope/v1 artifact "%s" is named by %d Work Items`, content, id, count)
+	}
 	for variant, want := range map[string][]string{
-		"valid":           {"result: ok manifest_sha256=38ccbf5ac20f209ff36292c1fd08447de096fce5ba4252eb27768c952c78288e (nothing staged or started)"},
+		"valid":           {"result: ok manifest_sha256=c5efab12f090dbd316f2e3f200316bb4f5f8d43d05c41ec31f08d0647177f563 (nothing staged or started)"},
 		"tampered-digest": {"digest-mismatch " + wi + `.sha256: declared "` + wiSHA + `", exact bytes hash to fd7e08ca1eb7efa6a194db6a76b3cc19d5c4c7fd56f3c4e1b4285411e1e894a8`},
 		"unsupported-version": {
 			"unresolved-baseline " + wi + `.content.outcomes[0].baseline: no Baseline/v1 artifact in this bundle has ID "bsl_6e73c229223db574a3c8fa28dd5a1a5a"`,
@@ -310,6 +370,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 			`unsupported-schema ` + wi + `.schema: artifact schema "\x1b[2K" is not supported`,
 			`unreadable-artifact ` + bsl + `.path: "\r\u202e" does not resolve to a file inside the bundle directory`,
 			unnamedWI,
+			"orphan-envelope $.artifacts[3].id: no Work Item in this bundle names this ExecutionEnvelope/v1 artifact",
 			`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "a\x1b[1A\rresult: ok\u202e"`,
 			`unsupported-job $.jobs[1]: job/version "\x1b[1A" is not supported`,
 			`invalid-revision $.revision: want integer >= 1, got "\x1b[8m"`,
@@ -322,13 +383,15 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"symlink-escape-artifact": {baseline + "does not resolve to a file inside the bundle directory"},
 		"over-size-cap-artifact":  {baseline + "exceeds the 16777216-byte size cap"},
 		"top-level-array":         {notObject}, "top-level-null": {notObject}, "top-level-string": {notObject},
-		"enabler-consumer": {"result: ok manifest_sha256=834cb306fe813c2271ba81355c779af8c529991559077795608bea5292b0acce (nothing staged or started)"},
+		"enabler-consumer": {shared(at(0, ""), 2, ownXen(slice(2, 2))), shared(at(1, ""), 2, ownXen(slice(2, 2)))},
 		"dependency-cycle": {
+			"dependency-cycle " + at(5, `.dependencies[1].work_item`) + `: Work Items depend in a cycle: "` + wiN(4) + `" -> "` + wiN(5) + `" -> "` + wiN(4) + `"`,
 			"dependency-cycle " + at(10, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(9) + `" -> "` + wiN(10) + `" -> "` + wiN(9) + `"`,
+			shared(at(13, ""), 2, ownXen(slice(14))),
 			"dependency-cycle " + at(14, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(14) + `" -> "` + wiN(14) + `"`,
+			shared(at(14, ""), 2, ownXen(slice(14))),
 			"dependency-cycle " + at(0, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(0) + `" -> "` + wiN(0) + `"`,
-			"dependency-cycle " + at(2, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(1) + `" -> "` + wiN(2) + `" -> "` + wiN(1) + `"`,
-			"dependency-cycle " + at(5, `.dependencies[1].work_item`) + `: Work Items depend in a cycle: "` + wiN(4) + `" -> "` + wiN(5) + `" -> "` + wiN(4) + `"`},
+			"dependency-cycle " + at(2, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(1) + `" -> "` + wiN(2) + `" -> "` + wiN(1) + `"`},
 		"unnamed-consumer": {
 			"unnamed-consumer " + at(0, ".consumers: ENABLER names no consuming Work Item"),
 			"unnamed-consumer " + at(1, ".consumers: ENABLER names no consuming Work Item"),
@@ -342,13 +405,16 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"invalid-type " + at(0, `.dependencies[1]: want object`),
 			"missing-field " + at(0, `.dependencies[2].work_item`+missing),
 			"invalid-id " + at(0, `.dependencies[3].work_item: want wi_<32 lowercase hex>, got "wi_\x1b[2K"`),
-			`unreadable-artifact $.artifacts[5].path: "artifacts/wi1.json" does not resolve to a file inside the bundle directory`,
-			"unresolved-work-item " + at(2, `.dependencies[0].work_item: no Work Item in this bundle has ID "`+wiN(97)+`"`)},
+			`unreadable-artifact $.artifacts[6].path: "artifacts/wi1.json" does not resolve to a file inside the bundle directory`,
+			"unresolved-work-item " + at(2, `.dependencies[0].work_item: no Work Item in this bundle has ID "`+wiN(97)+`"`),
+			shared(at(2, ""), 2, ownXen(slice(97))), shared(at(3, ""), 2, ownXen(slice(97)))},
 		"orphan-outcome": {
+			`unsupported-schema $.artifacts[10].schema: artifact schema "Baseline/v2" is not supported`,
 			"orphan-work-item " + at(0, ".outcomes: "+orphanWI),
 			"orphan-work-item " + at(1, ".outcomes: "+orphanWI),
 			"invalid-type " + at(2, ".outcomes: want array"),
 			"orphan-work-item " + at(2, ".outcomes: "+orphanWI),
+			shared(at(3, ""), 2, ownXen(badOutcomes)),
 			"invalid-type " + at(3, ".outcomes[0]: want object"),
 			"orphan-outcome " + at(3, ".outcomes[1].baseline: "+orphan),
 			"unresolved-baseline " + at(3, `.outcomes[2].baseline: no Baseline/v1 artifact in this bundle has ID "bsl_`+fmt.Sprintf("%032x", 99)+`"`),
@@ -358,7 +424,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"invalid-id " + at(3, `.outcomes[4].baseline: want bsl_<32 lowercase hex>, got "bsl_\x1b[2K"`),
 			"unresolved-baseline " + at(3, `.outcomes[5].baseline: no Baseline/v1 artifact in this bundle has ID "bsl_`+fmt.Sprintf("%032x", 0)+`"`),
 			"orphan-outcome " + at(3, ".outcomes[6].obligation: "+orphan),
-			`unsupported-schema $.artifacts[9].schema: artifact schema "Baseline/v2" is not supported`},
+			shared(at(4, ""), 2, ownXen(badOutcomes))},
 		"missing-condition": {
 			"missing-condition " + at(0, ".dependencies[0].condition: dependency states no condition"),
 			"missing-condition " + at(0, ".dependencies[1].condition: dependency states no condition"),
@@ -368,14 +434,17 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"invalid-type " + at(0, ".dependencies[5]: want object"),
 			"missing-field " + at(0, ".dependencies[6].work_item"+missing)},
 		"non-slice-consumer": {
+			"invalid-content " + at(5, ": want one JSON object with unique keys and exact strings"),
 			"non-slice-consumer " + at(0, `.consumers[0]: consumer "`+wiN(1)+`" is not a SLICE Work Item`),
 			"non-slice-consumer " + at(0, `.consumers[1]: consumer "`+wiN(2)+`" is not a SLICE Work Item`),
 			"non-slice-consumer " + at(0, `.consumers[4]: consumer "`+wiN(0)+`" is not a SLICE Work Item`),
 			"non-slice-consumer " + at(0, `.consumers[5]: consumer "`+wiN(5)+`" is not a SLICE Work Item`),
+			shared(at(0, ""), 2, ownXen(consumerEnabler)),
 			"invalid-kind " + at(2, `.kind: want "SLICE" or "ENABLER", got "slice"`),
-			`unreadable-artifact $.artifacts[7].path: "artifacts/wi3.json" does not resolve to a file inside the bundle directory`,
-			"invalid-content " + at(5, ": want one JSON object with unique keys and exact strings")},
+			`unreadable-artifact $.artifacts[8].path: "artifacts/wi3.json" does not resolve to a file inside the bundle directory`,
+			shared(at(4, ""), 2, ownXen(consumerEnabler))},
 		"invalid-bound": {
+			"invalid-bound " + at(5, ".bounds.attempts: want integer >= 1, got true"),
 			"missing-field " + at(0, ".bounds"+missing),
 			"invalid-type " + at(1, ".bounds: want object"),
 			"invalid-bound " + at(2, ".bounds.attempt_minutes: want integer >= 1, got 1.5"),
@@ -387,8 +456,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"invalid-bound " + at(3, ".bounds.attempts: want integer >= 1, got 1e3"),
 			"invalid-bound " + at(3, ".bounds.repairs_per_attempt: want integer >= 1, got null"),
 			"missing-field " + at(3, ".bounds.worker_minutes"+missing),
-			"invalid-content " + at(4, ": want one JSON object with unique keys and exact strings"),
-			"invalid-bound " + at(5, ".bounds.attempts: want integer >= 1, got true")},
+			"invalid-content " + at(4, ": want one JSON object with unique keys and exact strings")},
 		"blocking-result": {
 			"blocking-result " + at(6, `.results[0].result: imported "FAIL" result rejects admission`),
 			"empty-evaluation " + at(7, ".results: evaluation reports no result; absence of evidence rejects admission"),
@@ -405,25 +473,47 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"invalid-type " + at(3, ".results: want array"),
 			"invalid-content " + at(4, ": want one JSON object with unique keys and exact strings")},
 		"unbound-work-item": {
+			"unresolved-envelope " + at(5, `.execution_envelope: no ExecutionEnvelope/v1 artifact in this bundle has ID "xen_`+fmt.Sprintf("%032x", 0)+`"`),
 			"unbound-work-item " + at(7, ".execution_envelope: Work Item names no ExecutionEnvelope/v1 artifact"),
 			"unbound-work-item " + at(8, ".execution_envelope: Work Item names no ExecutionEnvelope/v1 artifact"),
 			"orphan-work-item " + at(8, ".outcomes: Work Item names no outcome traced to a baseline obligation"),
-			"unsupported-schema $.artifacts[13].schema: artifact schema \"ExecutionEnvelope/v2\" is not supported",
+			"unsupported-schema $.artifacts[14].schema: artifact schema \"ExecutionEnvelope/v2\" is not supported",
 			"unbound-work-item " + at(0, ".execution_envelope: Work Item names no ExecutionEnvelope/v1 artifact"),
 			"invalid-type " + at(1, ".execution_envelope: want string"),
 			"invalid-id " + at(2, `.execution_envelope: want xen_<32 lowercase hex>, got "bsl_6e73c229223db574a3c8fa28dd5a1a5a"`),
 			"invalid-id " + at(3, `.execution_envelope: want xen_<32 lowercase hex>, got "xen_\x1b[2K"`),
-			"unresolved-envelope " + at(4, `.execution_envelope: no ExecutionEnvelope/v1 artifact in this bundle has ID "xen_`+fmt.Sprintf("%032x", 99)+`"`),
-			"unresolved-envelope " + at(5, `.execution_envelope: no ExecutionEnvelope/v1 artifact in this bundle has ID "xen_`+fmt.Sprintf("%032x", 0)+`"`)},
-		"covered-bounded-passing": {"result: ok manifest_sha256=64f9adce9af56a839df04ddd25acf69c1000e54dc1974a27bb2a1e5a9f72a90b (nothing staged or started)"},
+			"unresolved-envelope " + at(4, `.execution_envelope: no ExecutionEnvelope/v1 artifact in this bundle has ID "xen_`+fmt.Sprintf("%032x", 99)+`"`)},
+		"shared-envelope":      {shared("$.artifacts[2].content", 2, xen2ID), shared(at(0, ""), 2, xen2ID)},
+		"shared-envelope-many": {shared(wi+".content", 4, xenID), shared(at(0, ""), 4, xenID), shared(at(1, ""), 4, xenID), shared(at(2, ""), 4, xenID)},
+		"orphan-envelope": {
+			`duplicate-id $.artifacts[10].id: artifact ID "xen_` + fmt.Sprintf("%032x", 0) + `" is already declared at $.artifacts[8].id`,
+			`invalid-id $.artifacts[11].id: want xen_<32 lowercase hex>, got "xen_\x1b[2K"`,
+			`duplicate-id $.artifacts[5].id: artifact ID "` + wiN(-1) + `" is already declared at ` + wi + ".id",
+			`duplicate-id $.artifacts[6].id: artifact ID "` + wiN(-1) + `" is already declared at ` + wi + ".id",
+			"missing-field " + at(3, ".bounds"+missing),
+			"orphan-envelope $.artifacts[8].id: no Work Item in this bundle names this ExecutionEnvelope/v1 artifact"},
+		"unknown-binding-missing":       {"unbound-work-item " + at(0, ".execution_envelope: Work Item names no ExecutionEnvelope/v1 artifact")},
+		"unknown-binding-type":          {"invalid-type " + at(0, ".execution_envelope: want string")},
+		"unknown-binding-id":            {"invalid-id " + at(0, `.execution_envelope: want xen_<32 lowercase hex>, got "xen_\x1b[2K"`)},
+		"unknown-binding-unresolved":    {"unresolved-envelope " + at(0, `.execution_envelope: no ExecutionEnvelope/v1 artifact in this bundle has ID "xen_`+fmt.Sprintf("%032x", 99)+`"`)},
+		"unknown-binding-workitem-v2":   {`unsupported-schema $.artifacts[5].schema: artifact schema "WorkItem/v2" is not supported`},
+		"unrelated-unsupported-schemas": {`unsupported-schema $.artifacts[5].schema: artifact schema "QualityEvaluation/v2" is not supported`, "orphan-envelope $.artifacts[6].id: no Work Item in this bundle names this ExecutionEnvelope/v1 artifact", `unsupported-schema $.artifacts[7].schema: artifact schema "ExecutionEnvelope/v2" is not supported`},
+		"envelope-cardinality": {
+			shared(wi+".content", 2, xenID),
+			"invalid-id " + at(5, `.execution_envelope: want xen_<32 lowercase hex>, got "xen_\x1b[2K"`),
+			"invalid-id " + at(6, `.execution_envelope: want xen_<32 lowercase hex>, got "xen_\x1b[2K"`),
+			`duplicate-id $.artifacts[12].id: artifact ID "` + wiN(0) + `" is already declared at $.artifacts[5].id`,
+			shared("$.artifacts[2].content", 3, xen2ID), shared(at(0, ""), 2, xenID), shared(at(1, ""), 3, xen2ID), shared(at(2, ""), 3, xen2ID),
+			"unresolved-envelope " + at(3, `.execution_envelope: no ExecutionEnvelope/v1 artifact in this bundle has ID "xen_`+fmt.Sprintf("%032x", 99)+`"`)},
+		"covered-bounded-passing": {"result: ok manifest_sha256=1bbbc37781b7fa879e88821495a59d841e13302bc8358308c127de8f55fa3a8c (nothing staged or started)"},
 		"invalid-content": {
+			"invalid-type " + at(5, ".dependencies: want array"),
 			"invalid-kind " + at(6, `.kind: want "SLICE" or "ENABLER", got 7`),
 			"invalid-content " + at(0, ": want one JSON object with unique keys and exact strings"),
 			"invalid-content " + at(1, ": want one JSON object with unique keys and exact strings"),
 			"missing-field " + at(2, ".kind"+missing),
 			"invalid-kind " + at(3, `.kind: want "SLICE" or "ENABLER", got "slice\x1b[2K"`),
-			"missing-field " + at(4, ".dependencies"+missing),
-			"invalid-type " + at(5, ".dependencies: want array")},
+			"missing-field " + at(4, ".dependencies"+missing)},
 	} {
 		t.Run(variant, func(t *testing.T) {
 			setup, isHostile := hostile[variant]
