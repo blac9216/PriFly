@@ -17,7 +17,7 @@ jq -nc '("a" * 64) as $h
     restoreStart: ($t + 500), restoreEnd: ($t + 800), casStart: ($t + 800), casEnd: ($t + 1000), ack: ($t + 1100)};
   {ev: "trace", schema: "prifly/qualification/early-publication-trace/v1", procedureSha256: $h, runnerSha256: $h,
    evaluatorSha256: $h, probeSha256: $h, manifestSha256: $h, priorBytes: 0, priorRequests: 0},
-  {ev: "run", run: 1, t0: 1000000, prefix: "q13/run1/", lineage: "lineage-1", generator: "gen-v1", seed: 9216,
+  {ev: "run", run: 1, t0: 1000000, grant: 0, prefix: "q13/run1/", lineage: "lineage-1", generator: "gen-v1", seed: 9216,
    litestream: "0.5.17", dbBytes: 52428800, bytes: 52494336, writes: 2, requests: 9},
   {ev: "grant", run: 1, t: 1000000, deadline: 1600000},
   (lane(1590000) + {ev: "grant", run: 1, t: 1591100, deadline: 2191100, outcome: "published", bytes: 65536, writes: 3, requests: 25,
@@ -91,6 +91,7 @@ text "unknown event alone" 4 '3a {"ev":"renewal"}'
 edit "extra key" 5 "$(line 5 '.note = "x"')"
 edit "header without runner identity" 1 "$(line 1 'del(.runnerSha256)')"
 edit "run without prefix" 2 "$(line 2 'del(.prefix)')"
+edit "run without its grant" 2 "$(line 2 'del(.grant)')"  # #252 ruling 5716255116 item 1: the run line names the fixture step's grant
 edit "grant without deadline" 3 "$(line 3 'del(.deadline)')"
 edit "grant with a partial lane" 3 "$(line 3 '.ticket = 1000000')"
 edit "renewal without ack" 4 "$(line 4 'del(.ack)')"

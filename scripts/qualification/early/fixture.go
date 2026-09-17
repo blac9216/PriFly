@@ -25,15 +25,18 @@
 // first 0; and no published step lasts over stepTimeoutS. No minimum step duration is set (no cited doc
 // names one). Use: a published entry records bytes, writes and requests, each ≥1; an entry outside a ticket
 // records none. Grant lines are the control/recovery grants of #252 ruling 5714969372: each lasts at most
-// grant.ms and has its own P12b control maxima, never reused or refilled (item 2); a ticket, or a plan
-// call at its clock t, is charged to the last grant live at that clock. A plan line names that grant
-// (index in the run's grant order, 0 the plain grant), records no writes, and its bytes and requests
-// count in that grant's maxima and in P12a (item 1). Every ticketed entry has a plan call before it
-// (item 4): up to each ticket, and up to t0 for the fixture step, a run holds at least as many plan
-// lines as fixture step and ticketed entries (a trace does not say which plan served which entry). A
-// failed command keeps its sequence number n (item 3). Sums saturate, so the P12a envelope (the header's
-// prior cumulative usage, plan calls, fixture steps, commands, renewals) and the per-grant maxima cannot
-// wrap.
+// grant.ms and has its own P12b control maxima, never reused or refilled (item 2); a ticket, or a plan call at
+// its clock t, is charged to the last grant live at that clock. The fixture step is a run's first ticketed
+// entry, with t0 as its ticket (ruling 5716255116 item 1): the run line names the last grant live at t0, and
+// its use is held to the ticket maxima and charged to that grant and to P12a. A plan line names its grant
+// (index in the run's grant order, 0 the plain grant), records no writes, and its bytes and requests count in
+// that grant's maxima and in P12a (5714969372 item 1). Each ticketed entry has one plan call of its own
+// (5714969372 item 4) inside its window (5716255116 item 2): from the previous entry's ack (a failed entry's
+// last clock; t0 for the fixture step and the first lane entry) up to its ticket, both inclusive. Plans pair
+// with entries in clock order, so a plan before its entry's window, or a second plan for one entry, serves no
+// entry, and entries sharing one plan leave one without. A failed command keeps its sequence number n
+// (5714969372 item 3). Sums saturate, so the P12a envelope (the header's prior cumulative usage, plan calls,
+// fixture steps, commands, renewals) and the per-grant maxima cannot wrap.
 package main
 
 import (
@@ -117,7 +120,7 @@ const results = " after txid lineage restoreTxid restoredPayloadSha256 integrity
 
 var keys = map[string]string{
 	"trace": "ev schema procedureSha256 runnerSha256 evaluatorSha256 probeSha256 manifestSha256 priorBytes priorRequests",
-	"run":   "ev run t0 prefix lineage generator seed litestream dbBytes bytes writes requests",
+	"run":   "ev run t0 grant prefix lineage generator seed litestream dbBytes bytes writes requests",
 	"grant": "ev run t deadline",
 	"plan":  "ev run t grant bytes writes requests",
 	"cmd": "ev run n kind arrival submit outcome reason bytes writes requests payloadSha256 payloadBytes before after " +
@@ -127,6 +130,7 @@ var keys = map[string]string{
 type laneEntry struct {
 	event
 	grant int
+	from  int64 // plan window start: the lane clock before this entry (the fixture step, t0 alone, precedes the first)
 }
 
 var rejected bool
@@ -320,7 +324,7 @@ func main() {
 				check(g.Outcome == "published" && (g.RestoreTxid != g.Txid || g.CasTxid != g.Txid || g.Lineage != ru.Lineage),
 					"WRONG-T", r, 0, fmt.Sprintf("grant %d: renewal restore or frontier T/lineage is not the synced T", k))
 				check(g.Outcome == "published" && g.Integrity != "ok", "WRONG-RESULT", r, 0, fmt.Sprintf("grant %d: renewal restore integrity is not ok", k))
-				lane = append(lane, laneEntry{g, k - 1})
+				lane = append(lane, laneEntry{event: g, grant: k - 1})
 			}
 		}
 		lat, burst, failures := []int64{}, int64(0), int64(0)
@@ -341,7 +345,7 @@ func main() {
 				}
 			}
 			if gi >= 0 {
-				lane = append(lane, laneEntry{c, gi})
+				lane = append(lane, laneEntry{event: c, grant: gi})
 			}
 			check(gi < 0 && (c.clocks != clocks{} || c.Outcome == "published" || c.Bytes != 0 || c.Writes != 0 || c.Requests != 0),
 				"EXPIRED-PERMIT", r, n, fmt.Sprintf("remote use or publication without a ticket inside a live grant of at most %dms", p.Grant.Ms))
@@ -369,7 +373,8 @@ func main() {
 		}
 		sort.SliceStable(lane, func(i, j int) bool { return lane[i].Ticket < lane[j].Ticket })
 		free, lastCas, lastN, renewals, use := int64(0), int64(math.MinInt64/2), int64(0), int64(0), make([]limits, len(grants[r]))
-		for _, e := range lane {
+		for i, e := range lane {
+			lane[i].from = free
 			published, reached, last := e.Outcome == "published", true, e.Ticket
 			if e.N > 0 {
 				check(e.N <= lastN, "OLD-FRONTIER", r, e.N, fmt.Sprintf("command entered the lane after command %d; the frontier moved backwards", lastN))
@@ -402,7 +407,7 @@ func main() {
 			u := &use[e.grant]
 			u.Bytes, u.Writes, u.Requests = add(u.Bytes, e.Bytes), add(u.Writes, e.Writes), add(u.Requests, e.Requests)
 		}
-		ts, got, used := []int64{}, 0, 0
+		ts, got := []int64{}, 0
 		for _, e := range planned[r] {
 			gi := -1
 			for k, g := range grants[r] {
@@ -417,16 +422,28 @@ func main() {
 			}
 			ts = append(ts, e.T)
 		}
+		gi := -1
+		for k, g := range grants[r] {
+			if g.T <= ru.T0 && ru.T0 <= g.Deadline {
+				gi = k
+			}
+		}
+		check(ok && (ru.Bytes > p.Ticket.Bytes || ru.Writes > p.Ticket.Writes || ru.Requests > p.Ticket.Requests), "LEDGER", r, 0, "fixture step exceeds the pre-send ticket")
+		if !check(ok && int64(gi) != ru.Grant, "EXPIRED-PERMIT", r, 0, "fixture step outside the grant it names, live at t0") && ok {
+			u := &use[gi]
+			u.Bytes, u.Writes, u.Requests = add(u.Bytes, ru.Bytes), add(u.Writes, ru.Writes), add(u.Requests, ru.Requests)
+		}
 		slices.Sort(ts)
-		need := append([]laneEntry{{event: event{clocks: clocks{Ticket: ru.T0}}}}, lane...)
-		sort.SliceStable(need, func(i, j int) bool { return need[i].Ticket < need[j].Ticket })
-		for _, e := range need {
-			for got < len(ts) && ts[got] <= e.Ticket {
+		for _, e := range append([]laneEntry{{event: event{clocks: clocks{Ticket: ru.T0}}, from: ru.T0}}, lane...) {
+			for ; got < len(ts) && ts[got] < e.from; got++ {
+				check(true, "PLAN", r, e.N, "plan call serves no entry: before this entry's window, or a second plan for the entry before")
+			}
+			if !check(got == len(ts) || ts[got] > e.Ticket, "PLAN", r, e.N, "no plan call of its own from the previous entry's ack (or t0) up to its ticket") {
 				got++
 			}
-			if !check(got <= used, "PLAN", r, e.N, "fewer plan calls than the fixture step and ticketed entries up to this ticket") {
-				used++
-			}
+		}
+		for ; got < len(ts); got++ {
+			check(true, "PLAN", r, 0, "plan call serves no entry: after the run's last ticketed entry, or a second plan for it")
 		}
 		for k, u := range use {
 			check(u.Bytes > p.Control.Bytes || u.Writes > p.Control.Writes || u.Requests > p.Control.Requests,
