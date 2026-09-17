@@ -18,7 +18,8 @@
 # holding its stdout. Each hung call must end within 2D + 1000ms (the runner's 1s group wait
 # and its own work), timed from the call's start to the next call's start or the runner's
 # exit (written to <case>/steps), and no process may carry the case's FAKE_STATE when the
-# runner exits. The suite passes with uutils or GNU timeout first on PATH.
+# runner exits (counted into <case>/left). The suite passes with uutils or GNU timeout first
+# on PATH.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -92,7 +93,8 @@ done
 for c in "probe|probe stop inventory|0" "result|result stop inventory|0" "writers|writers stop inventory|0" "stop|stop stop inventory|137" "inventory|inventory stop inventory|0"; do
   IFS='|' read -r v calls sx <<<"$c"; d="$work/hung-$v-step"  # the run's call hangs, then (stop, inventory) the cleanup's too
   PROBE_DL=1000 probe "hung $v step" "hang-$v" 300 21 "ABORTED: exit 137 after launch began; no verdict"
-  check "hung $v step left no process at runner exit" 0 "$(grep -lxzsF "FAKE_STATE=$d/state" /proc/[0-9]*/environ | wc -l)" "" /dev/null
+  { grep -lxzsF "FAKE_STATE=$d/state" /proc/[0-9]*/environ || :; } | wc -l >"$d/left"
+  check "hung $v step left no process at runner exit" 0 "$(cat "$d/left")" "" /dev/null
   awk -v v="$v" -v end="$(cat "$d/end")" '{n[NR] = $1; t[NR] = $2} END {t[NR + 1] = end; for (i = 1; i <= NR; i++) if (n[i] == v) print v, t[i + 1] - t[i]}' "$d/state/t" >"$d/steps"
   check "hung $v step ended within its deadlines after a stop and an inventory" "$calls|1|in bound" "$(tail -n3 "$d/state/calls" | paste -sd' ')|$(grep -cxF "ABORTED: open run stop exit $sx, live 0" "$d/out")|$(awk '$2 > 3000 {bad = 1} END {print bad ? "over 3000ms" : NR ? "in bound" : "no call"}' "$d/steps")" "" /dev/null
 done
@@ -105,8 +107,8 @@ mkdir -p "$work/work-escaping-the-root-through-a-symlink/root" && ln -s "$work/s
 probe "work escaping the root through a symlink" ok 300 20 "REFUSED: --work resolves outside isolated_host.workspace_root_path; no probe step ran" "m['isolated_host']['workspace_root_path'] = d + '/root'" --work "$work/work-escaping-the-root-through-a-symlink/root/link"
 UTF8=en_US.UTF-8 ARABIC300=$'\xd9\xa3\xd9\xa0\xd9\xa0' ARABIC1000=$'\xd9\xa1\xd9\xa0\xd9\xa0\xd9\xa0'
 check "locale control: $UTF8 bracket range matches non-ASCII digits" 0 "$(LC_ALL=$UTF8 bash -c '[[ $1 =~ ^[1-9][0-9]{2}$ && $2 =~ ^[1-9][0-9]{0,7}$ ]]' _ "$ARABIC300" "$ARABIC1000" 2>&1; echo $?)" "" /dev/null
-for dl in missing "" 0 01000 1e3 100000000 "$ARABIC1000"; do  # no quotes in these names, so preflight would pass
-  PROBE_LC=$UTF8 PROBE_DL=$dl probe "step-deadline-ms $dl" ok 300 20 "REFUSED: --step-deadline-ms must be 1..99999999 without a leading zero; no probe step ran"
+for dl in missing "" 0 01000 1e3 100000000 "$ARABIC1000"; do  # names hold no quote or non-ASCII digit, so preflight would pass
+  PROBE_LC=$UTF8 PROBE_DL=$dl probe "step-deadline-ms ${dl/#$ARABIC1000/arabic-indic-1000}" ok 300 20 "REFUSED: --step-deadline-ms must be 1..99999999 without a leading zero; no probe step ran"
 done
 for c in 1:0.001 1050:1.050 99999999:99999.999; do  # accepted at both ends; every call gets D in seconds with all three decimals
   PROBE_DL=${c%:*} probe "dry-run step-deadline-ms ${c%:*}" ok 300 0 "" "pass" --dry-run

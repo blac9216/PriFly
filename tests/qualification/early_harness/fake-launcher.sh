@@ -10,8 +10,8 @@
 # (the "docker" one is a labelled stand-in, no engine), each leading its own session; their
 # pids go to $FAKE_STATE/<run>.pids, and stop kills each writer's whole process group, its
 # sleep too. stop-only stops only the loop writer; -slow writes every 20s, so the warm-up
-# times out; signal-sig sends SIG to the runner (this call's grandparent, past timeout;
-# refused unless its argv holds --launcher) once the writers run; signal-twice sends TERM
+# times out; signal-sig sends SIG to the runner (this call's nearest ancestor whose argv
+# holds --launcher; none refuses the call) once the writers run; signal-twice sends TERM
 # there, then its stop sends INT and HUP to the runner (only while that pid is still the
 # runner) and takes 3s before stopping. signal-group[-twice] sends TERM there, then its stop
 # and its inventory each send INT and HUP once [twice] to the runner's process group
@@ -49,14 +49,14 @@ case "$verb" in
     done
     sig="${mode#signal-}"; [[ "$sig" == twice || "$sig" == group* ]] && sig=term
     if [[ "$mode" == signal-* ]]; then
-      ps -o ppid= -p "$(ps -o ppid= -p $$ | tr -d ' ')" | tr -d ' ' >"$st/runner"; [[ "$(tr '\0' ' ' <"/proc/$(cat "$st/runner")/cmdline")" == *" --launcher "* ]] || exit 9
+      p=$$; until [[ "$(tr '\0' ' ' <"/proc/$p/cmdline")" == *" --launcher "* ]]; do p="$(ps -o ppid= -p "$p" | tr -d ' ')"; ((p > 1)) || exit 9; done; echo "$p" >"$st/runner"
       kill -"${sig^^}" "$(cat "$st/runner")"
     fi ;;
   stop|inventory)
     [[ "$mode$verb" == stop-fails-oncestop && ! -e "$st/stop-failed" ]] && { : >"$st/stop-failed"; exit 7; }
     if [[ "$mode$verb" == signal-twicestop ]]; then
       for sig in INT HUP; do
-        grep -qs harness "/proc/$(cat "$st/runner")/cmdline" && kill -"$sig" "$(cat "$st/runner")"
+        [[ "$(tr '\0' ' ' <"/proc/$(cat "$st/runner")/cmdline" 2>/dev/null)" == *" --launcher "* ]] && kill -"$sig" "$(cat "$st/runner")"
         for _ in $(seq 15); do sleep 0.1; done
       done
     fi
