@@ -23,6 +23,14 @@
 #   is CI infrastructure, not the product runtime profile; no product
 #   deployment parameter pins a CI runner image, so no pin is applied here.
 #   Revisit only if a documented deployment parameter targets CI runners.
+# - Qualification local proofs run after go build, in this job, because they
+#   build their //go:build ignore evaluators with the pinned Go above (a second
+#   job would repeat GO_ARCHIVE_SHA256, which check-go-digest.sh refuses). Add a
+#   later proof as one more step at the end, with its testing.md row. The early
+#   harness proof needs unprivileged user+mount namespaces (unshare -rm). The
+#   probe step runs that exact operation first and fails the job if the runner
+#   denies it; nothing is skipped. TMPDIR is left unset (/tmp): the suite exits 1
+#   on an upper-case TMPDIR (#240).
 name: go-checks
 on:
   pull_request:
@@ -72,3 +80,11 @@ jobs:
         run: go test -count=1 -race -v ./...
       - name: go build
         run: go build ./...
+      - name: Early harness namespace probe (unshare -rm; fails if denied, never skips)
+        run: unshare -rm mount -t tmpfs none /tmp
+      - name: go vet early evaluator (build-ignored result.go)
+        run: go vet scripts/qualification/early/result.go
+      - name: Early evaluator local proof (crafted traces)
+        run: bash tests/qualification/early_harness/test-result.sh
+      - name: Early harness local proof (fake launcher)
+        run: bash tests/qualification/early_harness/test-harness.sh
