@@ -1,0 +1,14 @@
+{
+  "schema": "prifly/qualification/early-publication/v1",
+  "sources": "docs/reference/deployment-parameters.md P4, P12a, P12b, P13 fixed fixture and measurement method; D3 contract C3",
+  "litestream": "0.5.17", "seed": 9216, "runs": 3,
+  "dbMinBytes": 50331648, "dbMaxInitialBytes": 54525952, "dbMaxBytes": 67108864,
+  "warmupMs": 300000, "durationMs": 1800000, "cadenceMs": 15000, "casMinSpacingMs": 1100, "burst": {"atMs": 900000, "count": 10},
+  "mix": [{"kind": "package-revision", "payloadBytes": 262144}, {"kind": "attempt-result", "payloadBytes": 1048576},
+          {"kind": "finding-review", "payloadBytes": 65536}, {"kind": "target-reconciliation", "payloadBytes": 16384}],
+  "stepTimeoutS": 120,
+  "grant": {"ms": 600000, "bytes": 1073741824, "writes": 4096, "requests": 10000},
+  "ticket": {"bytes": 268435456, "writes": 1024, "requests": 8192},
+  "envelope": {"bytes": 8589934592, "requests": 100000},
+  "thresholds": {"p95Ms": 10000, "maxMs": 30000, "burstMs": 120000}
+}
