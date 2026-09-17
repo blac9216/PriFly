@@ -25,10 +25,10 @@ EB=8589934592 fails=0
 PASS="VERDICT: every run meets the fixed publication thresholds; feasibility evidence only, not a Q13 PASS"
 MISS="VERDICT: a run misses a fixed publication threshold; feasibility evidence only"
 group() { [[ -z "${ONLY:-}" || " $ONLY " == *" $1 "* ]]; }
-runner() {  # group, ledger JSON ("" none), FAKE_MODE [, env assignments]: one runner invocation in $work/<group>
+runner() {  # group, ledger JSON ("" none), FAKE_MODE [, env assignments]: one runner invocation in $work/<group>, bounded by BOUND s
   local d="$work/$1" path="$work/vclock:$PATH"; mkdir -p "$d/state"; [[ -z "$2" ]] || echo "$2" >"$d/ledger.json"
   echo 1789000000000 >"$d/clock"; [[ "${CLOCK:-}" == real ]] && path="$PATH"; [[ "${CLOCK:-}" == bad ]] && path="$work/badclock:$PATH"
-  set +e; env PATH="$path" VCLOCK="$d/clock" FAKE_STATE="$d/state" FAKE_MODE="$3" "${@:4}" bash "${RUNNER:-$EARLY}/publication.sh" \
+  set +e; timeout -k 5 "${BOUND:-900}" env PATH="$path" VCLOCK="$d/clock" FAKE_STATE="$d/state" FAKE_MODE="$3" "${@:4}" bash "${RUNNER:-$EARLY}/publication.sh" \
     --manifest "$HERE/manifest.json" --probe "$HERE/fake-probe.sh" --ledger "$d/ledger.json" --work "$d/work" >"$d/out" 2>"$d/err"; echo $? >"$d/rc"; set -e
 }
 line() {  # name, group, want exit, want whole output line
@@ -44,7 +44,7 @@ if group refusals; then
   runner malformed-ledger '{"bytes":1}' ""
   runner bytes-at-bound '{"bytes":8589934592,"requests":0}' ""
   runner requests-at-bound '{"bytes":0,"requests":100000}' ""
-  CLOCK=bad runner bad-clock '{"bytes":0,"requests":0}' ""
+  BOUND=30 CLOCK=bad runner bad-clock '{"bytes":0,"requests":0}' ""
   LEDGER='REFUSED: --ledger must hold the prior cumulative P12a use as {"bytes":N,"requests":N}; no probe step ran'
   line "no prior P12a usage input refuses" no-ledger 20 "$LEDGER"
   line "malformed prior P12a usage refuses" malformed-ledger 20 "$LEDGER"
