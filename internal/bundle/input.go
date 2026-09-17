@@ -107,23 +107,22 @@ func Member(path, key string) string {
 // Faults walks raw's tokens and returns, in document order, a diagnostic at
 // the JSON path of each object key repeated in its object and of each key or
 // string value that is not valid UTF-8 or escapes an unpaired surrogate, which
-// encoding/json would silently resolve to the last value or map to U+FFFD. A
-// syntax error or trailing content ends the walk with invalid-json at $.
+// encoding/json would silently resolve to the last value or map to U+FFFD. The
+// walk ends at a syntax error or after the first value; DecodeJSON reports those.
 func Faults(raw []byte) (faults []Diagnostic) {
 	type frame struct {
 		path, member string          // member: path of the object member whose value is next
 		keys         map[string]bool // nil for an array
 		next         int             // array: next index; object: 1 when a value is next
 	}
-	invalid := Diagnostic{"$", "invalid-json", "bundle.json is not a single JSON value"}
 	// The root frame is an object awaiting the value of its member at $.
 	dec, stack := json.NewDecoder(bytes.NewReader(raw)), []*frame{{member: "$", keys: map[string]bool{}, next: 1}}
-	dec.UseNumber() // as DecodeJSON: 1e400 is valid JSON, not a float64 overflow
+	dec.UseNumber() // as DecodeJSON: 1e400 is valid JSON and must not end the walk
 	for len(stack) > 1 || stack[0].next == 1 {
 		start := dec.InputOffset()
 		tok, err := dec.Token()
 		if err != nil {
-			return append(faults, invalid)
+			return faults
 		}
 		f, path, isKey := stack[len(stack)-1], "", false
 		s, isString := tok.(string)
@@ -154,9 +153,6 @@ func Faults(raw []byte) (faults []Diagnostic) {
 		case isKey:
 			f.keys[s] = true
 		}
-	}
-	if dec.InputOffset() != int64(len(bytes.TrimRight(raw, " \t\r\n"))) {
-		faults = append(faults, invalid)
 	}
 	return faults
 }

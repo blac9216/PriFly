@@ -155,6 +155,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"unresolved-reference " + wi + `.refs[0].id: no artifact in this bundle has ID "wi_b171b88de6c22604fb5f583cc13b1fbe"`,
 			"reference-revision-mismatch " + wi + ".refs[1].revision: reference names 2, artifact " + bsl + " has revision 1",
 			"reference-digest-mismatch " + wi + `.refs[2].sha256: reference names "` + wiSHA + `", artifact ` + bsl + ` declares "` + bslSHA + `"`,
+			"unknown-field " + wi + ".refs[3].dispatch_eligible" + notPartOf,
 			"invalid-id " + wi + `.refs[3].id: want <type>_<32 lowercase hex>, got "bsl_6E73c229223db574a3c8fa28dd5a1a5a"`,
 			"invalid-revision " + wi + ".refs[3].revision: want integer >= 1, got 0",
 			"invalid-digest " + wi + `.refs[3].sha256: want 64 lowercase hex SHA-256, got "70E2A30E1B5A5D53B311FAF4E2EB50ACAED9C4BE464FDCA8F8EB72C6416EFE34"`,

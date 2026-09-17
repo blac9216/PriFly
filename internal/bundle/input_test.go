@@ -162,6 +162,7 @@ func TestDecodeJSON(t *testing.T) {
 	}{
 		"single-value":        {`[1.50]`, true, "1.50"},
 		"huge-number":         {`[1e400]`, true, "1e400"},
+		"dup-after-huge":      {`[1e400, {"a": 1, "a": 2}]`, false, ""},
 		"trailing-whitespace": {"[true] \t\r\n", true, "true"},
 		"trailing-brace":      {`{"a": 1}}`, false, ""},
 		"trailing-arrays":     {`{"a": 1}]]]`, false, ""},
@@ -185,10 +186,6 @@ func TestDecodeJSON(t *testing.T) {
 			v, ok := DecodeJSON([]byte(c.raw))
 			if ok != c.ok || ok && Quote(v.([]any)[0]) != c.quoted {
 				t.Errorf("DecodeJSON(%q) = %#v, %v; want ok=%v, element %q", c.raw, v, ok, c.ok, c.quoted)
-			}
-			// Inspect reports only Faults when DecodeJSON fails, so they must agree.
-			if faults := Faults([]byte(c.raw)); (faults == nil) != c.ok {
-				t.Errorf("Faults(%q) = %v; want none exactly when ok=%v", c.raw, faults, c.ok)
 			}
 		})
 	}
