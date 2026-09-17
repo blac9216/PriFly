@@ -5,6 +5,7 @@ package bootstrap
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha1"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -294,8 +295,9 @@ func TestFetchSizeGuards(t *testing.T) {
 }
 
 // TestFetchBound: a git shim records, after each invocation, the size of every file under its working directory. A
-// tree over MaxFetchFileBytes, even in blobs each under it, stops with a file exactly at the bound; a history over it
-// is never fetched; a revision holding both guarded files at their guards fetches.
+// fetched file over MaxFetchFileBytes stops with a file exactly at that bound; many small blobs, each file under it,
+// pass MaxFetchTotalBytes; both fail with ErrFetchBound. A history over the bounds fetches and verifies, as does a
+// revision holding both guarded files at their guards.
 func TestFetchBound(t *testing.T) {
 	realGit, err := exec.LookPath("git")
 	bin := t.TempDir()
@@ -316,17 +318,29 @@ func TestFetchBound(t *testing.T) {
 	for name, c := range map[string]struct {
 		entries []entry
 		child   bool // select a valid child commit of the fixture commit instead
+		blobs   int  // add this many small blobs to the fixture tree
 		want    error
 	}{
-		"tree over bound":    {append(validEntries(), entry{"100644", ReadmePath, string(over[:half])}, entry{"100644", "prifly-canary-tree", string(over[half:])}), false, ErrFetchBound},
-		"history over bound": {append(validEntries(), entry{"100644", "prifly-canary-history", string(over)}), true, nil},
-		"files at guards":    {guards, false, nil},
+		"file over file bound":                    {append(validEntries(), entry{"100644", ReadmePath, string(over[:half])}, entry{"100644", "prifly-canary-tree", string(over[half:])}), false, 0, ErrFetchBound},
+		"small blobs over total bound":            {validEntries(), false, 105000, ErrFetchBound},
+		"history over bound fetches and verifies": {append(validEntries(), entry{"100644", "prifly-canary-history", string(over)}), true, 0, nil},
+		"files at guards":                         {guards, false, 0, nil},
 	} {
 		t.Run(name, func(t *testing.T) {
 			url, rev := fixtureRepo(t, c.entries)
 			if dir := strings.TrimPrefix(url, "file://"); c.child {
 				gitFixture(t, dir, "", "update-index", "--force-remove", "prifly-canary-history")
 				rev = gitFixture(t, dir, "fixture child\n", "commit-tree", "-p", rev, gitFixture(t, dir, "", "write-tree"))
+			} else if c.blobs > 0 {
+				var stream, tree strings.Builder
+				tree.WriteString(gitFixture(t, dir, "", "ls-tree", rev) + "\n")
+				for i := range c.blobs {
+					data := fmt.Sprintf("%d\n", i)
+					fmt.Fprintf(&stream, "blob\ndata %d\n%s\n", len(data), data)
+					fmt.Fprintf(&tree, "100644 blob %x\tc%06d\n", sha1.Sum([]byte(fmt.Sprintf("blob %d\x00%s", len(data), data))), i)
+				}
+				gitFixture(t, dir, stream.String(), "fast-import", "--quiet")
+				rev = gitFixture(t, dir, "fixture\n", "commit-tree", gitFixture(t, dir, tree.String(), "mktree"))
 			}
 			os.Remove(sizes)
 			v, err := fetch(t, url, rev, factory)
@@ -337,10 +351,54 @@ func TestFetchBound(t *testing.T) {
 				fmt.Sscan(line, &n)
 				largest = max(largest, n)
 			}
-			if !errors.Is(err, c.want) || c.want == nil && (v == nil || v.Revision != rev) || (largest == MaxFetchFileBytes) != (c.want != nil) || largest > MaxFetchFileBytes {
+			if !errors.Is(err, c.want) || c.want == nil && (v == nil || v.Revision != rev) || (largest == MaxFetchFileBytes) != (c.want != nil && c.blobs == 0) || largest > MaxFetchFileBytes {
 				t.Fatalf("err = %v, want %v; largest file written %d bytes, bound %d", err, c.want, largest, MaxFetchFileBytes)
 			}
 		})
+	}
+}
+
+// TestCheckFetched walks a directory standing in for the fetched repository: regular files count up to exactly
+// MaxFetchTotalBytes, a symlink's target does not count, and a walk that passes maxFetchEntries or cannot read a
+// directory fails.
+func TestCheckFetched(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "outside")
+	if os.WriteFile(outside, []byte("x"), 0o600) != nil {
+		t.Fatal("writing symlink target")
+	}
+	for _, c := range []struct {
+		name  string
+		setup func(dir string) error
+		want  error
+	}{
+		{"at total bound", func(dir string) error { return os.Truncate(dir+"/pack", MaxFetchTotalBytes) }, nil},
+		{"one byte over total bound", func(dir string) error { return os.Truncate(dir+"/pack", MaxFetchTotalBytes+1) }, ErrFetchBound},
+		{"symlink target not counted", func(dir string) error {
+			return errors.Join(os.Truncate(dir+"/pack", MaxFetchTotalBytes), os.Symlink(outside, dir+"/link"))
+		}, nil},
+		{"entries over bound", func(dir string) error {
+			for i := range maxFetchEntries {
+				if err := os.WriteFile(fmt.Sprintf("%s/e%d", dir, i), nil, 0o600); err != nil {
+					return err
+				}
+			}
+			return nil
+		}, ErrFetchBound},
+		{"unreadable directory", func(dir string) error {
+			return errors.Join(os.Mkdir(dir+"/objects", 0o700), os.Chmod(dir+"/objects", 0))
+		}, ErrFetch},
+	} {
+		if c.want == ErrFetch && os.Geteuid() == 0 {
+			continue // root reads a directory whatever its mode
+		}
+		dir := t.TempDir()
+		if os.WriteFile(dir+"/pack", nil, 0o600) != nil || c.setup(dir) != nil {
+			t.Fatalf("%s: setup", c.name)
+		}
+		if err := checkFetched(dir, nil); !errors.Is(err, c.want) || c.want == nil && err != nil {
+			t.Errorf("%s: err = %v, want %v", c.name, err, c.want)
+		}
+		os.Chmod(dir+"/objects", 0o700)
 	}
 }
 

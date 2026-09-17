@@ -35,10 +35,10 @@ GIT_CONFIG_NOSYSTEM, GIT_CONFIG_GLOBAL, GIT_TERMINAL_PROMPT and GIT_SSH_COMMAND,
 under which ssh reads no ssh config, default key or other agent and trusts only
 -fetch-known-hosts. Every input is a reference; never pass a credential or key
 value. Only the selected commit is fetched; git cannot write a file past 4 MiB,
-and a fetch stopped there blocks. The fetch, including ssh, is killed and
-blocks when it runs past -fetch-timeout (a positive Go duration, default 10m).
-bootstrap.json above 64 KiB or secrets.json.age above 1 MiB blocks before it is
-read. -work-dir is an absolute path; at start, bootstrap locks it and removes
+and a fetch stopped there, or one leaving files over 6 MiB in total, blocks.
+The fetch, including ssh, is killed and blocks when it runs past -fetch-timeout
+(a positive Go duration, default 10m). bootstrap.json above 64 KiB or
+secrets.json.age above 1 MiB blocks before it is read. -work-dir is an absolute path; at start, bootstrap locks it and removes
 the prifly-bootstrap-* and prifly-secrets-* directories a killed run left there,
 and blocks on any such entry it cannot verify as its own. Exit status: 0
 existing Factory state discovered, 1 blocked, 2 usage.
