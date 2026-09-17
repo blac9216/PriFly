@@ -181,6 +181,18 @@ var hostile = map[string]func(dir string) error{
 		return errors.Join(addItems(dir, naming(xenID, slice()), naming(xen2ID, slice()), naming(xen2ID, slice(-1)), naming(unresolved, slice()), naming(unresolved, slice()),
 			naming(invalid, slice()), naming(invalid, slice(-1)), naming(xenID, slice())), addArtifacts(dir, "xen", "ExecutionEnvelope/v1", envelope), replaceIn(dir, `"`+wiN(7)+`"`, `"`+wiN(0)+`"`))
 	},
+	"diagnostic-cap": func(dir string) error { // $.zz is added first, the unreadable artifact last
+		return errors.Join(replaceIn(dir, `"jobs": [`, `"zz": 1, "jobs": [`+strings.Repeat("7, ", 2100)), replaceIn(dir, `"artifacts/baseline.json"`, `"artifacts/missing.json"`))
+	},
+	"fault-budget":        nested(10), // 4 of 10 repeated keys total the manifest's length in paths
+	"fault-budget-at-end": nested(5),  // the last repeated key brings the paths past it
+	"artifact-bytes-cap": func(dir string) error { // 120 MiB before $.artifacts[12], which is not read past the cap, and [13] is not read
+		entries := ""
+		for i, name := range []string{"half", "baseline", "baseline", "baseline", "baseline", "baseline", "baseline", "baseline", "missing"} {
+			entries += fmt.Sprintf(`, {"id": "bsl_%032x", "revision": 1, "schema": "Baseline/v1", "path": "artifacts/%s.json", "sha256": "%x", "refs": []}`, i, name, sha256.Sum256(make([]byte, map[string]int{"half": 8 << 20, "baseline": 16 << 20}[name])))
+		}
+		return errors.Join(os.WriteFile(dir+"/artifacts/half.json", make([]byte, 8<<20), 0o644), os.WriteFile(dir+"/artifacts/baseline.json", make([]byte, 16<<20), 0o644), replaceIn(dir, "}\n  ", "}"+entries+"\n  "))
+	},
 	"invalid-utf8": func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, "\"wi_\xff\xfe8887ffc") },
 	"lone-surrogate": func(dir string) error { // a high, a low before a pair, and a pair beside an escaped backslash
 		return errors.Join(replaceIn(dir, `"bnd_`, `"bnd_\ud800`), replaceIn(dir, `"reviewer.implementation/v1"`, `"\udc00\ud83d\ude00"`),
@@ -189,15 +201,44 @@ var hostile = map[string]func(dir string) error{
 }
 
 const (
-	bundleID = "bnd_8d0e1c6f026fef7621a0c7b017f12c12"
-	bslSHA   = "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34"
-	wiSHA    = "e75149f5b53460eacd7e4bdb6af989a3903fb87754a129c906cb038f396646b3"
-	xenID    = "xen_dd00d1cf54fb4ef059011c2dc206e701"
-	xen2ID   = "xen_e2fdb6cef203d6f22cd9815948d7665f"
-	xenSHA   = "926292edd0e04fef4e8208bec6d1bc8ef899e12183b8942de1e0fc12802f03e9"
-	own      = "xen_<own>" // replaced by ownXen of the content naming it
-	envelope = `{"bounds": {"attempts": 3, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 360}}`
+	incomplete = "incomplete-diagnostics $: list is incomplete: inspect stopped at a bound and diagnostics past it are not listed"
+	bundleID   = "bnd_8d0e1c6f026fef7621a0c7b017f12c12"
+	bslSHA     = "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34"
+	wiSHA      = "e75149f5b53460eacd7e4bdb6af989a3903fb87754a129c906cb038f396646b3"
+	xenID      = "xen_dd00d1cf54fb4ef059011c2dc206e701"
+	xen2ID     = "xen_e2fdb6cef203d6f22cd9815948d7665f"
+	xenSHA     = "926292edd0e04fef4e8208bec6d1bc8ef899e12183b8942de1e0fc12802f03e9"
+	own        = "xen_<own>" // replaced by ownXen of the content naming it
+	envelope   = `{"bounds": {"attempts": 3, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 360}}`
 )
+
+// nested writes bundle.json as d objects, each nesting the next under a 10-byte
+// key and repeating that key after it.
+func nested(d int) func(dir string) error {
+	return func(dir string) error {
+		k := `"kkkkkkkkkk": `
+		return os.WriteFile(dir+"/bundle.json", []byte(strings.Repeat("{"+k, d)+"1"+strings.Repeat(", "+k+"1}", d)), 0o644)
+	}
+}
+
+// capped is diagnostic-cap's output: the 1,000 lines first in byte order, the
+// unreadable artifact then 999 of 2,100 jobs, before $.zz; then incomplete.
+func capped() []string {
+	jobs := []string{}
+	for i := range 2100 {
+		jobs = append(jobs, fmt.Sprintf("unsupported-job $.jobs[%d]: job/version 7 is not supported", i))
+	}
+	slices.Sort(jobs)
+	return append(append([]string{`unreadable-artifact $.artifacts[1].path: "artifacts/missing.json" does not resolve to a file inside the bundle directory`}, jobs[:999]...), incomplete)
+}
+
+// dups is the duplicate-key lines of nested at depths from to d, in list order.
+func dups(from, d int) (lines []string) {
+	for ; from <= d; from++ {
+		lines = append(lines, "duplicate-key $"+strings.Repeat(".kkkkkkkkkk", from)+": key repeats an earlier key of this object")
+	}
+	return lines
+}
 
 // unknownBinding adds content as a Work Item and an unnamed envelope.
 func unknownBinding(content string) func(dir string) error {
@@ -346,7 +387,10 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"duplicate-key " + bsl + ".refs" + repeated,
 			"duplicate-key $.schema" + repeated,
 			`duplicate-key $["x\x1b[2K"]` + repeated},
-		"invalid-utf8": {"invalid-string " + wi + ".id: string is not valid UTF-8"},
+		"invalid-utf8":        {"invalid-string " + wi + ".id: string is not valid UTF-8"},
+		"diagnostic-cap":      capped(),
+		"fault-budget":        append(dups(7, 10), incomplete),
+		"fault-budget-at-end": dups(1, 5),
 		"lone-surrogate": {
 			"invalid-string $.bundle_id: string escapes an unpaired surrogate",
 			"invalid-string $.jobs[1]: string escapes an unpaired surrogate"},
@@ -524,8 +568,10 @@ func TestBundleInspectFixtures(t *testing.T) {
 				}
 			}
 			before := snapshot(filepath.Dir(dir))
-			if !strings.HasPrefix(want[0], "result: ok") {
-				code, want = 1, append(want, fmt.Sprintf("result: invalid diagnostics=%d (nothing staged or started)", len(want)))
+			if result := "diagnostics=%d ("; want[len(want)-1] == incomplete {
+				code, want = 1, append(want, fmt.Sprintf("result: invalid diagnostics-listed=%d (list incomplete; nothing staged or started)", len(want)))
+			} else if !strings.HasPrefix(want[0], "result: ok") {
+				code, want = 1, append(want, fmt.Sprintf("result: invalid "+result+"nothing staged or started)", len(want)))
 			}
 			done := make(chan map[string]int, 1)
 			go func() {
@@ -548,6 +594,34 @@ func TestBundleInspectFixtures(t *testing.T) {
 				t.Error("bundle tree changed during inspect")
 			}
 		})
+	}
+}
+
+// TestArtifactBytesCap asserts artifact-bytes-cap's exact output on one run, as
+// it reads 128 MiB, and that the bytes this process reads meanwhile (rchar in
+// /proc/self/io) exceed MaxArtifactBytes by at most 1 MiB: $.artifacts[12], 16
+// MiB, is reached with about 8 MiB left.
+func TestArtifactBytesCap(t *testing.T) {
+	dir := bundleCopy(t, "valid")
+	if err := hostile["artifact-bytes-cap"](dir); err != nil {
+		t.Fatal(err)
+	}
+	rchar := func() (n int) {
+		b, err := os.ReadFile("/proc/self/io")
+		if _, scanErr := fmt.Sscanf(string(b), "rchar: %d", &n); err != nil || scanErr != nil {
+			t.Fatal(err, scanErr)
+		}
+		return n
+	}
+	var stdout, stderr bytes.Buffer
+	before := rchar()
+	code := run([]string{"bundle", "inspect", dir}, &stdout, &stderr)
+	read := rchar() - before
+	want := `unreadable-artifact $.artifacts[12].path: "artifacts/baseline.json" exceeds the 134217728-byte cap on artifact bytes read per bundle
+digest-mismatch $.artifacts[1].sha256: declared "` + bslSHA + `", exact bytes hash to 080acf35a507ac9849cfcba47dc2ad83e01b75663a516279c8b9d243b719643e
+` + incomplete + "\nresult: invalid diagnostics-listed=3 (list incomplete; nothing staged or started)\n"
+	if code != 1 || stdout.String() != want || stderr.Len() != 0 || read < 128<<20 || read > 129<<20 {
+		t.Errorf("exit=%d, %d bytes read, stdout:\n%s\nstderr: %q; want exit 1, 128-129 MiB read, stdout:\n%s", code, read, stdout.String(), stderr.String(), want)
 	}
 }
 

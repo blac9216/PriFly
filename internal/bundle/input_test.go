@@ -201,14 +201,17 @@ func TestDecodeJSON(t *testing.T) {
 }
 
 // TestFaultsMemory walks 1000 nested objects with 100-byte keys, once with a
-// repeated key at the innermost level and once in every object, and bounds the
-// bytes allocated to 32 times the input: per-level path copies would allocate
-// about 50 MB, and so would an unbounded list of faults with deep paths.
+// repeated key at the innermost level and once in every object, and one object
+// repeating a key 50,000 times, and bounds the bytes allocated to 32 times the
+// input: per-level path copies would allocate about 50 MB, an unbounded list of
+// faults with deep paths as much, and one fault per repeated key about 40 times
+// the input.
 func TestFaultsMemory(t *testing.T) {
 	key := `"` + strings.Repeat("k", 100) + `"`
 	for label, c := range map[string]struct{ open, inner, close string }{
 		"innermost-fault": {"{" + key + ": ", `{"a": 1, "a": 2}`, "}"},
 		"fault-per-level": {"{" + key + ": ", "null", ", " + key + ": 1}"},
+		"flat-faults":     {"", `{"a": 1` + strings.Repeat(`, "a": 1`, 50000) + "}", ""},
 	} {
 		t.Run(label, func(t *testing.T) {
 			raw := []byte(strings.Repeat(c.open, 1000) + c.inner + strings.Repeat(c.close, 1000))
