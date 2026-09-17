@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -45,7 +46,7 @@ func testCtx(t *testing.T) context.Context {
 func gitFixture(t *testing.T, dir, stdin string, args ...string) string {
 	t.Helper()
 	cmd := exec.CommandContext(testCtx(t), "git", append([]string{"-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid"}, args...)...)
-	cmd.Dir, cmd.Env, cmd.Stdin = dir, isolatedEnv(t.TempDir()), strings.NewReader(stdin)
+	cmd.Dir, cmd.Env, cmd.Stdin = dir, isolatedEnv(t.TempDir(), "", ""), strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("fixture git %v: %v\n%s", args, err, out)
@@ -222,5 +223,22 @@ func TestFetchIgnoresInheritedGitConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("inherited hook ran during Fetch")
+	}
+}
+
+// TestSSHCommandIgnoresAmbientConfig runs the real ssh -G, which resolves configuration without
+// connecting, through the fixed command: ssh reads only /dev/null, and its identity, agent and
+// host-key sources are exactly the explicit references, or none when they are empty.
+func TestSSHCommandIgnoresAmbientConfig(t *testing.T) {
+	fields := regexp.MustCompile(`(?m)^(debug1: Reading configuration data .*|(batchmode|stricthostkeychecking|identityagent|identityfile|globalknownhostsfile|userknownhostsfile) .*)$`)
+	for refs, want := range map[[2]string][2]string{{"/run/agent.sock", "/kit/known_hosts"}: {"/run/agent.sock", "/kit/known_hosts"}, {"", ""}: {"none", "/dev/null"}} {
+		env := isolatedEnv(t.TempDir(), refs[0], refs[1])
+		cmd := exec.CommandContext(testCtx(t), "sh", "-c", strings.TrimPrefix(env[len(env)-1], "GIT_SSH_COMMAND=")+` -v -G "$@"`, "ssh", "fixture-host")
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		got := strings.Join(fields.FindAllString(strings.ReplaceAll(string(out), "\r", ""), -1), "\n")
+		if err != nil || got != "debug1: Reading configuration data /dev/null\nbatchmode yes\nstricthostkeychecking true\nidentityagent "+want[0]+"\nidentityfile none\nglobalknownhostsfile /dev/null\nuserknownhostsfile "+want[1] {
+			t.Fatalf("ssh -G (%v) with references %q resolved:\n%s", err, refs, got)
+		}
 	}
 }
