@@ -4,8 +4,8 @@
 # MODE@RUN:SEQ: lineage, short-txid, over-use (sync reports another lineage, a 1-digit T, use past its
 # reservation), hang (sync ignores TERM and sleeps 3s), restore-txid, restore-seq, integrity, payload (restore
 # reports another T, sequence, integrity or payload), cas-seq, cas-txid (CAS reads back another sequence or
-# T), cas-lost (CAS exits 1), exit1 (commit reports, then exits 1), ledger (commit makes the ledger file
-# unwritable), term (commit signals the runner); MODE@RUN:0 at the fixture: trace (makes the trace
+# T), cas-lost (CAS exits 1), exit1 (commit reports, then exits 1), ledger, ledger-dir (commit makes the
+# ledger file unwritable, or a directory), term (commit signals the runner); MODE@RUN:0 at the fixture: trace (makes the trace
 # unwritable), no-lineage, fixture-over (use past its plan); MODE@RUN:KIND at a plan (KIND renewal for a
 # hold): huge (bound past the ticket), greedy (use past the declared), stall (the virtual clock jumps 700 s);
 # hold-fail@RUN:K fails the run's Kth renewal plan; heavy@RUN:K gives that run's first K commands 150 MiB
@@ -31,6 +31,7 @@ case "$verb" in
     ((heavy == 0)) || echo $(($(cat "$st/heavy-$run" 2>/dev/null || echo 0) + 1)) >"$st/heavy-$run"
     printf '{"payloadSha256":"%s","payloadBytes":%d,' "$sha" "$5"; use $((heavy + $5)) 1 2 ;;
   commit) ! hit ledger "$3" || mkdir "$st/../ledger.json.new"
+    ! hit ledger-dir "$3" || { rm "$st/../ledger.json" && mkdir "$st/../ledger.json"; }
     ! hit term "$3" || kill -TERM "$PPID"
     printf '{"before":"s%d","after":"s%d","dbBytes":%d,' $(($4 - 1)) "$4" $((52428800 + $3 * 4096)); use 0 0 0; ! hit exit1 "$3" || exit 1 ;;
   sync) hit hang "$3" && { trap '' TERM; sleep 3; }

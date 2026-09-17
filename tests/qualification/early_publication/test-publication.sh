@@ -69,10 +69,13 @@ if group refusals; then
   line "ledger write failure aborts before the next send" ledger-denied 21 "ABORTED: ledger write failed; no verdict"
   cond "ledger file holds what the LEDGER line reports after a failed write" grep -qxF "LEDGER: prior 0 bytes 0 requests; after this invocation $(jq -r '"\(.bytes) bytes \(.requests)"' "$work/ledger-denied/ledger.json") requests" "$work/ledger-denied/out"
   cond "no probe call after the ledger write failed" grep -q '^cas 1 3 ' <(tail -n1 "$work/ledger-denied/state/calls")
-  for f in "trace@1:0|exit 1" "term@1:3|signal" "no-lineage@1:0|run 1 fixture reported no lineage" "fixture-over@1:0|run 1 fixture: fixture-over-ticket"; do
+  for f in "ledger-dir@1:3|ledger write failed" "trace@1:0|exit 1" "term@1:3|signal" "no-lineage@1:0|run 1 fixture reported no lineage" "fixture-over@1:0|run 1 fixture: fixture-over-ticket"; do
     runner "${f%%@*}" '{"bytes":0,"requests":0}' "${f%|*}"
     line "abort: ${f%|*}" "${f%%@*}" 21 "ABORTED: ${f#*|}; no verdict"
   done
+  runner plan-envelope '{"bytes":0,"requests":99989}' ""  # run 1's fixture plan and fixture leave one request, which its hold plan uses
+  line "P12a stop before a plan call" plan-envelope 21 "ABORTED: run 2 fixture plan: envelope; no verdict"
+  cond "no plan call past the P12a envelope" awk '/^plan 1 package-revision / {exit 1}' "$work/plan-envelope/state/calls"
 fi
 if group real; then
   real="$work/scaled/scripts/qualification/early"; mkdir -p "$real" && cp -r "$EARLY/." "$real" && cp -r "$EARLY/../../../schemas" "$work/scaled/"
@@ -116,6 +119,7 @@ if group faults; then
   runner checks3 '{"bytes":0,"requests":0}' "over-use@1:5 exit1@2:5 huge@3:finding-review"
   runner checks4 '{"bytes":0,"requests":0}' "stall@1:attempt-result huge@2:renewal greedy@3:package-revision"
   runner held-envelope '{"bytes":0,"requests":99929}' ""  # 100000 - 71: run 1's first ticket fits P12a only without the held one
+  holds "a failed plan call is charged its declared use" checks4 'map(select(.ev == "plan" and .run == 3))[2].requests == 1'
   for f in checks1:1:5:cas-mismatch checks1:2:5:restore-mismatch checks1:3:5:restore-mismatch checks2:1:5:restore-mismatch checks2:2:5:restore-mismatch \
     checks2:3:5:sync-lineage checks3:1:5:sync-over-ticket checks3:2:5:commit-exit1 checks3:3:3:plan-over-maxima checks4:1:2:renewal-grant-expired \
     checks4:2:1:lane-blocked checks4:3:1:plan-over-ticket held-envelope:1:1:envelope; do
