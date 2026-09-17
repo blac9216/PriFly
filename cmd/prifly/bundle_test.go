@@ -791,7 +791,7 @@ func TestBundleUsageErrors(t *testing.T) {
 // that writes files or starts processes.
 func TestBundleImportsNoNetworkOrProcess(t *testing.T) {
 	const module = "github.com/blac9216/PriFly/"
-	allowed := []string{"bytes", "crypto/sha256", "encoding/json", "fmt", "io", "os", "regexp", "slices", "strconv", "strings", "unicode/utf8"}
+	allowed := []string{"bytes", "crypto/sha256", "encoding/json", "errors", "fmt", "io", "io/fs", "os", "regexp", "slices", "strconv", "strings", "unicode/utf8"}
 	forbidden := []string{"StartProcess", "Command", "CommandContext", "Exec", "ForkExec", "WriteFile", "Create", "CreateTemp",
 		"OpenFile", "Mkdir", "MkdirAll", "MkdirTemp", "Remove", "RemoveAll", "Rename", "Link", "Symlink", "Chmod", "Chown",
 		"Lchown", "Chtimes", "Truncate", "Write", "WriteAt", "WriteString", "CopyFS"}
