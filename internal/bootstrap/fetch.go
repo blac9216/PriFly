@@ -109,11 +109,9 @@ func Fetch(ctx context.Context, req Request, workDir string) (*Verified, error) 
 		strings.TrimSpace(string(out)) != req.Revision {
 		return nil, fmt.Errorf("%w: revision is not a commit", ErrFetch)
 	}
-	tree, err := git("ls-tree", "-z", "--end-of-options", req.Revision)
-	if err != nil {
+	if tree, err := git("ls-tree", "-z", "--end-of-options", req.Revision); err != nil {
 		return nil, fmt.Errorf("%w: tree unreadable", ErrFetch)
-	}
-	if err := checkTree(tree); err != nil {
+	} else if err := checkTree(tree); err != nil {
 		return nil, err
 	}
 	manifestBytes, err1 := git("cat-file", "blob", req.Revision+":"+ManifestPath)
@@ -139,10 +137,10 @@ func checkTree(listing []byte) error {
 	for _, rec := range strings.Split(strings.TrimSuffix(string(listing), "\x00"), "\x00") {
 		meta, name, ok := strings.Cut(rec, "\t")
 		if _, known := allowed[name]; !ok || !known {
-			return fmt.Errorf("%w: %q is not in the allowlist", ErrTree, name)
+			return fmt.Errorf("%w: entry not in the allowlist", ErrTree)
 		}
 		if !strings.HasPrefix(meta, "100644 blob ") {
-			return fmt.Errorf("%w: %q is not a regular non-executable file", ErrTree, name)
+			return fmt.Errorf("%w: entry is not a regular non-executable file", ErrTree)
 		}
 		allowed[name] = true
 	}

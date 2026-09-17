@@ -3,7 +3,6 @@ package bootstrap
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -11,30 +10,41 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const factory = "prifly-fixture-factory"
 
 // Placeholder bytes standing in for age ciphertext; no key or secret exists.
-var ciphertext = []byte("fixture ciphertext placeholder\n")
+var (
+	ciphertext = []byte("fixture ciphertext placeholder\n")
+	digestHex  = fmt.Sprintf("%x", sha256.Sum256(ciphertext))
+	manifest   = fmt.Sprintf(`{"schema":%q,"factory_id":%q,"secrets_path":%q,"secrets_sha256":%q,"secret_schema":"prifly.secrets/v1"}`,
+		ManifestSchema, factory, SecretsPath, digestHex)
+)
 
+// entry is one index entry of a fixture commit; an empty mode removes path.
 type entry struct{ mode, path, data string }
 
-func manifestJSON(secrets []byte, extra string) string {
-	sum := sha256.Sum256(secrets)
-	return fmt.Sprintf(`{"schema":%q,"factory_id":%q,"secrets_path":%q,"secrets_sha256":%q,"secret_schema":"prifly.secrets/v1"%s}`,
-		ManifestSchema, factory, SecretsPath, hex.EncodeToString(sum[:]), extra)
-}
-
 func validEntries() []entry {
-	return []entry{{"100644", ManifestPath, manifestJSON(ciphertext, "")},
-		{"100644", SecretsPath, string(ciphertext)}, {"100644", ReadmePath, "fixture\n"}}
+	return []entry{{"100644", ManifestPath, manifest}, {"100644", SecretsPath, string(ciphertext)}, {"100644", ReadmePath, "fixture\n"}}
 }
 
-// gitFixture runs git for fixture construction with an isolated configuration.
+func withManifest(old, new string) []entry {
+	e := validEntries()
+	e[0].data = strings.Replace(e[0].data, old, new, 1)
+	return e
+}
+
+func testCtx(t *testing.T) context.Context {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(cancel)
+	return ctx
+}
+
 func gitFixture(t *testing.T, dir, stdin string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid"}, args...)...)
+	cmd := exec.CommandContext(testCtx(t), "git", append([]string{"-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid"}, args...)...)
 	cmd.Dir, cmd.Env, cmd.Stdin = dir, isolatedEnv(t.TempDir()), strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -43,123 +53,126 @@ func gitFixture(t *testing.T, dir, stdin string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// fixtureRepo builds a local repository whose single commit has exactly the
-// given index entries (any mode, including symlinks and gitlinks).
+// fixtureRepo commits exactly the given index entries, in any mode, to a local repository.
 func fixtureRepo(t *testing.T, entries []entry) (url, rev string) {
 	t.Helper()
 	dir := t.TempDir()
 	gitFixture(t, dir, "", "init", "--quiet", "--template=", ".")
 	for _, e := range entries {
+		if e.mode == "" {
+			gitFixture(t, dir, "", "update-index", "--force-remove", e.path)
+			continue
+		}
 		obj := gitFixture(t, dir, e.data, "hash-object", "-w", "--stdin")
 		if e.mode == "160000" {
 			obj = strings.Repeat("ab", 20)
 		}
 		gitFixture(t, dir, "", "update-index", "--add", "--cacheinfo", e.mode+","+obj+","+e.path)
 	}
-	tree := gitFixture(t, dir, "", "write-tree")
-	rev = gitFixture(t, dir, "fixture\n", "commit-tree", tree)
+	rev = gitFixture(t, dir, "fixture\n", "commit-tree", gitFixture(t, dir, "", "write-tree"))
 	gitFixture(t, dir, "", "update-ref", "refs/heads/main", rev)
 	gitFixture(t, dir, "", "tag", "v1", rev)
+	gitFixture(t, dir, "", "tag", "-a", "-m", "fixture", "v2", rev)
 	return "file://" + dir, rev
 }
 
-func fetch(t *testing.T, url, rev string) (*Verified, error) {
+// fetch runs Fetch and asserts that the work directory is emptied and that a failure
+// returns no result and no locator or "prifly-canary" repository content.
+func fetch(t *testing.T, url, rev, factoryID string) (*Verified, error) {
 	t.Helper()
 	work := t.TempDir()
-	v, err := Fetch(context.Background(), Request{Repository: url, Revision: rev, FactoryID: factory}, work)
+	v, err := Fetch(testCtx(t), Request{Repository: url, Revision: rev, FactoryID: factoryID}, work)
 	if left, _ := os.ReadDir(work); len(left) != 0 {
 		t.Fatalf("work directory not cleaned: %d entries left", len(left))
 	}
-	if err != nil && strings.Contains(err.Error(), url) {
-		t.Fatalf("error %q exposes the repository locator", err)
+	if err != nil && (v != nil || strings.Contains(err.Error(), url) || strings.Contains(err.Error(), "prifly-canary")) {
+		t.Fatalf("error %q returned a result or exposes the locator or repository content", err)
 	}
 	return v, err
 }
 
 func TestFetchReturnsVerifiedNonSecretBytes(t *testing.T) {
 	url, rev := fixtureRepo(t, validEntries())
-	v, err := fetch(t, url, rev)
-	if err != nil {
-		t.Fatalf("Fetch: %v", err)
-	}
-	if v.Revision != rev || v.Manifest.FactoryID != factory || string(v.Secrets) != string(ciphertext) {
-		t.Fatalf("unexpected result %+v", v)
+	if v, err := fetch(t, url, rev, factory); err != nil || v.Revision != rev || v.Manifest.FactoryID != factory || string(v.Secrets) != string(ciphertext) {
+		t.Fatalf("result %+v, err = %v", v, err)
 	}
 }
 
 func TestFetchRejectsMutableOrPartialRevision(t *testing.T) {
 	url, rev := fixtureRepo(t, validEntries())
 	for _, r := range []string{"main", "v1", "HEAD", "refs/heads/main", rev[:7], strings.ToUpper(rev), rev + strings.Repeat("0", 24)} {
-		if _, err := fetch(t, url, r); !errors.Is(err, ErrMutableRef) {
+		if _, err := fetch(t, url, r, factory); !errors.Is(err, ErrMutableRef) {
 			t.Errorf("revision %q: err = %v, want ErrMutableRef", r, err)
 		}
 	}
 }
 
-func TestFetchRejectsDisallowedTreeEntries(t *testing.T) {
-	for name, bad := range map[string]entry{
-		"executable":  {"100755", ManifestPath, "{}"},
-		"symlink":     {"120000", ReadmePath, "fixture-target"},
-		"submodule":   {"160000", ReadmePath, ""},
-		".gitmodules": {"100644", ".gitmodules", "[submodule \"x\"]\n"},
-		".gitattr":    {"100644", ".gitattributes", "* filter=x\n"},
-		".githooks":   {"100755", ".githooks/post-checkout", "#!/bin/sh\n"},
-		"other file":  {"100644", "run.sh", "echo\n"},
+func TestFetchRejects(t *testing.T) {
+	tree := func(e entry) []entry { return append(validEntries(), e) } // a later entry replaces a path
+	for name, c := range map[string]struct {
+		entries []entry
+		factory string
+		want    error
+	}{
+		"executable":        {tree(entry{"100755", ManifestPath, "{}"}), factory, ErrTree},
+		"symlink":           {tree(entry{"120000", ReadmePath, "fixture-target"}), factory, ErrTree},
+		"submodule":         {tree(entry{"160000", ReadmePath, ""}), factory, ErrTree},
+		".gitmodules":       {tree(entry{"100644", ".gitmodules", "[submodule \"x\"]\n"}), factory, ErrTree},
+		".gitattr":          {tree(entry{"100644", ".gitattributes", "* filter=x\n"}), factory, ErrTree},
+		".githooks":         {tree(entry{"100755", ".githooks/post-checkout", "#!/bin/sh\n"}), factory, ErrTree},
+		"other file":        {tree(entry{"100644", "prifly-canary-entry", "echo\n"}), factory, ErrTree},
+		"missing secrets":   {tree(entry{"", SecretsPath, ""}), factory, ErrTree},
+		"identity mismatch": {withManifest(factory, "other-factory"), factory, ErrManifest},
+		"empty identity":    {withManifest(factory, ""), "", ErrManifest},
+		"unknown field":     {withManifest(`v1"}`, `v1","extra":1}`), factory, ErrManifest},
+		"trailing data":     {withManifest(`v1"}`, `v1"}{}`), factory, ErrManifest},
+		"schema":            {withManifest(ManifestSchema, "prifly.bootstrap/v0"), factory, ErrManifest},
+		"digest format":     {withManifest(`"secrets_sha256":"`, `"secrets_sha256":"X`), factory, ErrManifest},
+		"secrets path":      {withManifest(`"secrets_path":"`+SecretsPath, `"secrets_path":"other.age`), factory, ErrManifest},
+		"secret schema":     {withManifest(`"prifly.secrets/v1"`, `""`), factory, ErrManifest},
+		"digest mismatch":   {withManifest(digestHex, strings.Repeat("0", 64)), factory, ErrDigest},
 	} {
 		t.Run(name, func(t *testing.T) {
-			url, rev := fixtureRepo(t, append(validEntries(), bad)) // a later entry replaces a path
-			if _, err := fetch(t, url, rev); !errors.Is(err, ErrTree) {
-				t.Fatalf("err = %v, want ErrTree", err)
+			url, rev := fixtureRepo(t, c.entries)
+			if _, err := fetch(t, url, rev, c.factory); !errors.Is(err, c.want) {
+				t.Fatalf("err = %v, want %v", err, c.want)
 			}
 		})
 	}
 }
 
-func TestFetchRejectsInvalidManifest(t *testing.T) {
-	for name, manifest := range map[string]string{
-		"identity mismatch": strings.Replace(manifestJSON(ciphertext, ""), factory, "other-factory", 1),
-		"unknown field":     manifestJSON(ciphertext, `,"extra":1`),
-		"trailing data":     manifestJSON(ciphertext, "") + "{}",
-		"schema":            strings.Replace(manifestJSON(ciphertext, ""), ManifestSchema, "prifly.bootstrap/v0", 1),
-		"digest format":     strings.Replace(manifestJSON(ciphertext, ""), `"secrets_sha256":"`, `"secrets_sha256":"X`, 1),
-	} {
-		t.Run(name, func(t *testing.T) {
-			entries := validEntries()
-			entries[0].data = manifest
-			url, rev := fixtureRepo(t, entries)
-			if _, err := fetch(t, url, rev); !errors.Is(err, ErrManifest) {
-				t.Fatalf("err = %v, want ErrManifest", err)
-			}
-		})
-	}
-}
-
-func TestFetchRejectsSecretsDigestMismatch(t *testing.T) {
-	entries := validEntries()
-	entries[0].data = manifestJSON([]byte("different ciphertext\n"), "")
-	url, rev := fixtureRepo(t, entries)
-	if v, err := fetch(t, url, rev); !errors.Is(err, ErrDigest) || v != nil {
-		t.Fatalf("result %v, err = %v, want nil and ErrDigest", v, err)
-	}
-}
-
+// Non-commit object ids and unlisted transports, whose helper must never run, also fail.
 func TestFetchUnreachableRepositoryOrRevision(t *testing.T) {
 	url, rev := fixtureRepo(t, validEntries())
-	missing := "file://" + filepath.Join(t.TempDir(), "absent-prifly-bootstrap")
-	for name, c := range map[string][2]string{
-		"repository": {missing, rev},
-		"revision":   {url, strings.Repeat("1", 40)},
+	dir, bin := strings.TrimPrefix(url, "file://"), t.TempDir()
+	sentinel := filepath.Join(bin, "helper-ran")
+	if os.WriteFile(filepath.Join(bin, "git-remote-priflyx"), []byte("#!/bin/sh\ntouch '"+sentinel+"'\n"), 0o700) != nil {
+		t.Fatal("writing transport helper")
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	unavailable, notCommit := "remote or revision unavailable", "revision is not a commit"
+	for name, c := range map[string][3]string{
+		"repository":    {"file://" + filepath.Join(t.TempDir(), "absent-prifly-bootstrap"), rev, unavailable},
+		"revision":      {url, strings.Repeat("1", 40), unavailable},
+		"tag object":    {url, gitFixture(t, dir, "", "rev-parse", "v2"), notCommit},
+		"tree object":   {url, gitFixture(t, dir, "", "rev-parse", rev+"^{tree}"), notCommit},
+		"transport ::":  {"priflyx::" + dir, rev, unavailable},
+		"transport ://": {"priflyx://" + dir, rev, unavailable},
 	} {
-		// The message pins the fetch check itself, not a later ErrFetch.
-		if v, err := fetch(t, c[0], c[1]); !errors.Is(err, ErrFetch) || v != nil ||
-			!strings.Contains(err.Error(), "remote or revision unavailable") {
-			t.Errorf("%s: result %v, err = %v, want nil and ErrFetch", name, v, err)
+		if _, err := fetch(t, c[0], c[1], factory); !errors.Is(err, ErrFetch) || !strings.Contains(err.Error(), c[2]) { // pins the check itself
+			t.Errorf("%s: err = %v, want ErrFetch with %q", name, err, c[2])
 		}
+	}
+	if _, err := os.Stat(sentinel); err == nil {
+		t.Fatal("unlisted transport helper ran")
+	}
+	_ = exec.CommandContext(testCtx(t), "git", "ls-remote", "priflyx::x").Run()
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatal("control: helper did not run for unhardened git, so the check is vacuous")
 	}
 }
 
-// hostileConfig writes a global Git config whose reference-transaction hook
-// leaves a marker and whose insteadOf rule redirects the given locator.
+// hostileConfig writes a global config with a marker-writing hook and an insteadOf redirect.
 func hostileConfig(t *testing.T, redirect string) (config, marker string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -173,24 +186,20 @@ func hostileConfig(t *testing.T, redirect string) (config, marker string) {
 	return config, marker
 }
 
-// TestGitHardeningDisablesInheritedHooks runs the hardened invocation with the
-// hostile global config deliberately inherited, and shows the same hook fires
-// for an unhardened git so the control is not vacuous.
 func TestGitHardeningDisablesInheritedHooks(t *testing.T) {
 	url, rev := fixtureRepo(t, validEntries())
 	config, marker := hostileConfig(t, "file:///unused-prifly/")
 	env := append(os.Environ(), "GIT_CONFIG_GLOBAL="+config, "GIT_CONFIG_NOSYSTEM=1")
-	repo := filepath.Join(t.TempDir(), "r.git")
-	if _, err := runGit(context.Background(), env, "", "init", "--bare", "--quiet", "--template=", repo); err != nil {
+	repo, ctx := filepath.Join(t.TempDir(), "r.git"), testCtx(t)
+	if _, err := runGit(ctx, env, "", "init", "--bare", "--quiet", "--template=", repo); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := runGit(context.Background(), env, repo, "fetch", "--quiet", url, rev+":refs/prifly/hardened"); err != nil {
+	} else if _, err := runGit(ctx, env, repo, "fetch", "--quiet", url, rev+":refs/prifly/hardened"); err != nil {
 		t.Fatalf("hardened fetch: %v", err)
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("inherited reference-transaction hook ran under hardening")
 	}
-	plain := exec.Command("git", "fetch", "--quiet", url, rev+":refs/prifly/plain")
+	plain := exec.CommandContext(ctx, "git", "fetch", "--quiet", url, rev+":refs/prifly/plain")
 	plain.Dir, plain.Env = repo, env
 	if out, err := plain.CombinedOutput(); err != nil {
 		t.Fatalf("plain fetch: %v\n%s", err, out)
@@ -200,18 +209,15 @@ func TestGitHardeningDisablesInheritedHooks(t *testing.T) {
 	}
 }
 
-// TestFetchIgnoresInheritedGitConfig sets a hostile global config that would
-// redirect the fixture locator and run a hook; Fetch must not see either.
 func TestFetchIgnoresInheritedGitConfig(t *testing.T) {
 	url, rev := fixtureRepo(t, validEntries())
 	config, marker := hostileConfig(t, url)
 	t.Setenv("GIT_CONFIG_GLOBAL", config)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	probe := exec.Command("git", "ls-remote", url)
-	if probe.Run() == nil {
+	if exec.CommandContext(testCtx(t), "git", "ls-remote", url).Run() == nil {
 		t.Fatal("control: hostile config did not redirect an unisolated git")
 	}
-	if _, err := fetch(t, url, rev); err != nil {
+	if _, err := fetch(t, url, rev, factory); err != nil {
 		t.Fatalf("Fetch under hostile inherited config: %v", err)
 	}
 	if _, err := os.Stat(marker); err == nil {
