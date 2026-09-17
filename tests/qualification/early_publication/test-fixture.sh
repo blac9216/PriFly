@@ -20,22 +20,24 @@ def lane($t): {ticket: $t, commitStart: ($t + 100), commitEnd: ($t + 200), syncS
 $p[0] as $p | [range(0; $p.warmupMs + $p.durationMs; $p.cadenceMs) as $a
   | $a, (if $a == $p.warmupMs + $p.burst.atMs then range($p.burst.count) | $a else empty end)] as $arr
 | {ev: "trace", schema: "prifly/qualification/early-publication-trace/v1", procedureSha256: $ps,
-   runnerSha256: ("1" * 64), evaluatorSha256: $es, probeSha256: ("2" * 64), manifestSha256: ("3" * 64)},
+   runnerSha256: ("1" * 64), evaluatorSha256: $es, probeSha256: ("2" * 64), manifestSha256: ("3" * 64), priorBytes: 0, priorRequests: 0},
   (range(1; $p.runs + 1) as $r
   | {ev: "run", run: $r, t0: 1000000, prefix: "q13/run\($r)/", lineage: "lineage-\($r)", generator: "gen-v1",
      seed: $p.seed, litestream: $p.litestream, dbBytes: 52428800, bytes: 52494336, writes: 2, requests: 9},
+    {ev: "plan", run: $r, bytes: 0, writes: 0, requests: 1},
     {ev: "grant", run: $r, t: 1000000, deadline: 1600000},
-    foreach range($arr | length) as $i ({free: 0, deadline: 1600000};
+    foreach range($arr | length) as $i ({free: 0, deadline: 1600000, k: 0};
       ([1000000 + $arr[$i], .free] | max) as $t | (.out = []) | .t = $t
-      | if $t + 5000 > .deadline then (lane($t) + {ev: "grant", run: $r, bytes: 65536, writes: 3, requests: 25}) as $g
+      | if $t + 5000 > .deadline then .k += 1 | (lane($t) + {ev: "grant", run: $r, bytes: 65536, writes: 3, requests: 25, restoredSeq: ($i + .k), casSeq: ($i + .k),
+          txid: "r\(.k)", lineage: "lineage-\($r)", restoreTxid: "r\(.k)", integrity: "ok", casTxid: "r\(.k)"}) as $g
           | .out = [$g + {t: $g.ack, deadline: ($g.ack + $p.grant.ms)}] | .t = $g.ack | .deadline = $g.ack + $p.grant.ms
         else . end
       | ($i + 1) as $n | $p.mix[$i % ($p.mix | length)] as $m | lane(.t) as $c | .free = $c.ack
       | .out += [$c + {ev: "cmd", run: $r, n: $n, kind: $m.kind, arrival: $arr[$i], submit: (1000000 + $arr[$i]),
           reason: "", bytes: ($m.payloadBytes + 66048), writes: 4, requests: 27, payloadSha256: hx("\($n)"),
           payloadBytes: $m.payloadBytes, before: "s\($n - 1)", after: "s\($n)", dbBytes: (52428800 + $n * 4096),
-          txid: "t\($n)", lineage: "lineage-\($r)", restoreTxid: "t\($n)", restoredSeq: $n, restoredPayloadSha256: hx("\($n)"),
-          integrity: "ok", casSeq: $n, casTxid: "t\($n)"}]; .out[]))
+          txid: "t\($n)", lineage: "lineage-\($r)", restoreTxid: "t\($n)", restoredSeq: ($n + .k), restoredPayloadSha256: hx("\($n)"),
+          integrity: "ok", casSeq: ($n + .k), casTxid: "t\($n)"}]; .out[]))
 JQ
 fails=0
 verdict() {  # name, want exit, want whole output line, procedure, trace
@@ -74,6 +76,13 @@ edit "ticket inside a failed predecessor step" 1 "REJECT LANE run 1 n 6: step cl
   "$(at 1 5 '.outcome = "failed" | .reason = "sync-exit1" | .syncStart = 1080000 | .syncEnd = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0')"
 edit "commands swapped across a renewal" 1 "REJECT OLD-FRONTIER run 1 n 40: command entered the lane after command 41; the frontier moved backwards" \
   "($(cmd 1 41).ticket - $(cmd 1 40).ticket) as \$d | $(at 1 40 "$shift") | (-\$d) as \$d | $(at 1 41 "$shift")"
+edit "renewal CAS not numbered as a published command" 1 "REJECT OLD-FRONTIER run 1 n 0: restore or frontier at sequence 40" "$renewal"'.casSeq = 40 else . end)'
+edit "renewal restore past its sequence" 1 "REJECT LATER-FRONTIER run 1 n 0: restore or frontier at sequence 42" "$renewal"'.restoredSeq = 42 else . end)'
+edit "renewal T differs" 1 "REJECT WRONG-T run 1 n 0: grant 1: renewal restore or frontier T/lineage is not the synced T" "$renewal"'.casTxid = "r0" else . end)'
+edit "renewal restores another T" 1 "REJECT WRONG-T run 1 n 0: grant 1: renewal restore or frontier T/lineage is not the synced T" "$renewal"'.restoreTxid = "r0" else . end)'
+edit "renewal lineage differs" 1 "REJECT WRONG-T run 1 n 0: grant 1: renewal restore or frontier T/lineage is not the synced T" "$renewal"'.lineage = "lineage-2" else . end)'
+edit "renewal integrity failed" 1 "REJECT WRONG-RESULT run 1 n 0: grant 1: renewal restore integrity is not ok" "$renewal"'.integrity = "corrupt" else . end)'
+edit "command numbered as if no renewal came before it" 1 "REJECT OLD-FRONTIER run 1 n 41: restore or frontier at sequence 41" "$(at 1 41 '.casSeq = 41')"
 edit "ack before CAS result" 1 "REJECT EARLY-ACK run 1 n 30: acknowledged before the frontier CAS result" "$(at 1 30 '.ack = .casEnd - 1')"
 edit "zero latency everywhere" 1 "REJECT EARLY-ACK run 1 n 1: acknowledged before the frontier CAS result" 'map(if .ev == "cmd" then .ack = .submit else . end)'
 edit "CAS pacing under 1.1 s" 1 "REJECT PACING run 1 n 83: CAS write under 1100ms after the previous one" \
@@ -106,25 +115,34 @@ edit "renewal reserved after expiry" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not
 edit "renewal reserved before the grant it renews" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.ticket = 999999 else . end)'
 edit "renewal failed" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.outcome = "failed" else . end)'
 edit "grant active before its renewal ack" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.t = .ack - 1 | .deadline -= 1 else . end)'
-GRANT0="REJECT LEDGER run 1 n 0: grant 0 use exceeds the P12b grant maxima" failed='.outcome = "failed" | .reason = "cas-conflict"'
+GRANT0="REJECT LEDGER run 1 n 0: grant 0 ticket use exceeds the P12b control/recovery grant maxima" failed='.outcome = "failed" | .reason = "cas-conflict"'
 grant() {  # field, maximum, excess: commands 1-40 of run 1 and the renewal charged to grant 0 sum to maximum + excess
   echo "$renewal.$1 = $2 - 40 * (($2 - 1) / 40 | floor) + $3 else . end) | map(if .ev == \"cmd\" and .run == 1 and .n <= 40 then .$1 = (($2 - 1) / 40 | floor) else . end)"; }
-for f in bytes:1073741824 writes:4096 requests:10000; do
+for f in bytes:805306368 writes:3072 requests:24576; do  # P12b control/recovery grant: tickets are charged to it
   edit "grant ${f%:*} at the maximum" 0 "$PASS" "$(grant "${f%:*}" "${f#*:}" 0)"
   edit "grant maxima exceeded (${f%:*})" 1 "$GRANT0" "$(grant "${f%:*}" "${f#*:}" 1)"
 done
-edit "failed entry use counts in grant maxima" 1 "$GRANT0" "$(grant writes 4096 1) | $(at 1 40 "$failed")"
+edit "failed entry use counts in grant maxima" 1 "$GRANT0" "$(grant writes 3072 1) | $(at 1 40 "$failed")"
 for f in bytes:268435457 writes:1025 requests:8193; do
   edit "ticket exceeded (${f%:*})" 1 "REJECT LEDGER run 1 n 3: remote use exceeds the pre-send ticket" "$(at 1 3 ".${f%:*} = ${f#*:}")"
 done
-edit "renewal use counts in grant maxima" 1 "REJECT LEDGER run 1 n 0: grant 0 use exceeds the P12b grant maxima" \
-  "$renewal"'.writes = 17 else . end) | map(if .ev == "cmd" and .run == 1 and .n <= 40 then .writes = 102 else . end)'
+edit "renewal use counts in grant maxima" 1 "$GRANT0" "$renewal"'.writes = 33 else . end) | map(if .ev == "cmd" and .run == 1 and .n <= 40 then .writes = 76 else . end)'
 edit "renewal ticket exceeded" 1 "REJECT LEDGER run 1 n 0: remote use exceeds the pre-send ticket" "$renewal"'.bytes = 268435457 else . end)'
-P12A="REJECT LEDGER run 0 n 0: trace exceeds the P12a envelope (fixture steps, commands and renewals)"
+P12A="REJECT LEDGER run 0 n 0: trace exceeds the P12a envelope (prior use, plan calls, fixture steps, commands and renewals)"
 envelope() { echo "(map(.$1 // 0) | add) as \$s | $(runfield 1 ".$1 += $2 - \$s + $3")"; }  # field, limit, excess over the whole trace
 for f in bytes:8589934592 requests:100000; do
   edit "envelope ${f%:*} at the limit" 0 "$PASS" "$(envelope "${f%:*}" "${f#*:}" 0)"
   edit "envelope ${f%:*} exceeded" 1 "$P12A" "$(envelope "${f%:*}" "${f#*:}" 1)"
+done
+for f in Bytes:8589934592 Requests:100000; do  # the header's prior usage: with the trace's own use, at the limit, then one over
+  k="${f%:*}" && prior="(map(.${k,} // 0) | add) as \$s | map(if .ev == \"trace\" then .prior$k = ${f#*:} - \$s"
+  edit "prior ${k,} at the limit" 0 "$PASS" "$prior else . end)"
+  edit "prior ${k,} counts in P12a" 1 "$P12A" "$prior + 1 else . end)"
+done
+for f in bytes:8589934592 requests:100000; do  # one plan call's use: with the trace's other use, at the limit, then one over
+  plan="(map(.${f%:*} // 0) | add) as \$s | map(if .ev == \"plan\" and .run == 2 then .${f%:*} += ${f#*:} - \$s"
+  edit "plan ${f%:*} at the limit" 0 "$PASS" "$plan else . end)"
+  edit "plan ${f%:*} counts in P12a" 1 "$P12A" "$plan + 1 else . end)"
 done
 edit "failed command use counts in P12a" 1 "$P12A" "$(envelope bytes 8589934592 1) | $(at 1 40 "$failed")"
 edit "renewal use counts in P12a" 1 "$P12A" 'map(if .ev == "cmd" then .bytes = 16777216 elif .ev == "grant" and .ticket then .bytes = 209715200 else . end)'

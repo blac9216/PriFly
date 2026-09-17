@@ -10,19 +10,22 @@
 // that is a lone surrogate. The trace is lines split at "\n", one final "\n" optional; each line is
 // one JSON object, with only JSON whitespace around it, no duplicate key and exactly the keys of its
 // known event ev (keys below, exact case); a grant carrying a ticket is a renewal and carries the
-// renewal keys. Every number is an unsigned integer literal in 0..2^53-1 (so -0 is refused); every
+// renewal keys; a plan line is one probe plan call's remote use. Every number is an unsigned integer literal in 0..2^53-1 (so -0 is refused); every
 // string is non-empty, except that a published entry's reason is empty and a failed entry leaves its
 // reason non-empty and may leave its result strings (results below) empty; outcome is published or
 // failed. Line 1, and no other, is the trace header; an empty trace or a blank line is malformed.
 // Semantics. Grants are in time order: the first a plain grant, every later one a renewal, a published
-// ticketed entry reserved inside the grant it renews (its sequence space is left to #252). Lane clocks (ms,
-// one clock, 0 = step not reached): ticket ≤ commitStart ≤ … ≤ casEnd ≤ ack. Commands and renewals share
-// one lane in ticket order: each ticket is at or after the previous entry's ack, commands enter in sequence
-// order (the frontier never moves backwards, C3 step 2), a failed entry records no clock after its first 0,
-// and no published step lasts over stepTimeoutS. No minimum step duration is set (no cited doc names one).
-// Use: a published entry records bytes, writes and requests, each ≥1; an entry outside a ticket records
-// none; sums saturate, so the P12a envelope (fixture steps, commands, renewals) and the per-grant P12b
-// maxima cannot wrap.
+// ticketed entry reserved inside the grant it renews, with a command's synced T, lineage and integrity.
+// Lane clocks (ms, one clock, 0 = step not reached): ticket ≤ commitStart ≤ … ≤ casEnd ≤ ack. Commands
+// and renewals share one lane in ticket order: each ticket is at or after the previous entry's ack; commands
+// enter in schedule order; a renewal is a published command in the same sequence space (C3), so a published
+// command n restores and CASes sequence n plus the renewals before it, and a renewal the sequence after the
+// entry before it (the frontier never moves backwards, C3 step 2); a failed entry records no clock after its
+// first 0; and no published step lasts over stepTimeoutS. No minimum step duration is set (no cited doc
+// names one). Use: a published entry records bytes, writes and requests, each ≥1; an entry outside a ticket
+// records none; tickets are charged to their grant's P12b control/recovery maxima; sums saturate, so the
+// P12a envelope (the header's prior cumulative usage, plan calls, fixture steps, commands, renewals) and the
+// per-grant maxima cannot wrap.
 package main
 
 import (
@@ -58,12 +61,12 @@ type procedure struct {
 	WarmupMs, DurationMs, CadenceMs, CasMinSpacingMs                    int64
 	Burst                                                               struct{ AtMs, Count int64 }
 	Mix                                                                 []slot
-	Grant, Ticket, Envelope                                             limits
+	Grant, Control, Ticket, Envelope                                    limits
 	Thresholds                                                          struct{ P95Ms, MaxMs, BurstMs int64 }
 }
 
 // fixed is the only procedure accepted, value for value from docs/reference/deployment-parameters.md:
-// litestream and casMinSpacingMs P4 L63; envelope P12a L74; grant and ticket P12b L75; runs, cadence,
+// litestream and casMinSpacingMs P4 L63; envelope P12a L74; grant, control and ticket P12b L75; runs, cadence,
 // duration, burst count and thresholds P13 L76; seed and database bytes L91; mix sizes and burst minute
 // L95; warm-up L97. This trace contract's own: the schema, sources, the 120 s step timeout, and the mix
 // kind labels, its names for L95's four command categories in order (package/annotation revision update,
@@ -74,7 +77,8 @@ var fixed = procedure{Schema: "prifly/qualification/early-publication/v1", Lites
 	WarmupMs: 5 * 60000, DurationMs: 30 * 60000, CadenceMs: 15000, CasMinSpacingMs: 1100,
 	Burst: struct{ AtMs, Count int64 }{15 * 60000, 10}, Thresholds: struct{ P95Ms, MaxMs, BurstMs int64 }{10000, 30000, 120000},
 	Mix:   []slot{{"package-revision", 256 << 10}, {"attempt-result", 1 << 20}, {"finding-review", 64 << 10}, {"target-reconciliation", 16 << 10}},
-	Grant: limits{10 * 60000, 1 << 30, 4096, 10000}, Ticket: limits{0, 256 << 20, 1024, 8192}, Envelope: limits{0, 8 << 30, 0, 100000}}
+	Grant: limits{10 * 60000, 1 << 30, 4096, 10000}, Control: limits{0, 768 << 20, 3072, 24576},
+	Ticket: limits{0, 256 << 20, 1024, 8192}, Envelope: limits{0, 8 << 30, 0, 100000}}
 
 // Size guards of this layer, not authority values: the fixed workload is 150 commands a run (warm-up
 // and duration at the 15 s cadence plus the burst of 10, L76/L97) over three runs, about 450 command
@@ -91,22 +95,23 @@ type event struct {
 	Ev, Schema, Prefix, Lineage, Generator, Litestream, Kind, Outcome, Reason                  string
 	ProcedureSha256, RunnerSha256, EvaluatorSha256, ProbeSha256, ManifestSha256                string
 	Before, After, PayloadSha256, RestoredPayloadSha256, Txid, RestoreTxid, CasTxid, Integrity string
-	Run, N, Seed, DbBytes, T0, T, Deadline, Arrival, Submit                                    int64
+	Run, N, Seed, DbBytes, T0, T, Deadline, Arrival, Submit, PriorBytes, PriorRequests         int64
 	PayloadBytes, RestoredSeq, CasSeq, Bytes, Writes, Requests                                 int64
 	renewal                                                                                    bool
 }
 
 const lane = " ticket commitStart commitEnd syncStart syncEnd restoreStart restoreEnd casStart casEnd ack"
 
-const renewal = "ev run t deadline outcome bytes writes requests" + lane
+const renewal = "ev run t deadline outcome bytes writes requests txid lineage restoreTxid restoredSeq integrity casSeq casTxid" + lane
 
 // results are the strings a failed command, which never reached its result, may leave empty.
 const results = " after txid lineage restoreTxid restoredPayloadSha256 integrity casTxid "
 
 var keys = map[string]string{
-	"trace": "ev schema procedureSha256 runnerSha256 evaluatorSha256 probeSha256 manifestSha256",
+	"trace": "ev schema procedureSha256 runnerSha256 evaluatorSha256 probeSha256 manifestSha256 priorBytes priorRequests",
 	"run":   "ev run t0 prefix lineage generator seed litestream dbBytes bytes writes requests",
 	"grant": "ev run t deadline",
+	"plan":  "ev run bytes writes requests",
 	"cmd": "ev run n kind arrival submit outcome reason bytes writes requests payloadSha256 payloadBytes before after " +
 		"dbBytes txid lineage restoreTxid restoredSeq restoredPayloadSha256 integrity casSeq casTxid" + lane,
 }
@@ -244,7 +249,7 @@ func main() {
 			arrivals = append(arrivals, a)
 		}
 	}
-	var head event
+	var head, plans event
 	runs, grants, cmds := map[int64]event{}, map[int64][]event{}, map[[2]int64]event{}
 	lines := bytes.Split(bytes.TrimSuffix(in[1], []byte("\n")), []byte("\n"))
 	if len(lines) > maxLines {
@@ -268,6 +273,8 @@ func main() {
 			runs[e.Run] = e
 		case "grant":
 			grants[e.Run] = append(grants[e.Run], e)
+		case "plan":
+			plans.Bytes, plans.Requests = add(plans.Bytes, e.Bytes), add(plans.Requests, e.Requests)
 		case "cmd":
 			_, dup := cmds[[2]int64{e.Run, e.N}]
 			check(dup, "SEQUENCE", e.Run, e.N, "command recorded twice")
@@ -285,7 +292,7 @@ func main() {
 		"IDENTITY", 0, 0, "trace is not bound to this procedure file and evaluator source")
 	fmt.Printf("SUBJECT procedure %s runner %s evaluator %s probe %s manifest %s\n", subject[0], subject[1], subject[2], subject[3], subject[4])
 	seen, first, miss := map[string]bool{}, runs[1], false
-	var usedBytes, usedRequests int64
+	usedBytes, usedRequests := add(head.PriorBytes, plans.Bytes), add(head.PriorRequests, plans.Requests)
 	for r := int64(1); r <= p.Runs; r++ {
 		ru, ok := runs[r]
 		check(!ok || seen[ru.Prefix] || seen[ru.Lineage] || ru.Generator != first.Generator ||
@@ -301,6 +308,9 @@ func main() {
 			if k > 0 {
 				check(g.Outcome != "published" || g.Ticket < grants[r][k-1].T || g.Ticket > grants[r][k-1].Deadline || g.T < g.Ack,
 					"RENEWAL", r, 0, fmt.Sprintf("grant %d is not a ticketed publication reserved inside the grant it renews", k))
+				check(g.Outcome == "published" && (g.RestoreTxid != g.Txid || g.CasTxid != g.Txid || g.Lineage != ru.Lineage),
+					"WRONG-T", r, 0, fmt.Sprintf("grant %d: renewal restore or frontier T/lineage is not the synced T", k))
+				check(g.Outcome == "published" && g.Integrity != "ok", "WRONG-RESULT", r, 0, fmt.Sprintf("grant %d: renewal restore integrity is not ok", k))
 				lane = append(lane, laneEntry{g, k - 1})
 			}
 		}
@@ -332,10 +342,6 @@ func main() {
 					(prev.After != "" && prev.After != c.Before), "NO-OP", r, n, "no state change, replayed or resized payload, or broken state chain")
 				check(c.DbBytes < 1 || c.DbBytes > p.DbMaxBytes, "IDENTITY", r, n, fmt.Sprintf("database size missing or over %d bytes", p.DbMaxBytes))
 				payloads[c.PayloadSha256], prev = true, c
-				for _, seq := range []int64{c.RestoredSeq, c.CasSeq} {
-					check(seq < n, "OLD-FRONTIER", r, n, fmt.Sprintf("restore or frontier at sequence %d", seq))
-					check(seq > n, "LATER-FRONTIER", r, n, fmt.Sprintf("restore or frontier at sequence %d", seq))
-				}
 				check(c.RestoreTxid != c.Txid || c.CasTxid != c.Txid || c.Lineage != ru.Lineage,
 					"WRONG-T", r, n, "restore or frontier T/lineage is not the synced T")
 				check(c.Integrity != "ok" || c.RestoredPayloadSha256 != c.PayloadSha256,
@@ -353,12 +359,21 @@ func main() {
 			}
 		}
 		sort.SliceStable(lane, func(i, j int) bool { return lane[i].Ticket < lane[j].Ticket })
-		free, lastCas, lastN, use := int64(0), int64(math.MinInt64/2), int64(0), make([]limits, len(grants[r]))
+		free, lastCas, lastN, renewals, use := int64(0), int64(math.MinInt64/2), int64(0), int64(0), make([]limits, len(grants[r]))
 		for _, e := range lane {
 			published, reached, last := e.Outcome == "published", true, e.Ticket
 			if e.N > 0 {
 				check(e.N <= lastN, "OLD-FRONTIER", r, e.N, fmt.Sprintf("command entered the lane after command %d; the frontier moved backwards", lastN))
 				lastN = e.N
+			}
+			want := e.N + renewals
+			if e.renewal {
+				renewals++
+				want = lastN + renewals
+			}
+			for _, seq := range []int64{e.RestoredSeq, e.CasSeq} {
+				check(published && seq < want, "OLD-FRONTIER", r, e.N, fmt.Sprintf("restore or frontier at sequence %d", seq))
+				check(published && seq > want, "LATER-FRONTIER", r, e.N, fmt.Sprintf("restore or frontier at sequence %d", seq))
 			}
 			for _, t := range []int64{e.Ticket, e.CommitStart, e.CommitEnd, e.SyncStart, e.SyncEnd, e.RestoreStart, e.RestoreEnd, e.CasStart, e.CasEnd} {
 				reached = reached && (t != 0 || published)
@@ -379,7 +394,8 @@ func main() {
 			u.Bytes, u.Writes, u.Requests = add(u.Bytes, e.Bytes), add(u.Writes, e.Writes), add(u.Requests, e.Requests)
 		}
 		for k, u := range use {
-			check(u.Bytes > p.Grant.Bytes || u.Writes > p.Grant.Writes || u.Requests > p.Grant.Requests, "LEDGER", r, 0, fmt.Sprintf("grant %d use exceeds the P12b grant maxima", k))
+			check(u.Bytes > p.Control.Bytes || u.Writes > p.Control.Writes || u.Requests > p.Control.Requests,
+				"LEDGER", r, 0, fmt.Sprintf("grant %d ticket use exceeds the P12b control/recovery grant maxima", k))
 			if k > 0 {
 				usedBytes, usedRequests = add(usedBytes, grants[r][k].Bytes), add(usedRequests, grants[r][k].Requests)
 			}
@@ -393,7 +409,7 @@ func main() {
 		miss = miss || !meets
 		fmt.Printf("RUN %d measured %d failures %d p95 %d max %d burst %d meets %t\n", r, len(lat), failures, p95, worst, burst, meets)
 	}
-	check(usedBytes > p.Envelope.Bytes || usedRequests > p.Envelope.Requests, "LEDGER", 0, 0, "trace exceeds the P12a envelope (fixture steps, commands and renewals)")
+	check(usedBytes > p.Envelope.Bytes || usedRequests > p.Envelope.Requests, "LEDGER", 0, 0, "trace exceeds the P12a envelope (prior use, plan calls, fixture steps, commands and renewals)")
 	switch {
 	case rejected:
 		fmt.Println("VERDICT: trace rejected; no feasibility result")
