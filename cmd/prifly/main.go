@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/blac9216/PriFly/internal/buildinfo"
+	"github.com/blac9216/PriFly/internal/bundle"
 )
 
 const usage = `Usage: prifly <command>
@@ -28,7 +30,7 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 1 && args[0] == "version" {
 		if len(args) > 1 {
-			fmt.Fprintf(stderr, "prifly: version takes no arguments (got %q)\n\n", args[1:])
+			fmt.Fprintf(stderr, "prifly: version takes no arguments (got %s)\n\n", quoteArgs(args[1:]))
 			fmt.Fprint(stderr, usage)
 			return 2
 		}
@@ -44,7 +46,25 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		cmd = args[0]
 	}
-	fmt.Fprintf(stderr, "prifly: unknown command %q\n\n", cmd)
+	fmt.Fprintf(stderr, "prifly: unknown command %s\n\n", bundle.Quote(cmd))
 	fmt.Fprint(stderr, usage)
 	return 2
+}
+
+// quoteArgs renders args the way fmt's %q renders a []string — the elements
+// quoted, space separated, in brackets — but through bundle.Quote, which is
+// strconv.QuoteToASCII. %q is strconv.Quote, which escapes what is not
+// printable and leaves printable non-ASCII alone, so an argument carrying a
+// homoglyph or a combining mark reaches the operator's terminal as itself.
+// Argv is operator-supplied, and a script iterating a hostile bundle
+// directory's entries supplies names that directory chose.
+//
+// bundle.Quote takes any and has no []string case — it would return the string
+// "object" for a slice — so the elements are rendered one at a time.
+func quoteArgs(args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = bundle.Quote(arg)
+	}
+	return "[" + strings.Join(quoted, " ") + "]"
 }
