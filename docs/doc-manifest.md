@@ -78,20 +78,25 @@ CONTEXT.md at repo root · domain model: docs/explanation/domain-model.md
 
 ## CI
 
-After checkout, the `design-docs` job runs these nine steps, in this order, in:
+After checkout, the `design-docs` job runs these twelve steps, in this order, in:
 .github/workflows/docs-checks.yml (always-report)
 
-1. `check-pointers.sh` — rationale-index pointers resolve.
-2. `adr-index.sh --check` — the ADR index matches the ADR files.
-3. `audit.sh` — the mechanical design-doc audit.
-4. `check-links.sh` — repository-relative Markdown links and fragments resolve.
-5. `test-check-links.sh` — link-checker regression tests.
-6. `check-go-digest.sh` — the register's Go toolchain row matches `GO_ARCHIVE_SHA256`.
-7. `test-check-go-digest.sh` — Go digest checker regression tests.
-8. `scripts/process/test-check-readiness.sh` — readiness-checker regression tests.
-9. `scripts/qualification/early/test-preflight.sh` — early-probe preflight self-test.
+1. `scripts/ci/check-mode-enforcement.sh` — file-mode enforcement probe.
+2. `check-pointers.sh` — rationale-index pointers resolve.
+3. `adr-index.sh --check` — the ADR index matches the ADR files.
+4. `audit.sh` — the mechanical design-doc audit.
+5. `check-links.sh` — repository-relative Markdown links and fragments resolve.
+6. `test-check-links.sh` — link-checker regression tests.
+7. `check-go-digest.sh` — the register's Go toolchain row matches `GO_ARCHIVE_SHA256`.
+8. `test-check-go-digest.sh` — Go digest checker regression tests.
+9. `scripts/process/test-check-readiness.sh` — readiness-checker regression tests.
+10. `scripts/qualification/early/test-preflight.sh` — early-probe preflight self-test.
+11. `check-ci-agreement.sh` — workflow steps and their documentation rows agree.
+12. `test-check-ci-agreement.sh` — agreement checker regression tests.
 
-Scripts source: scripts/docs/ (step 8: scripts/process/; step 9: scripts/qualification/early/)
+Scripts source: the path shown in each entry; an entry naming a bare basename is under
+scripts/docs/. This list, its order and its spelled-out count are checked against the
+workflow file by step 11.
 
 Mechanical checks do not establish semantic quality, product qualification or owner authority.
 Applicable pinned quality profiles, exact source traceability and independent scenario review

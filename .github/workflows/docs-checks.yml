@@ -1,5 +1,16 @@
 # Canonical design-doc checks. Always-report (no path filter) so a docs-only PR
 # cannot hide from a required check.
+#
+# Dispositions:
+# - The first step after checkout is the file-mode enforcement probe (#341). The two
+#   shell self-tests below carry permission cases that self-disable, uncounted, when the
+#   running process can bypass file modes; the probe fails the job instead. It is a
+#   precondition probe, not a uid comparison. See scripts/ci/check-mode-enforcement.sh.
+# - The last two steps make the agreement rule in docs/process/testing.md mechanical
+#   (#337): every step of this job and of go-checks.yml pairs with its Commands-table
+#   row, in order, or is on the checker's written exemption list, and doc-manifest.md's
+#   "## CI" list and its spelled-out count are checked against this job's steps. A step
+#   added here without its row, or a row without its step, is red.
 name: docs-checks
 on:
   pull_request:
@@ -17,6 +28,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: File-mode enforcement probe (a run that bypasses modes fails here)
+        run: bash scripts/ci/check-mode-enforcement.sh
       - name: Rationale-index pointers resolve
         run: bash scripts/docs/check-pointers.sh --root .
       - name: ADR index matches the ADR files
@@ -35,3 +48,7 @@ jobs:
         run: bash scripts/process/test-check-readiness.sh
       - name: Early-probe preflight self-test
         run: bash scripts/qualification/early/test-preflight.sh
+      - name: Workflow steps and their documentation rows agree
+        run: bash scripts/docs/check-ci-agreement.sh --root .
+      - name: CI agreement checker regression tests
+        run: bash scripts/docs/test-check-ci-agreement.sh

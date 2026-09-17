@@ -36,6 +36,16 @@
 #   probe step then fails the job if namespaces are still denied; nothing is
 #   skipped. TMPDIR stays unset (/tmp): the harness proof exits 1 on an
 #   upper-case TMPDIR.
+# - Both jobs run scripts/ci/check-mode-enforcement.sh as their first step after
+#   checkout (#341). Seven verification cases across five sites self-disable when the
+#   running process can bypass file modes, and every one of them leaves its job green;
+#   two of them are dropped by a bare continue that records no skip at all. The probe
+#   makes that precondition mechanical the way the namespace probe above already does
+#   for namespaces: it builds mode-restricted fixtures and fails the job if this process
+#   can still use them. It is a precondition probe, not a uid comparison, so a process
+#   holding CAP_DAC_OVERRIDE without being uid 0 is caught too. It runs before the
+#   toolchain install so a container or root runner fails naming the precondition rather
+#   than on an unrelated later step, and it costs well under a second.
 # - The three early publication proofs (#228) need no namespaces, no locale and
 #   no network: they build fixture.go with the pinned Go and drive publication.sh
 #   against the fake probe and placeholder manifest in the same test directory,
@@ -64,6 +74,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: File-mode enforcement probe (a run that bypasses modes fails here)
+        run: bash scripts/ci/check-mode-enforcement.sh
       - name: Install pinned Go toolchain (verify SHA-256, then extract)
         env:
           GO_ARCHIVE: go1.27.1.linux-amd64.tar.gz
