@@ -78,7 +78,7 @@ CONTEXT.md at repo root · domain model: docs/explanation/domain-model.md
 
 ## CI
 
-After checkout, the `design-docs` job runs these eight steps, in this order, in:
+After checkout, the `design-docs` job runs these nine steps, in this order, in:
 .github/workflows/docs-checks.yml (always-report)
 
 1. `check-pointers.sh` — rationale-index pointers resolve.
@@ -89,8 +89,9 @@ After checkout, the `design-docs` job runs these eight steps, in this order, in:
 6. `check-go-digest.sh` — the register's Go toolchain row matches `GO_ARCHIVE_SHA256`.
 7. `test-check-go-digest.sh` — Go digest checker regression tests.
 8. `scripts/process/test-check-readiness.sh` — readiness-checker regression tests.
+9. `scripts/qualification/early/test-preflight.sh` — early-probe preflight self-test.
 
-Scripts source: scripts/docs/ (step 8: scripts/process/)
+Scripts source: scripts/docs/ (step 8: scripts/process/; step 9: scripts/qualification/early/)
 
 Mechanical checks do not establish semantic quality, product qualification or owner authority.
 Applicable pinned quality profiles, exact source traceability and independent scenario review

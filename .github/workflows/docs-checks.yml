@@ -33,3 +33,5 @@ jobs:
         run: bash scripts/docs/test-check-go-digest.sh
       - name: Readiness-shape checker regression tests
         run: bash scripts/process/test-check-readiness.sh
+      - name: Early-probe preflight self-test
+        run: bash scripts/qualification/early/test-preflight.sh

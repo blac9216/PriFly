@@ -24,10 +24,11 @@ the repository root, plus the Go suite that follows it:
 | Go archive digest agreement | `bash scripts/docs/check-go-digest.sh --root .` | Repository checkout; Bash, standard Unix tools. Fails unless the Go toolchain row of the dependency inventory restates exactly `GO_ARCHIVE_SHA256` from `go-checks.yml`; a missing, repeated or malformed value in either file fails. |
 | Go digest checker regression tests | `bash scripts/docs/test-check-go-digest.sh` | Repository checkout; Bash, standard Unix tools; mutates only scratch copies of the two files. |
 | Readiness-checker regression tests | `bash scripts/process/test-check-readiness.sh` | Repository checkout; Bash, Python 3. |
+| Early-probe preflight self-test | `bash scripts/qualification/early/test-preflight.sh` | Repository checkout; Bash, Python 3; no network. Cases plus a mutant pass over scratch copies of `preflight.sh` and its schema under `${TMPDIR:-/tmp}`. |
 | Sanitize scan | `gitleaks detect --source . --no-banner` | Repository checkout; `gitleaks` binary on `PATH`. Run before every push — this repository is **public**. |
 | Integration | No command exists until a runnable integration surface lands. | Not configured. |
 
-These are exactly the eight `docs-checks.yml` steps plus the sanitize scan; a manifest's
+These are exactly the nine `docs-checks.yml` steps plus the sanitize scan; a manifest's
 **Command** field lists these (and the Go suite below, if Go changed) in the order the
 log actually ran them.
 
@@ -97,4 +98,5 @@ Environment-specific recipes belong in untracked `*.local.md` guidance (for exam
 blocker reported when one is missing, are in [validation.md](validation.md).
 
 Add exact Go integration and coverage commands in the same change that makes each real;
-keep these tables, `docs-checks.yml` and `go-checks.yml` in agreement.
+keep these tables, `docs-checks.yml`, `go-checks.yml` and the `## CI` step list in
+[doc-manifest.md](../doc-manifest.md) in agreement.
