@@ -146,12 +146,13 @@ var hostile = map[string]func(dir string) error{
 			addArtifacts(dir, "xen", "ExecutionEnvelope/v1", `{"bounds": {"attempts": 8, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 123456789012345678901234567890}, "note": "x"}`),
 			addArtifacts(dir, "qev", "QualityEvaluation/v1", `{"results": [{"result": "PASS", "criterion": "x"}, {"result": "NOT_APPLICABLE", "applicability": " "}]}`))
 	},
-	"unbound-work-item": func(dir string) error { // wi6 repeats wi0's bytes: reported once; xen0 is an ExecutionEnvelope/v2 entry
+	"unbound-work-item": func(dir string) error { // wi6 repeats wi0's bytes: reported once; wi7 is an unbound ENABLER, wi8 unbound with no outcomes; xen0 is an ExecutionEnvelope/v2 entry
 		item := func(envelope string) string {
 			return `{"kind": "SLICE", "dependencies": [], "outcomes": [{"baseline": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "obligation": "x"}]` + envelope + `}`
 		}
 		return errors.Join(addItems(dir, item(""), item(`, "execution_envelope": ["`+xenID+`", "`+xenID+`"]`), item(`, "execution_envelope": "bsl_6e73c229223db574a3c8fa28dd5a1a5a"`),
-			item(`, "execution_envelope": "xen_\u001b[2K"`), item(`, "execution_envelope": "xen_`+fmt.Sprintf("%032x", 99)+`"`), item(`, "execution_envelope": "xen_`+fmt.Sprintf("%032x", 0)+`"`), item("")),
+			item(`, "execution_envelope": "xen_\u001b[2K"`), item(`, "execution_envelope": "xen_`+fmt.Sprintf("%032x", 99)+`"`), item(`, "execution_envelope": "xen_`+fmt.Sprintf("%032x", 0)+`"`), item(""),
+			`{"kind": "ENABLER", "consumers": ["`+wiN(0)+`"], "dependencies": [], "outcomes": [{"baseline": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "obligation": "x"}]}`, `{"kind": "SLICE", "dependencies": []}`),
 			addArtifacts(dir, "xen", "ExecutionEnvelope/v2", `{}`))
 	},
 	"invalid-utf8": func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, "\"wi_\xff\xfe8887ffc") },
@@ -404,7 +405,10 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"invalid-type " + at(3, ".results: want array"),
 			"invalid-content " + at(4, ": want one JSON object with unique keys and exact strings")},
 		"unbound-work-item": {
-			"unsupported-schema $.artifacts[11].schema: artifact schema \"ExecutionEnvelope/v2\" is not supported",
+			"unbound-work-item " + at(7, ".execution_envelope: Work Item names no ExecutionEnvelope/v1 artifact"),
+			"unbound-work-item " + at(8, ".execution_envelope: Work Item names no ExecutionEnvelope/v1 artifact"),
+			"orphan-work-item " + at(8, ".outcomes: Work Item names no outcome traced to a baseline obligation"),
+			"unsupported-schema $.artifacts[13].schema: artifact schema \"ExecutionEnvelope/v2\" is not supported",
 			"unbound-work-item " + at(0, ".execution_envelope: Work Item names no ExecutionEnvelope/v1 artifact"),
 			"invalid-type " + at(1, ".execution_envelope: want string"),
 			"invalid-id " + at(2, `.execution_envelope: want xen_<32 lowercase hex>, got "bsl_6e73c229223db574a3c8fa28dd5a1a5a"`),
