@@ -194,7 +194,7 @@ func (c *checker) ident(m map[string]any, p, prefix string) identity {
 // artifact checks one artifacts[] entry at path p, compares the SHA-256 of its
 // file's exact bytes, read through readRegular within the artifact bytes left
 // (w.left), with the declared digest, and
-// returns the artifact's identity and its references' identities; a WorkItem/v1
+// returns the artifact's identity and those of its references with an ID; a WorkItem/v1
 // entry is added to w with the body read from its bytes, every entry's schema
 // and ID, and each first ExecutionEnvelope/v1 ID, are added to w, and
 // ExecutionEnvelope/v1 and QualityEvaluation/v1 content is checked.
