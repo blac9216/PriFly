@@ -4,7 +4,10 @@
 # exit status and the diagnostic, so a checker that started exiting non-zero for the
 # wrong reason would not pass. Each mutation #337 names has a case here, and each
 # exemption entry has a case that only that entry satisfies, so deleting any one entry
-# turns a named case red. All cases run; the script exits 1 if any failed.
+# turns a named case red. Each mutation #347 and #348 name has a case too, including the
+# one #347 M3 records as a limit rather than a defect, and the three written lists those
+# two issues add are each proved to rot in both directions. All cases run; the script
+# exits 1 if any failed.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -65,6 +68,17 @@ drop_exemption() {
     /^# --- the exemption list/ { inblock = 1 }
     /^# --- end of the exemption list/ { inblock = 0 }
     inblock && /^        "/ { count++; if (count == n) next }
+    { print }
+  ' "$SCRIPT_DIR/check-ci-agreement.sh" >"$fixture_dir/checker.sh"
+  checker="$fixture_dir/checker.sh"
+}
+
+# set_conditional LITERAL: copy the checker with its conditional-step list replaced by
+# the Python dict literal LITERAL, and point the next case at that copy. The list is
+# empty in the tree, so this is how its two directions are proved.
+set_conditional() {
+  awk -v literal="$1" '
+    /^CONDITIONAL_STEPS: / { print "CONDITIONAL_STEPS = " literal; next }
     { print }
   ' "$SCRIPT_DIR/check-ci-agreement.sh" >"$fixture_dir/checker.sh"
   checker="$fixture_dir/checker.sh"
@@ -186,6 +200,103 @@ check_case 'a manifest entry naming another script fails' 1 'does not appear in 
 reset_fixture
 sed -i 's@^## CI$@## CI steps@' "$manifest"
 check_case 'a missing CI section fails' 3 "has no '## CI' section"
+
+# --- #347 M1: the manifest list is matched by whole path component, not by substring ---
+# The "## CI" list holds three X.sh / test-X.sh pairs, so a narrowed entry is one
+# adjacent entry away from naming a script that is a substring of its neighbour's.
+reset_fixture
+sed -i 's@^6. `test-check-links.sh`@6. `check-links.sh`@' "$manifest"
+check_case 'a manifest entry narrowed to a substring fails' 1 "entry 6 names 'check-links.sh'"
+also_expect 'the narrowed entry says what it failed to match' 'as a whole path component'
+also_expect 'the narrowed entry names the step it was checked against' "runs 'bash scripts/docs/test-check-links.sh'"
+
+# --- #347 M2: a placeholder may only widen a row the checker's list names -------------
+reset_fixture
+sed -i 's@^| Vet | `go vet ./...` |@| Vet | `go <anything> ./...` |@' "$testing"
+check_case 'a placeholder on an undeclared row fails' 1 "row 'Vet' in the Go suite table documents '<anything>' as a placeholder"
+also_expect 'the undeclared placeholder says the list did not cover it' 'no entry in the checker'"'"'s documented-placeholder list covers the row'
+
+# The declared row is load-bearing in both directions: its entry names a row that must
+# exist and must still hold exactly the placeholder tokens the entry declares.
+reset_fixture
+sed -i 's@^| Mechanical audit | `bash scripts/docs/audit.sh --root . --out <scratch-path>/gap.md` |@| Mechanical audit | `bash scripts/docs/audit.sh --root . --out <scratch-path>/<name>.md` |@' "$testing"
+check_case 'a declared row that gains a placeholder token fails' 1 "entry 'Mechanical audit' in the documentation suite table declares '<scratch-path>/gap.md'"
+also_expect 'the changed declaration names what the row now documents' "but the row documents '<scratch-path>/<name>.md'"
+reset_fixture
+sed -i 's@^| Mechanical audit | @| Audit, renamed | @' "$testing"
+check_case 'a declared placeholder row that no longer exists fails' 1 "entry 'Mechanical audit' names no paired row of the documentation suite table"
+
+# --- #347 M3: a paired step name is deliberately unchecked ---------------------------
+# Pinned, not overlooked: the checker's header records that step names, Suite labels and
+# manifest glosses are prose in three different voices with no convention to compare them
+# under. If a later change starts checking them, this case turns red and the header is
+# what has to be corrected with it.
+reset_fixture
+sed -i 's@^      - name: Rationale-index pointers resolve$@      - name: Totally different name@' "$wf_docs"
+check_case 'renaming a paired step still passes, as the header records' 0 'workflow steps agree with their documented commands'
+
+# --- #347 M4: the boundary between two tables paired against one job ------------------
+reset_fixture
+python3 - "$testing" <<'INNER'
+import sys, pathlib
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text().split("\n")
+row = next(line for line in lines if line.startswith("| Build |"))
+lines.remove(row)
+lines.insert(next(i for i, line in enumerate(lines) if line.startswith("| Runner namespace setting |")), row)
+path.write_text("\n".join(lines))
+INNER
+check_case 'a row moved across the table boundary fails' 1 'the qualification local proofs table starts at position 7'
+also_expect 'the moved row names the step the boundary fell on' "runs 'go build'"
+also_expect 'the moved row names the step the boundary list declares' "but the checker's table boundary list names 'Allow unprivileged user namespaces (hosted runner AppArmor)'"
+
+reset_fixture
+sed -i 's@^      - name: Allow unprivileged user namespaces (hosted runner AppArmor)$@      - name: Renamed boundary step@' "$wf_go"
+check_case 'renaming the step a boundary names fails' 1 "table boundary list names 'Allow unprivileged user namespaces (hosted runner AppArmor)'"
+
+# --- #348: the attributes that decide whether a paired step runs and blocks -----------
+reset_fixture
+sed -i 's@^        run: bash scripts/ci/check-mode-enforcement.sh$@        if: ${{ github.event_name == null }}\n        run: bash scripts/ci/check-mode-enforcement.sh@' "$wf_go"
+check_case 'a never-firing if on a paired go-checks step fails' 1 'carries if: ${{ github.event_name == null }}'
+also_expect 'the condition names the step it switches off' "go-checks.yml step 'File-mode enforcement probe (a run that bypasses modes fails here)'"
+also_expect 'the condition says no entry covers it' "no entry in the checker's conditional-step list covers it"
+
+reset_fixture
+sed -i 's@^        run: bash scripts/ci/check-mode-enforcement.sh$@        continue-on-error: true\n        run: bash scripts/ci/check-mode-enforcement.sh@' "$wf_docs"
+check_case 'continue-on-error on a paired docs-checks step fails' 1 'carries continue-on-error: true'
+also_expect 'the non-blocking step is named' "docs-checks.yml step 'File-mode enforcement probe (a run that bypasses modes fails here)'"
+
+reset_fixture
+sed -i 's@^        run: go vet ./...$@        env:\n          GOFLAGS: -tags=skip\n        run: go vet ./...@' "$wf_go"
+check_case 'env on a paired step fails' 1 'carries env:'
+also_expect 'the env step is named' "step 'go vet'"
+
+# An attribute the treatment does not recognise is an error naming it, not a skip.
+reset_fixture
+sed -i 's@^        run: go vet ./...$@        shell: bash\n        run: go vet ./...@' "$wf_go"
+check_case 'an unrecognised attribute on a paired step fails' 3 'carries shell:, which this checker does not recognise on a paired step'
+also_expect 'the unrecognised attribute says it was not skipped' 'so it is not skipped'
+
+# timeout-minutes is permitted, and the header records why: it can only make a documented
+# step fail sooner, never stop running or stop blocking.
+reset_fixture
+sed -i 's@^        run: go vet ./...$@        timeout-minutes: 5\n        run: go vet ./...@' "$wf_go"
+check_case 'timeout-minutes on a paired step still passes' 0 'workflow steps agree with their documented commands'
+
+# The conditional-step list is load-bearing in both directions, like the exemption list.
+reset_fixture
+sed -i 's@^        run: bash scripts/ci/check-mode-enforcement.sh$@        if: ${{ github.event_name == null }}\n        run: bash scripts/ci/check-mode-enforcement.sh@' "$wf_go"
+set_conditional '{".github/workflows/go-checks.yml": {"File-mode enforcement probe (a run that bypasses modes fails here)": ["if"]}}'
+check_case 'a declared conditional step passes and is counted' 0 '1 conditional step'
+reset_fixture
+set_conditional '{".github/workflows/go-checks.yml": {"File-mode enforcement probe (a run that bypasses modes fails here)": ["if"]}}'
+check_case 'a conditional entry for an attribute the step lacks fails' 1 'declares if:, which .github/workflows/go-checks.yml step '"'"'File-mode enforcement probe (a run that bypasses modes fails here)'"'"' does not carry'
+reset_fixture
+set_conditional '{".github/workflows/go-checks.yml": {"No such step": ["if"]}}'
+check_case 'a conditional entry naming no step fails' 1 "entry 'No such step' names 0 paired steps"
+reset_fixture
+set_conditional '{".github/workflows/go-checks.yml": {"Check out the PR head commit (not the synthetic merge ref)": ["if"]}}'
+check_case 'a conditional entry naming an exempt step fails' 1 "entry 'Check out the PR head commit (not the synthetic merge ref)' names 0 paired steps"
 
 reset_fixture
 echo "test-check-ci-agreement: $passed cases passed, $failed failed"
