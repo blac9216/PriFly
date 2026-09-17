@@ -21,6 +21,7 @@
 #                   lines to WORKSPACE/sentinel
 #   stop RUN        cancel the attempt; return only after the launcher's own stop verification
 #   inventory RUN   print the count of attempt-owned processes and containers still live
+#   (in abort cleanup, stop and inventory inherit INT/TERM/HUP ignored from the runner)
 # Raw control targets are the manifest's outer engine socket and the private HerdR server
 # socket (--herdr-socket; the manifest does not name it); the other workspace is a sibling
 # directory this runner creates under --work, whose resolved path must lie inside the
