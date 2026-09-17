@@ -12,7 +12,7 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/prifly-early-result-tests.XXXXXX")"
 trap 'rm -rf -- "$work"' EXIT
 go build -o "$work/result" "$RESULT"
 fails=0
-{  # success: codex-cli run a1 and claude-code run b2, writers every 100ms, 400ms window
+{  # success: codex-cli run a1 and claude-code run b2, writers every 100ms, 300ms declared window, 400ms observed
   echo '{"ev":"trace","schema":"prifly/qualification/early-trace/v1","observe_ms":300}'
   for c in "codex-cli 0.154.0 a1 1000" "claude-code 2.1.268 b2 5000"; do
     read -r h v r t <<<"$c"
