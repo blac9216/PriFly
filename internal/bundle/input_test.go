@@ -3,6 +3,7 @@ package bundle
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -220,6 +221,51 @@ func TestFaultsMemory(t *testing.T) {
 				t.Errorf("Faults allocated %d bytes for %d input bytes (limit 32x), first of %d faults %.40q", n, len(raw), len(faults), faults)
 			}
 		})
+	}
+}
+
+// TestGraphMemory bounds the bytes allocated per Work Item by reading bodies and
+// running graph at the larger size to twice those at the smaller: for a ring of
+// 1,000 and of 16,000 Work Items (the longest cycle; a cycle name or walk copied
+// per step is quadratic), and for 200 and 800 entries naming one content that
+// lists 2n IDs, n unresolved (bytes parsed, edges held or diagnostics reported
+// per entry sharing it are quadratic).
+func TestGraphMemory(t *testing.T) {
+	wi := func(i int) string { return fmt.Sprintf(`{"work_item": "wi_%032x"}`, i) }
+	perItem := func(n int, shared bool) uint64 {
+		contents, keys, want := make([][]byte, n), make([]string, n), 1
+		for i := range contents {
+			deps := []string{wi((i + 1) % n)}
+			if keys[i] = fmt.Sprint(i); shared {
+				deps, keys[i], want = []string{}, "shared", n+1
+				for j := range 2 * n {
+					deps = append(deps, wi(j))
+				}
+			}
+			contents[i] = []byte(`{"kind": "SLICE", "dependencies": [` + strings.Join(deps, ", ") + `]}`)
+		}
+		var c checker
+		var before, after runtime.MemStats
+		w := workItems{digest: map[string]int{}}
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		for i, content := range contents {
+			w.items = append(w.items, workItem{"$", fmt.Sprintf("wi_%032x", i), w.read(&c, "$", keys[i], content)})
+		}
+		c.graph(w)
+		runtime.ReadMemStats(&after)
+		if len(c) != want || c[len(c)-1].Code != "dependency-cycle" {
+			t.Errorf("%d Work Items, shared %v: got %d diagnostics, want %d ending in dependency-cycle", n, shared, len(c), want)
+		}
+		return (after.TotalAlloc - before.TotalAlloc) / uint64(n)
+	}
+	for _, s := range []struct {
+		small, large int
+		shared       bool
+	}{{1000, 16000, false}, {200, 800, true}} {
+		if small, large := perItem(s.small, s.shared), perItem(s.large, s.shared); large > 2*small {
+			t.Errorf("shared %v: %d bytes per Work Item for %d, %d for %d (limit 2x)", s.shared, large, s.large, small, s.small)
+		}
 	}
 }
 
