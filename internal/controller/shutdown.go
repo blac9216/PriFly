@@ -12,8 +12,9 @@ import (
 // DefaultShutdownBound is the maximum duration priflyd allows its shutdown
 // hook to run after SIGINT/SIGTERM before giving up and returning an error.
 //
-// This value is a non-normative placeholder. The governed controller
-// shutdown bound has not yet been fixed by the Planning Baseline.
+// The owner fixed this bound at 10 seconds, matching Docker's default stop
+// grace period and P9b's 10 s attempt-container grace
+// (https://github.com/blac9216/PriFly/issues/136#issuecomment-5715010263).
 const DefaultShutdownBound = 10 * time.Second
 
 // ErrShutdownTimedOut is returned by Run when the shutdown hook did not

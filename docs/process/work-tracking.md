@@ -96,9 +96,11 @@ workflow's target Status or auto-add filter. Before relying on "item added → T
 refresh recipe above shows only names and enabled state.
 
 The `workflow-main` branch ruleset (`gh api repos/blac9216/PriFly/rulesets/23306001`,
-read live 2026-09-16) is `active` on the default branch with: required status check
-`design-docs` (strict/up-to-date), linear history, no deletion, no non-fast-forward
-pushes, and a pull-request rule with `required_approving_review_count: 0`. Its
+read live 2026-09-17) is `active` on the default branch with: required status checks
+`design-docs` and `go` (strict/up-to-date; `go` added by owner authorization on
+[#143](https://github.com/blac9216/PriFly/issues/143#issuecomment-5715010070)), linear
+history, no deletion, no non-fast-forward pushes, and a pull-request rule with
+`required_approving_review_count: 0`. Its
 `bypass_actors` list is `RepositoryRole` id 5 (Admin) with `bypass_mode: always`, so an
 admin account can bypass every one of those rules. See "Known identity limitation" below
 for what these values mean in practice.
@@ -133,8 +135,8 @@ but GitHub does **not** enforce it by identity. Two live facts show the gap:
   role acts as the same account, `blac9216`;
 - the ruleset's bypass actor is the Admin repository role with `bypass_mode: always`, and
   the owner account `blac9216` is an admin. That account can merge or push past the
-  required `design-docs` check, linear history, and non-fast-forward rules, whoever
-  authored the change.
+  required `design-docs` and `go` checks, linear history, and non-fast-forward rules,
+  whoever authored the change.
 
 Separation is enforced today only by **workflow role separation and the recorded
 review/merge history**: distinct dispatch prompts, a fresh-context Reviewer round, and

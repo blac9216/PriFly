@@ -2,12 +2,16 @@
 
 ## Required checks
 
-- `design-docs` — the single required status check on `workflow-main`
-  (`gh api repos/blac9216/PriFly/rulesets/23306001`, read live 2026-09-16).
+- `design-docs` and `go` — both required status checks on `workflow-main`
+  (`gh api repos/blac9216/PriFly/rulesets/23306001`, read live 2026-09-17; the owner
+  authorized adding `go` on [#143](https://github.com/blac9216/PriFly/issues/143),
+  applied by the orchestrator
+  ([issue comment](https://github.com/blac9216/PriFly/issues/143#issuecomment-5715010070))).
 
-The check is the always-reporting `design-docs` job in
-`.github/workflows/docs-checks.yml`. That workflow has no pull-request path filter, so
-the check is safe to require on every pull request, including a documentation-only one.
+`design-docs` is the always-reporting job in `.github/workflows/docs-checks.yml`. That
+workflow has no pull-request path filter, so the check is safe to require on every pull
+request, including a documentation-only one. `go` is the job in
+`.github/workflows/go-checks.yml` described below; it is now required the same way.
 
 ## Commands
 
@@ -32,7 +36,7 @@ These are exactly the nine `docs-checks.yml` steps plus the sanitize scan; a man
 **Command** field lists these (and the Go suite below, if Go changed) in the order the
 log actually ran them.
 
-Go suite (`cmd/`, `internal/`): exactly the steps of the always-reporting, not-yet-required
+Go suite (`cmd/`, `internal/`): exactly the steps of the always-reporting, required
 `go` job in `.github/workflows/go-checks.yml`, same order and flags, followed in that job by
 the qualification local proofs below.
 
