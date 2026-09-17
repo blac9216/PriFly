@@ -4,21 +4,25 @@
 # A run with a fake probe is never a live PASS; this script itself contacts nothing remote.
 # Usage: publication.sh --manifest FILE --probe EXECUTABLE --ledger FILE --work DIR
 # The ledger is the operator-held record {"bytes":N,"requests":N} of use already charged to the shared
-# cumulative P12a envelope. It is required, read before any probe call, and rewritten after every debit and
-# settlement, so it never shows less than may have been sent; the trace header carries the prior values.
-# Probe contract: argv, then (except plan) the entry's remaining reservation BYTES WRITES REQUESTS, which
-# its use must stay within; its last stdout line is one JSON object with the fields below and the bytes,
-# writes and requests it used:
-#   plan RUN fixture|renewal|KIND PAYLOAD_BYTES → a finite bound: bytes writes requests (no remote use)
+# cumulative P12a envelope. It is required as exactly one such document, read before any probe call, and
+# rewritten and read back after every debit and settlement, before anything more is sent; a failed write or
+# readback aborts, so the file never shows less than may have been sent or than the LEDGER line reports.
+# The trace header carries the prior values. Probe contract: argv, then (except declare) the remaining
+# reservation BYTES WRITES REQUESTS, which its use must stay within; its last stdout line is one JSON object
+# with the fields below and the bytes, writes and requests it used:
+#   declare                                     → (no remote use) the most one plan call may use
+#   plan RUN fixture|renewal|KIND PAYLOAD_BYTES → the entry's finite bound: planBytes planWrites planRequests
 #   fixture RUN BUCKET_REF PREFIX SEED DIR      → generator seed litestream dbBytes lineage
 #   artifact RUN N KIND PAYLOAD_BYTES           → payloadSha256 payloadBytes (upload and read-verify)
 #   commit RUN SEQ N (N 0: renewal)             → before after dbBytes
 #   sync RUN SEQ → txid lineage | restore RUN SEQ TXID → restoreTxid restoredSeq restoredPayloadSha256 integrity
 #   cas RUN SEQ TXID                            → casSeq casTxid
-# Per run: the fixture within P12a, a grant, a held renewal ticket, then each command at its submission
-# clock: plan it; renew first when the grant lacks room for this ticket beside the held one (P12b) or ends
+# Each plan call is reserved at the declared use, debited, settled and traced as a plan line. Per run: the
+# fixture within P12a, a grant, a held renewal ticket, then each command at its submission clock: plan it;
+# renew first when the grant's control/recovery maxima lack room for this ticket beside the held one (P12b) or ends
 # within thresholds.maxMs (a slower publication misses P13 anyway, and a renewal must reserve inside a live
-# grant). A renewal is a published command on the next sequence number (C3). Each entry: reserve the whole
+# grant). A renewal is a published command on the next sequence number (C3); if it or its re-hold fails, the
+# command is recorded failed with no ticket, use or clock. Each entry: reserve the whole
 # ticket; artifact; commit; sync, requiring a 16-hex TXID and the run's lineage before restore; restore that
 # T, requiring its sequence, T, integrity and result; pace the CAS casMinSpacingMs after the last (P4);
 # require the CAS readback of sequence and T; only then ack. Each probe call runs under timeout -k 1
@@ -26,7 +30,8 @@
 # ambiguous CAS never admits a successor; blocked commands are recorded failed, never dropped. A reservation
 # that would pass P12a is not made. Exit: fixture.go's code; 20 refused before any probe call (usage;
 # ledger missing, malformed or at the envelope; clock; preflight non-zero; evaluator build); 21 aborted with
-# no verdict (a fixture step failed or would pass P12a, the clock ran backwards, or a signal).
+# no verdict (no plan use declared, a fixture step failed or would pass P12a, a ledger write, the clock ran
+# backwards, a signal, or any other failure).
 # shellcheck disable=SC2015,SC2016  # A && B || C is the fail-closed form here; jq filters expand inside jq
 set -euo pipefail
 
@@ -38,8 +43,8 @@ halt() { if ((STOP == 20)); then echo "REFUSED: $*; no probe step ran"; else ech
 MANIFEST="$2" PROBE="$4" LEDGER="$6" WORK="$8"
 USE='select(type == "object" and all(.bytes, .writes, .requests; type == "number" and . >= 0 and . < 9007199254740992 and . == floor))'
 read -r RUNS SEED STEP SPACING MAXMS GMS GB GW GR TB TW TR EB ER < <(jq -r '[.runs, .seed, .stepTimeoutS, .casMinSpacingMs,
-  .thresholds.maxMs, (.grant | .ms, .bytes, .writes, .requests), (.ticket | .bytes, .writes, .requests), .envelope.bytes, .envelope.requests] | @tsv' "$PROC")
-read -r PB PR < <(jq -r "select(type == \"object\" and keys == [\"bytes\", \"requests\"]) | .writes = 0 | $USE | \"\(.bytes) \(.requests)\"" "$LEDGER" 2>/dev/null) ||
+  .thresholds.maxMs, .grant.ms, (.control | .bytes, .writes, .requests), (.ticket | .bytes, .writes, .requests), .envelope.bytes, .envelope.requests] | @tsv' "$PROC")
+read -r PB PR < <(jq -rs "select(length == 1) | .[0] | select(type == \"object\" and keys == [\"bytes\", \"requests\"]) | .writes = 0 | $USE | \"\(.bytes) \(.requests)\"" "$LEDGER" 2>/dev/null) ||
   halt "--ledger must hold the prior cumulative P12a use as {\"bytes\":N,\"requests\":N}"
 ((PB < EB && PR < ER)) || halt "prior P12a use of $PB bytes and $PR requests is at the $EB-byte or $ER-request envelope"
 now() {  # NOW: epoch ms from date's full-width nanoseconds; another shape, or a clock running backwards, halts
@@ -58,9 +63,14 @@ read -r BUCKET PREFIX < <(jq -r '[.r2.bucket_ref, .r2.prefix] | @tsv' "$MANIFEST
 TRACE="$WORK/trace.jsonl" CALLS=0 UB=0 UR=0 STOP=21
 declare -A CLK=()
 report() { echo "LEDGER: prior $PB bytes $PR requests; after this invocation $((PB + UB)) bytes $((PR + UR)) requests"; }
-trap report EXIT
+finish() { local rc=$?; trap - EXIT; report; ((rc == 21)) || echo "ABORTED: exit $rc; no verdict"; exit 21; }  # every exit but exec
+trap finish EXIT
 trap 'halt "signal"' INT TERM HUP
-ledger() { printf '{"bytes":%d,"requests":%d}\n' $((PB + UB)) $((PR + UR)) >"$LEDGER.new" && mv "$LEDGER.new" "$LEDGER"; }
+ledger() {  # BYTES REQUESTS: this invocation's charge UB UR once the ledger file holds it and reads back
+  local j; j="$(printf '{"bytes":%d,"requests":%d}' $((PB + $1)) $((PR + $2)))"
+  { echo "$j" >"$LEDGER.new" && mv "$LEDGER.new" "$LEDGER" && [[ "$(cat "$LEDGER")" == "$j" ]]; } 2>/dev/null || halt "ledger write failed"
+  UB=$1 UR=$2
+}
 ms() { printf '%d.%03d' $(($1 / 1000)) $(($1 % 1000)); }
 sha() { sha256sum "$1" | cut -d' ' -f1; }
 call() {  # KEYS VERB ARGS...: one bounded probe call, its output in its own file; b w r = its use, PICK = KEYS of it
@@ -70,7 +80,15 @@ call() {  # KEYS VERB ARGS...: one bounded probe call, its output in its own fil
   read -r b w r PICK < <(tail -n1 "$f" | jq -rc --arg k "$keys" "$USE"' | "\(.bytes) \(.writes) \(.requests) \(with_entries(select(.key | IN($k | split(" ")[]))))"' 2>/dev/null) &&
     ((rc == 0)) || { REASON="$1-exit$rc"; ((rc)) || REASON="$1-output"; return 1; }
 }
-plan() { call "" plan "$run" "$@" && RB=$b RW=$w RR=$r; }
+plan() {  # WHAT PAYLOAD_BYTES: RB RW RR = the probe's bound, its call charged like an entry at the declared plan use
+  ((PB + UB + DB <= EB && PR + UR + DR <= ER)) || { REASON=envelope; return 1; }
+  local rc=0; ledger $((UB + DB)) $((UR + DR)); LB=$DB LW=$DW LR=$DR PART=""
+  step "planBytes planWrites planRequests" plan "$run" "$@" || rc=1 LB=0 LW=0 LR=0
+  ledger $((UB - LB)) $((UR - LR))
+  printf '{"ev":"plan","run":%d,"bytes":%d,"writes":%d,"requests":%d}\n' "$run" $((DB - LB)) $((DW - LW)) $((DR - LR)) >>"$TRACE"
+  ((rc == 0)) && read -r RB RW RR < <(printf '%s' "$PART" | jq -r "{bytes: .planBytes, writes: .planWrites, requests: .planRequests} | $USE | \"\(.bytes) \(.writes) \(.requests)\"") ||
+    { ((rc)) || REASON=plan-output; return 1; }
+}
 step() {  # KEYS VERB ARGS...: a probe step within the remaining reservation LB LW LR; KEYS of its output join PART
   call "$@" "$LB" "$LW" "$LR" || return 1
   ((b <= LB && w <= LW && r <= LR)) || { REASON="$2-over-ticket"; return 1; }
@@ -93,7 +111,7 @@ fits() {  # HELD_B HELD_W HELD_R: the reservation RB RW RR beside a held ticket 
 }
 publish() {  # N PAYLOAD_BYTES: entry KIND at sequence SEQ, ticketed at the NOW its checks read; debits RB RW RR before sending
   CLK=([ticket]=$NOW) LB=$RB LW=$RW LR=$RR PART="" TXID=""
-  QB=$((QB + RB)) QW=$((QW + RW)) QR=$((QR + RR)) UB=$((UB + RB)) UR=$((UR + RR)); ledger
+  QB=$((QB + RB)) QW=$((QW + RW)) QR=$((QR + RR)); ledger $((UB + RB)) $((UR + RR))
   [[ $KIND == renewal ]] || step "payloadSha256 payloadBytes" artifact "$run" "$1" "$KIND" "$2" || return 1
   timed commit "before after dbBytes" "$1" && timed sync "txid lineage" || return 1
   TXID="$(printf '%s' "$PART" | jq -rs 'add.txid | strings')"
@@ -109,7 +127,7 @@ publish() {  # N PAYLOAD_BYTES: entry KIND at sequence SEQ, ticketed at the NOW 
 entry() {  # N PAYLOAD_BYTES: publish, then settle: a published entry's charge becomes its use, a failure keeps all
   SEQ=$((SEQ + 1)) OUTCOME=published REASON=""
   publish "$@" || OUTCOME=failed LB=0 LW=0 LR=0
-  QB=$((QB - LB)) QW=$((QW - LW)) QR=$((QR - LR)) UB=$((UB - LB)) UR=$((UR - LR)); ledger
+  QB=$((QB - LB)) QW=$((QW - LW)) QR=$((QR - LR)); ledger $((UB - LB)) $((UR - LR))
   SB=$((RB - LB)) SW=$((RW - LW)) SR=$((RR - LR))
 }
 hold() { if plan renewal 0 && ((RB <= TB && RW <= TW && RR <= TR)); then HB=$RB HW=$RW HR=$RR; else REASON=renewal-plan; return 1; fi; }
@@ -119,17 +137,18 @@ renew() {  # the held ticket as a published command; its grant opens at its ack
   fits 0 0 0 || return 1
   entry 0 0
   local t=0; [[ $OUTCOME != published ]] || t=${CLK[ack]}
-  emit "{\"ev\":\"grant\",\"run\":$run,\"t\":$t,\"deadline\":$((t ? t + GMS : 0)),\"outcome\":\"$OUTCOME\",\"bytes\":$SB,\"writes\":$SW,\"requests\":$SR,\"restoredSeq\":0,\"casSeq\":0$(clocks)}"
+  emit "{\"ev\":\"grant\",\"run\":$run,\"t\":$t,\"deadline\":$((t ? t + GMS : 0)),\"outcome\":\"$OUTCOME\",\"bytes\":$SB,\"writes\":$SW,\"requests\":$SR,\"txid\":\"\",\"lineage\":\"\",\"restoreTxid\":\"\",\"restoredSeq\":0,\"integrity\":\"\",\"casSeq\":0,\"casTxid\":\"\"$(clocks)}"
   [[ $OUTCOME == published ]] && DEADLINE=$((t + GMS)) QB=0 QW=0 QR=0 && hold
 }
 order() {  # command n at its submission clock; 1 when the lane must block
   now; ((submit <= NOW)) || sleep "$(ms $((submit - NOW)))"
   plan "$kind" "$size" || return 1
-  ((RB <= TB && RW <= TW && RR <= TR)) || { REASON=plan-over-ticket; return 1; }
-  local cb=$RB cw=$RW cr=$RR; now
+  ((RB <= TB && RW <= TW && RR <= TR)) || { REASON=plan-over-maxima; return 1; }
+  local cb=$RB cw=$RW cr=$RR rc=0; now
   if ! fits "$HB" "$HW" "$HR" || ((NOW + MAXMS > DEADLINE)); then
-    [[ $REASON != envelope ]] && renew || return 1
-    CLK=() PART="" OUTCOME=failed SB=0 SW=0 SR=0 RB=$cb RW=$cw RR=$cr
+    [[ $REASON != envelope ]] && renew || rc=1
+    CLK=() PART="" OUTCOME=failed SB=0 SW=0 SR=0 RB=$cb RW=$cw RR=$cr  # the renewal's state never reaches the command
+    ((rc == 0)) || { [[ $REASON == envelope ]] || REASON="renewal-${REASON#renewal-}"; return 1; }
     fits "$HB" "$HW" "$HR" || return 1
   fi
   KIND="$kind"; entry "$n" "$size"
@@ -138,13 +157,15 @@ order() {  # command n at its submission clock; 1 when the lane must block
 
 printf '{"ev":"trace","schema":"prifly/qualification/early-publication-trace/v1","procedureSha256":"%s","runnerSha256":"%s","evaluatorSha256":"%s","probeSha256":"%s","manifestSha256":"%s","priorBytes":%d,"priorRequests":%d}\n' \
   "$(sha "$PROC")" "$(sha "${BASH_SOURCE[0]}")" "$(sha "$HERE/fixture.go")" "$(sha "$PROBE")" "$(sha "$MANIFEST")" "$PB" "$PR" >"$TRACE"
+call "" declare || halt "the probe declares no plan use: $REASON"
+DB=$b DW=$w DR=$r
 for ((run = 1; run <= RUNS; run++)); do
-  prefix="${PREFIX}run$run-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')/" PART="" QB=0 QW=0 QR=0 REASON=""
+  prefix="${PREFIX}run$run-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')/" QB=0 QW=0 QR=0 REASON=""
   plan fixture 0 || halt "run $run fixture plan: $REASON"
   ((PB + UB + RB <= EB && PR + UR + RR <= ER)) || halt "run $run fixture would pass the P12a envelope"
-  LB=$RB LW=$RW LR=$RR UB=$((UB + RB)) UR=$((UR + RR)); ledger
+  LB=$RB LW=$RW LR=$RR PART=""; ledger $((UB + RB)) $((UR + RR))
   step "generator seed litestream dbBytes lineage" fixture "$run" "$BUCKET" "$prefix" "$SEED" "$WORK/run$run" || halt "run $run fixture: $REASON"
-  UB=$((UB - LB)) UR=$((UR - LR)); ledger
+  ledger $((UB - LB)) $((UR - LR))
   LINEAGE="$(printf '%s' "$PART" | jq -rs 'add.lineage | strings')"; now; T0=$NOW
   [[ -n $LINEAGE ]] || halt "run $run fixture reported no lineage"
   emit "{\"ev\":\"run\",\"run\":$run,\"t0\":$T0,\"prefix\":\"$prefix\",\"lineage\":\"\",\"generator\":\"\",\"seed\":0,\"litestream\":\"\",\"dbBytes\":0,\"bytes\":$((RB - LB)),\"writes\":$((RW - LW)),\"requests\":$((RR - LR))}"
