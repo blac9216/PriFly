@@ -1,6 +1,11 @@
+//go:build linux
+
 // Package bootstrap fetches the owner-selected revision of a private bootstrap
 // Git repository and verifies it before anything is decrypted. It returns only
 // non-secret bytes: the manifest and the still-encrypted secrets file.
+//
+// It builds only for Linux: the host platform P1 in docs/reference/deployment-parameters.md
+// fixes, and the only one runGit's process-lifetime handling is tested on.
 package bootstrap
 
 import (
@@ -13,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,6 +45,13 @@ const (
 	MaxSecretsBytes  = 1 << 20
 )
 
+// MaxFetchFileBytes bounds each file a Git invocation writes: it is the file-size resource limit of the shell leading
+// the invocation, so the kernel stops a write at the bound. It bounds each file, not their sum: the fetch takes only
+// the selected commit (--depth=1), so history does not count, and writes it as one pack beside that pack's index files
+// and a few small metadata files. No planning document fixes a value: it is an implementation guard, a multiple of
+// 512, sized to hold both guarded files with room for README.md and object overhead.
+const MaxFetchFileBytes = 4 << 20
+
 // Failure classes. Errors wrap exactly one of these and never carry the
 // repository locator, Git output or file contents.
 var (
@@ -48,6 +61,7 @@ var (
 	ErrManifest   = errors.New("bootstrap: manifest invalid")
 	ErrDigest     = errors.New("bootstrap: secrets digest does not match manifest")
 	ErrTooLarge   = errors.New("bootstrap: file exceeds its size guard")
+	ErrFetchBound = errors.New("bootstrap: fetch reached its file size bound")
 )
 
 // Request names the Recovery Kit inputs for one fetch.
@@ -121,11 +135,12 @@ func validRef(path string, typ os.FileMode) bool {
 // gitGroup is the shell that leads each git invocation's own process group; git and the ssh it starts join that
 // group. The shell waits in the background of git so that it can act on a signal: SIGTERM, which the kernel sends
 // it as its parent-death signal the moment the process that started it dies, even by SIGKILL, makes it kill the
-// whole group. Cancellation kills the group directly.
-const gitGroup = `trap 'kill -KILL 0' TERM; "$@" & wait $!`
+// whole group. Cancellation kills the group directly. Its file-size limit, $1 in POSIX 512-byte blocks, is inherited
+// by git and everything git starts.
+const gitGroup = `trap 'kill -KILL 0' TERM; ulimit -f "$1" || exit 126; shift; "$@" & wait $!`
 
 func runGit(ctx context.Context, env []string, dir string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "/bin/sh", append(append([]string{"-c", gitGroup, "sh", "git"}, hardening...), args...)...)
+	cmd := exec.CommandContext(ctx, "/bin/sh", append(append([]string{"-c", gitGroup, "sh", strconv.Itoa(MaxFetchFileBytes / 512), "git"}, hardening...), args...)...)
 	cmd.Dir, cmd.Env, cmd.Stderr = dir, env, io.Discard
 	// Linux delivers Pdeathsig when the OS thread that started the shell exits; the Go runtime keeps its threads
 	// unless a goroutine locked to one ends, which this module never does. WaitDelay bounds the wait if a
@@ -157,8 +172,11 @@ func Fetch(ctx context.Context, req Request, workDir string) (*Verified, error) 
 	if _, err := runGit(ctx, env, tmp, "init", "--bare", "--quiet", "--template=", repo); err != nil {
 		return nil, fmt.Errorf("%w: init", ErrFetch)
 	}
-	if _, err := git("fetch", "--quiet", "--no-tags", "--end-of-options",
-		req.Repository, req.Revision+":refs/prifly/selected"); err != nil {
+	// fetch.unpackLimit=1 stores even a few objects as one pack rather than as loose files.
+	if _, err := git("-c", "fetch.unpackLimit=1", "fetch", "--quiet", "--no-tags", "--depth=1", "--end-of-options",
+		req.Repository, req.Revision+":refs/prifly/selected"); err != nil && reachedBound(repo) {
+		return nil, ErrFetchBound
+	} else if err != nil {
 		return nil, fmt.Errorf("%w: remote or revision unavailable", ErrFetch)
 	}
 	if out, err := git("rev-parse", "--verify", "--end-of-options", req.Revision+"^{commit}"); err != nil ||
@@ -187,6 +205,18 @@ func Fetch(ctx context.Context, req Request, workDir string) (*Verified, error) 
 		return nil, ErrDigest
 	}
 	return &Verified{Revision: req.Revision, Manifest: m, Secrets: secrets}, nil
+}
+
+// reachedBound reports whether a regular file under dir has reached MaxFetchFileBytes, where the limit stops a write.
+func reachedBound(dir string) (reached bool) {
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			fi, err := d.Info()
+			reached = reached || err == nil && fi.Size() >= MaxFetchFileBytes
+		}
+		return nil
+	})
+	return reached
 }
 
 // readBlob reads rev:path only after git reports its size as at most limit bytes.

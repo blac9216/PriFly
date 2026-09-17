@@ -1,7 +1,10 @@
+//go:build linux
+
 package bootstrap
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -287,5 +290,90 @@ func TestFetchSizeGuards(t *testing.T) {
 				t.Fatalf("err = %v, want %v; blob content read: %t", err, c.want, read)
 			}
 		})
+	}
+}
+
+// TestFetchBound: a git shim records, after each invocation, the size of every file under its working directory. A
+// tree over MaxFetchFileBytes, even in blobs each under it, stops with a file exactly at the bound; a history over it
+// is never fetched; a revision holding both guarded files at their guards fetches.
+func TestFetchBound(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	bin := t.TempDir()
+	sizes := filepath.Join(bin, "sizes")
+	shim := "#!/bin/sh\n'" + realGit + "' \"$@\"; rc=$?\nfind . -type f -exec wc -c {} \\; >> '" + sizes + "'\nexit $rc\n"
+	if err != nil || os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o700) != nil {
+		t.Fatal("writing git shim")
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	over, secrets := make([]byte, MaxFetchFileBytes+64<<10), make([]byte, MaxSecretsBytes)
+	rand.Read(over)
+	rand.Read(secrets)
+	half := len(over) / 2
+	guards := validEntries()
+	guards[0].data = strings.Replace(manifest, digestHex, fmt.Sprintf("%x", sha256.Sum256(secrets)), 1)
+	guards[0].data += strings.Repeat(" ", MaxManifestBytes-len(guards[0].data))
+	guards[1].data = string(secrets)
+	for name, c := range map[string]struct {
+		entries []entry
+		child   bool // select a valid child commit of the fixture commit instead
+		want    error
+	}{
+		"tree over bound":    {append(validEntries(), entry{"100644", ReadmePath, string(over[:half])}, entry{"100644", "prifly-canary-tree", string(over[half:])}), false, ErrFetchBound},
+		"history over bound": {append(validEntries(), entry{"100644", "prifly-canary-history", string(over)}), true, nil},
+		"files at guards":    {guards, false, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			url, rev := fixtureRepo(t, c.entries)
+			if dir := strings.TrimPrefix(url, "file://"); c.child {
+				gitFixture(t, dir, "", "update-index", "--force-remove", "prifly-canary-history")
+				rev = gitFixture(t, dir, "fixture child\n", "commit-tree", "-p", rev, gitFixture(t, dir, "", "write-tree"))
+			}
+			os.Remove(sizes)
+			v, err := fetch(t, url, rev, factory)
+			data, _ := os.ReadFile(sizes)
+			largest := 0
+			for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+				n := 0
+				fmt.Sscan(line, &n)
+				largest = max(largest, n)
+			}
+			if !errors.Is(err, c.want) || c.want == nil && (v == nil || v.Revision != rev) || (largest == MaxFetchFileBytes) != (c.want != nil) || largest > MaxFetchFileBytes {
+				t.Fatalf("err = %v, want %v; largest file written %d bytes, bound %d", err, c.want, largest, MaxFetchFileBytes)
+			}
+		})
+	}
+}
+
+// TestFetchServerRefusesUnadvertisedCommit serves the fixture over ssh as a server that drops GIT_PROTOCOL, so git
+// falls back to protocol v0, which refuses a commit id no ref advertises unless the server allows it.
+func TestFetchServerRefusesUnadvertisedCommit(t *testing.T) {
+	url, tip := fixtureRepo(t, validEntries())
+	dir, bin := strings.TrimPrefix(url, "file://"), t.TempDir()
+	unadvertised := gitFixture(t, dir, "fixture child\n", "commit-tree", "-p", tip, tip+"^{tree}")
+	v0 := filepath.Join(bin, "v0")
+	ssh := "#!/bin/sh\n[ -e '" + v0 + "' ] && unset GIT_PROTOCOL\nfor a; do last=$a; done\neval \"exec git upload-pack ${last#git-upload-pack }\"\n"
+	if os.WriteFile(filepath.Join(bin, "ssh"), []byte(ssh), 0o700) != nil {
+		t.Fatal("writing ssh stand-in")
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, c := range []struct {
+		name, rev string
+		v0, allow bool
+		want      error
+	}{
+		{"v0 unadvertised", unadvertised, true, false, ErrFetch},
+		{"v0 advertised", tip, true, false, nil},
+		{"v0 unadvertised allowed", unadvertised, true, true, nil},
+		{"v2 unadvertised", unadvertised, false, false, nil},
+	} {
+		os.Remove(v0)
+		gitFixture(t, dir, "", "config", "uploadpack.allowAnySHA1InWant", fmt.Sprint(c.allow))
+		if c.v0 && os.WriteFile(v0, nil, 0o600) != nil {
+			t.Fatal("writing v0 marker")
+		}
+		v, err := fetch(t, "ssh://fixture-host"+dir, c.rev, factory)
+		if !errors.Is(err, c.want) || c.want != nil && !strings.Contains(err.Error(), "remote or revision unavailable") || c.want == nil && (v == nil || v.Revision != c.rev) {
+			t.Errorf("%s: err = %v, want %v", c.name, err, c.want)
+		}
 	}
 }
