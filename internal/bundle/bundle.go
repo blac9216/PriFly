@@ -1,7 +1,7 @@
-// Manifest checks for <dir>/bundle.json. Inspect reads the manifest through the
-// input-safety layer (input.go), hashes its exact bytes and reports diagnostics;
-// it never stages, persists or starts anything. Field names, ID encodings and
-// schema IDs are implementation allocations (RP-18).
+// Manifest checks for <dir>/bundle.json and its artifact files. Inspect reads
+// every file through the input-safety layer (input.go), hashes exact bytes and
+// reports diagnostics; it never stages, persists or starts anything. Field
+// names, ID encodings and schema/job IDs are implementation allocations (RP-18).
 
 package bundle
 
@@ -18,7 +18,19 @@ import (
 // Schema is the only supported manifest schema.
 const Schema = "ExternalPlanningBundle/v1"
 
+// artifactSchemas maps each supported artifact schema to its typed-ID prefix.
+var artifactSchemas = map[string]string{
+	"Baseline/v1": "bsl", "PlanningGraph/v1": "pgr", "ReviewPackage/v1": "rpk",
+	"WorkItem/v1": "wi", "Estimate/v1": "est", "ExecutionEnvelope/v1": "xen",
+	"ValidationTarget/v1": "vt", "QualityEvaluation/v1": "qev", "PhaseRelease/v1": "rel",
+}
+
+// jobs is the supported job/version set: the admitted initial Worker jobs (C5).
+var jobs = []string{"implementer.implementation/v1", "implementer.current-correction/v1",
+	"reviewer.implementation/v1", "rebaser.semantic-conflict-correction/v1", "validator.target-execution/v1"}
+
 var (
+	digestRE   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	idRE       = regexp.MustCompile(`^([a-z]+)_[0-9a-f]{32}$`)
 	revisionRE = regexp.MustCompile(`^[1-9][0-9]*$`)
 )
@@ -62,10 +74,14 @@ func (c *checker) str(m map[string]any, path, key string) (string, bool) {
 	return s, ok
 }
 
-// id checks a typed ID with the given type prefix.
+// id checks a typed ID with the given type prefix; prefix "" (an unsupported
+// artifact schema) accepts any type prefix.
 func (c *checker) id(m map[string]any, path, key, prefix string) {
 	s, ok := c.str(m, path, key)
-	if g := idRE.FindStringSubmatch(s); ok && (g == nil || g[1] != prefix) {
+	if g := idRE.FindStringSubmatch(s); ok && (g == nil || prefix != "" && g[1] != prefix) {
+		if prefix == "" {
+			prefix = "<type>"
+		}
 		c.add(path+"."+key, "invalid-id", "want %s_<32 lowercase hex>, got %s", prefix, Quote(s))
 	}
 }
@@ -74,6 +90,42 @@ func (c *checker) revision(m map[string]any, path, key string) {
 	n, ok := m[key].(json.Number)
 	if _, present := m[key]; present && (!ok || !revisionRE.MatchString(n.String())) {
 		c.add(path+"."+key, "invalid-revision", "want integer >= 1, got %s", Quote(m[key]))
+	}
+}
+
+// list returns an array field, reporting a mistyped one.
+func (c *checker) list(m map[string]any, path, key string) []any {
+	l, ok := m[key].([]any)
+	if _, present := m[key]; present && !ok {
+		c.add(path+"."+key, "invalid-type", "want array")
+	}
+	return l
+}
+
+// artifact checks one artifacts[] entry at path p and compares the SHA-256 of
+// its file's exact bytes, read through ReadRegular, with the declared digest.
+func (c *checker) artifact(root *os.Root, p string, a any) {
+	m := c.object(a, p, "id", "revision", "schema", "path", "sha256")
+	schema, isString := c.str(m, p, "schema")
+	prefix, supported := artifactSchemas[schema]
+	if isString && !supported {
+		c.add(p+".schema", "unsupported-schema", "artifact schema %s is not supported", Quote(schema))
+	}
+	c.id(m, p, "id", prefix)
+	c.revision(m, p, "revision")
+	want, wantOK := c.str(m, p, "sha256")
+	if wantOK && !digestRE.MatchString(want) {
+		c.add(p+".sha256", "invalid-digest", "want 64 lowercase hex SHA-256, got %s", Quote(want))
+		wantOK = false
+	}
+	name, ok := c.str(m, p, "path")
+	if !ok {
+		return
+	}
+	if content, reason := ReadRegular(root, name); reason != "" {
+		c.add(p+".path", "unreadable-artifact", "%s %s", Quote(name), reason)
+	} else if got := fmt.Sprintf("%x", sha256.Sum256(content)); wantOK && got != want {
+		c.add(p+".sha256", "digest-mismatch", "declared %s, exact bytes hash to %s", Quote(want), got)
 	}
 }
 
@@ -106,8 +158,16 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 		c.add("$.schema", "unsupported-schema", "want %q, got %s", Schema, Quote(m["schema"]))
 		return
 	}
-	top := c.object(doc, "$", "schema", "bundle_id", "revision")
+	top := c.object(doc, "$", "schema", "bundle_id", "revision", "jobs", "artifacts")
 	c.id(top, "$", "bundle_id", "bnd")
 	c.revision(top, "$", "revision")
+	for i, j := range c.list(top, "$", "jobs") {
+		if s, _ := j.(string); !slices.Contains(jobs, s) {
+			c.add(fmt.Sprintf("$.jobs[%d]", i), "unsupported-job", "job/version %s is not supported", Quote(j))
+		}
+	}
+	for i, a := range c.list(top, "$", "artifacts") {
+		c.artifact(root, fmt.Sprintf("$.artifacts[%d]", i), a)
+	}
 	return
 }
