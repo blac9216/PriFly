@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -176,16 +178,45 @@ func TestDecodeJSON(t *testing.T) {
 		"lone-high-surrogate": {`["a\ud800"]`, false, ""},
 		"lone-low-surrogate":  {`["\udc00a"]`, false, ""},
 		"surrogate-pair":      {`["\ud83d\ude00"]`, true, `"\U0001f600"`},
+		"pair-range-bottom":   {`["\ud800\udc00"]`, true, `"\U00010000"`},
+		"pair-range-top":      {`["\udbff\udfff"]`, true, `"\U0010ffff"`},
+		"lone-surrogate-top":  {`["\udfff"]`, false, ""},
+		"beside-surrogates":   {`["\ud7ff\ue000"]`, true, `"\ud7ff\ue000"`},
 		"escaped-backslash-u": {`["\\ud800"]`, true, `"\\ud800"`},
 		"duplicate-key":       {`[{"a": 1, "a": 1}]`, false, ""},
 		"escaped-dup-key":     {`[{"a": 1, "\u0061": 2}]`, false, ""},
 		"nested-dup-key":      {`[{"a": [{"b": {}, "b": {}}]}]`, false, ""},
 		"same-key-per-object": {`[{"a": {"a": 1}}, {"a": 2}]`, true, "object"},
+		"case-distinct-keys":  {`[{"a": 1, "A": 2}]`, true, "object"},
 	} {
 		t.Run(label, func(t *testing.T) {
 			v, ok := DecodeJSON([]byte(c.raw))
 			if ok != c.ok || ok && Quote(v.([]any)[0]) != c.quoted {
 				t.Errorf("DecodeJSON(%q) = %#v, %v; want ok=%v, element %q", c.raw, v, ok, c.ok, c.quoted)
+			}
+		})
+	}
+}
+
+// TestFaultsMemory walks 1000 nested objects with 100-byte keys, once with a
+// repeated key at the innermost level and once in every object, and bounds the
+// bytes allocated to 32 times the input: per-level path copies would allocate
+// about 50 MB, and so would an unbounded list of faults with deep paths.
+func TestFaultsMemory(t *testing.T) {
+	key := `"` + strings.Repeat("k", 100) + `"`
+	for label, c := range map[string]struct{ open, inner, close string }{
+		"innermost-fault": {"{" + key + ": ", `{"a": 1, "a": 2}`, "}"},
+		"fault-per-level": {"{" + key + ": ", "null", ", " + key + ": 1}"},
+	} {
+		t.Run(label, func(t *testing.T) {
+			raw := []byte(strings.Repeat(c.open, 1000) + c.inner + strings.Repeat(c.close, 1000))
+			var before, after runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&before)
+			faults := Faults(raw)
+			runtime.ReadMemStats(&after)
+			if n := after.TotalAlloc - before.TotalAlloc; len(faults) == 0 || faults[0].Code != "duplicate-key" || n > uint64(32*len(raw)) {
+				t.Errorf("Faults allocated %d bytes for %d input bytes (limit 32x), first of %d faults %.40q", n, len(raw), len(faults), faults)
 			}
 		})
 	}

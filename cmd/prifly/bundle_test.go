@@ -91,7 +91,13 @@ var hostile = map[string]func(dir string) error{
 	"artifact-id-pattern":    func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, `"wi_8887FFC`) },
 	"digest-control-suffix":  func(dir string) error { return replaceIn(dir, wiSHA+`"`, wiSHA+`\u001b[2K\rresult: ok"`) },
 	"non-string-jobs":        func(dir string) error { return replaceIn(dir, `"jobs": [`, `"jobs": [7, null, {"x": 1}, `) },
-	"invalid-utf8":           func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, "\"wi_\xff\xfe8887ffc") },
+	"invalid-artifact-revision": func(dir string) error { // referenced by the work item, which names revision 1
+		return replaceIn(dir, `a5a", "revision": 1, "schema"`, `a5a", "revision": 0, "schema"`)
+	},
+	"duplicate-key-trailing": func(dir string) error {
+		return errors.Join(replaceIn(dir, `"revision": 1`, `"revision": 1, "revision": 1`), replaceIn(dir, "\n}\n", "\n}\n}"))
+	},
+	"invalid-utf8": func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, "\"wi_\xff\xfe8887ffc") },
 	"lone-surrogate": func(dir string) error { // a high, a low before a pair, and a pair beside an escaped backslash
 		return errors.Join(replaceIn(dir, `"bnd_`, `"bnd_\ud800`), replaceIn(dir, `"reviewer.implementation/v1"`, `"\udc00\ud83d\ude00"`),
 			replaceIn(dir, `"WorkItem/v1"`, `"\ud83d\ude00\\ud800"`))
@@ -161,7 +167,9 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"invalid-digest " + wi + `.refs[3].sha256: want 64 lowercase hex SHA-256, got "70E2A30E1B5A5D53B311FAF4E2EB50ACAED9C4BE464FDCA8F8EB72C6416EFE34"`,
 			"reference-revision-mismatch " + bsl + ".refs[0].revision: reference names 3, artifact " + wi + " has revision 1",
 			"reference-digest-mismatch " + bsl + `.refs[0].sha256: reference names "` + bslSHA + `", artifact ` + wi + ` declares "` + wiSHA + `"`},
-		"duplicate-id": {`duplicate-id $.artifacts[2].id: artifact ID "wi_8887ffc730f707abb82bb7cb7068e914" is already declared at ` + wi + ".id"},
+		"invalid-artifact-revision": {"invalid-revision " + bsl + ".revision: want integer >= 1, got 0"},
+		"duplicate-key-trailing":    {notJSON, "duplicate-key $.revision" + repeated},
+		"duplicate-id":              {`duplicate-id $.artifacts[2].id: artifact ID "wi_8887ffc730f707abb82bb7cb7068e914" is already declared at ` + wi + ".id"},
 		"duplicate-key": {
 			"duplicate-key " + wi + ".refs[0].id" + repeated,
 			"duplicate-key " + wi + ".sha256" + repeated,

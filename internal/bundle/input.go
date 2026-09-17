@@ -68,10 +68,16 @@ func readCapped(r io.Reader, limit int) ([]byte, string) {
 // whitespace follows the value (a stray "}", "]]]" or a second value), or when
 // Faults finds a repeated key or a string that would not decode exactly.
 func DecodeJSON(raw []byte) (v any, ok bool) {
+	v, ok = decodeValue(raw)
+	return v, ok && Faults(raw) == nil
+}
+
+// decodeValue is DecodeJSON without Faults: ok is whether raw is one JSON value.
+func decodeValue(raw []byte) (v any, ok bool) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	// InputOffset is the end of the decoded value.
-	ok = dec.Decode(&v) == nil && dec.InputOffset() == int64(len(bytes.TrimRight(raw, " \t\r\n"))) && Faults(raw) == nil
+	ok = dec.Decode(&v) == nil && dec.InputOffset() == int64(len(bytes.TrimRight(raw, " \t\r\n")))
 	return v, ok
 }
 
@@ -108,34 +114,47 @@ func Member(path, key string) string {
 // the JSON path of each object key repeated in its object and of each key or
 // string value that is not valid UTF-8 or escapes an unpaired surrogate, which
 // encoding/json would silently resolve to the last value or map to U+FFFD. The
-// walk ends at a syntax error or after the first value; DecodeJSON reports those.
+// walk ends at a syntax error or after the first value without reporting it:
+// DecodeJSON then returns ok=false and Inspect adds invalid-json. A path is
+// built only for a fault, and no fault is added once the paths reported total
+// len(raw) bytes, so memory stays linear in len(raw) however deep raw nests.
 func Faults(raw []byte) (faults []Diagnostic) {
 	type frame struct {
-		path, member string          // member: path of the object member whose value is next
-		keys         map[string]bool // nil for an array
-		next         int             // array: next index; object: 1 when a value is next
+		key  string          // object: the key whose value is next or open
+		keys map[string]bool // nil for an array
+		next int             // array: next index; object: 1 when a value is next
 	}
 	// The root frame is an object awaiting the value of its member at $.
-	dec, stack := json.NewDecoder(bytes.NewReader(raw)), []*frame{{member: "$", keys: map[string]bool{}, next: 1}}
+	dec, stack, budget := json.NewDecoder(bytes.NewReader(raw)), []*frame{{keys: map[string]bool{}, next: 1}}, len(raw)
 	dec.UseNumber() // as DecodeJSON: 1e400 is valid JSON and must not end the walk
-	for len(stack) > 1 || stack[0].next == 1 {
+	add := func(code, detail string) {
+		path := []byte("$") // appended to, never re-copied per level
+		for _, f := range stack[1:] {
+			if f.keys == nil {
+				path = fmt.Appendf(path, "[%d]", f.next-1)
+			} else {
+				path = append(path, Member("", f.key)...)
+			}
+		}
+		faults, budget = append(faults, Diagnostic{string(path), code, detail}), budget-len(path)
+	}
+	for budget > 0 && (len(stack) > 1 || stack[0].next == 1) {
 		start := dec.InputOffset()
 		tok, err := dec.Token()
 		if err != nil {
 			return faults
 		}
-		f, path, isKey := stack[len(stack)-1], "", false
+		f, isKey := stack[len(stack)-1], false
 		s, isString := tok.(string)
 		switch {
 		case tok == json.Delim('}') || tok == json.Delim(']'):
 			stack = stack[:len(stack)-1]
 		case f.keys == nil:
-			path, f.next = fmt.Sprintf("%s[%d]", f.path, f.next), f.next+1
+			f.next++
 		case f.next == 0:
-			path, f.next, isKey = Member(f.path, s), 1, true
-			f.member = path
+			f.key, f.next, isKey = s, 1, true
 		default:
-			path, f.next = f.member, 0
+			f.next = 0
 		}
 		reason := ""
 		if isString {
@@ -143,13 +162,13 @@ func Faults(raw []byte) (faults []Diagnostic) {
 		}
 		switch {
 		case tok == json.Delim('{'):
-			stack = append(stack, &frame{path: path, keys: map[string]bool{}})
+			stack = append(stack, &frame{keys: map[string]bool{}})
 		case tok == json.Delim('['):
-			stack = append(stack, &frame{path: path})
+			stack = append(stack, &frame{})
 		case reason != "":
-			faults = append(faults, Diagnostic{path, "invalid-string", "string " + reason})
+			add("invalid-string", "string "+reason)
 		case isKey && f.keys[s]:
-			faults = append(faults, Diagnostic{path, "duplicate-key", "key repeats an earlier key of this object"})
+			add("duplicate-key", "key repeats an earlier key of this object")
 		case isKey:
 			f.keys[s] = true
 		}

@@ -200,11 +200,11 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 		return
 	}
 	manifestSHA256 = fmt.Sprintf("%x", sha256.Sum256(raw))
-	doc, ok := DecodeJSON(raw)
-	if !ok {
-		if c = Faults(raw); len(c) == 0 {
-			c.add("$", "invalid-json", "bundle.json is not a single JSON value")
-		}
+	doc, isJSON := decodeValue(raw)
+	if c = Faults(raw); !isJSON {
+		c.add("$", "invalid-json", "bundle.json is not a single JSON value")
+	}
+	if len(c) > 0 {
 		return
 	}
 	if m, ok := doc.(map[string]any); ok && m["schema"] != Schema {
