@@ -62,7 +62,8 @@ type workItem struct {
 // workItems holds the Work Item entries and the bodies they name, the schema
 // and ID of every artifact entry, the first ExecutionEnvelope/v1 entry of each
 // ID, and whether an entry of an unsupported WorkItem schema version, which may
-// be a Work Item, exists. Content is parsed once per schema and SHA-256 of exact bytes: entries
+// be a Work Item, exists, and the artifact bytes left to read (negative once
+// MaxArtifactBytes is passed). Content is parsed once per schema and SHA-256 of exact bytes: entries
 // sharing bytes share their references and diagnostics, so memory is linear in
 // the bundle's bytes, not entries × bytes.
 type workItems struct {
@@ -72,6 +73,7 @@ type workItems struct {
 	schemaIDs map[string]bool // schema + " " + ID
 	envelopes []identity
 	unknown   bool
+	left      int
 }
 
 // read checks content of schema, whose SHA-256 is digest, at the entry path p

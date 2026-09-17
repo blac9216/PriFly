@@ -1,7 +1,8 @@
 // Package bundle inspects local external planning bundles. This file is its
-// input-safety layer: every read of bundle content goes through ReadRegular,
-// every JSON document through DecodeJSON (Inspect applies its two checks,
-// decodeValue and Faults, separately), and every bundle-derived string that
+// input-safety layer: every read of bundle content goes through ReadRegular
+// (bundle.json) or readRegular (artifacts, within MaxArtifactBytes), every
+// JSON document through DecodeJSON (Inspect applies its two checks,
+// decodeValue and faults, separately), and every bundle-derived string that
 // reaches output through Quote or Member.
 package bundle
 
@@ -20,6 +21,20 @@ import (
 // the cap, so a larger file is reported and never read into memory whole.
 const MaxFileBytes = 16 << 20
 
+// MaxArtifactBytes caps the bytes Inspect reads from artifact files in one
+// bundle, counted per read, so entries naming one file many times cannot make
+// it read without end; as for MaxFileBytes, reading stops one byte past the
+// cap. It is an implementation guard: no planning document fixes a value.
+const MaxArtifactBytes = 8 * MaxFileBytes
+
+// incomplete ends a diagnostic list that stopped at a bound: MaxDiagnostics,
+// the path budget of Faults or MaxArtifactBytes.
+var incomplete = Diagnostic{"$", "incomplete-diagnostics", "list is incomplete: inspect stopped at a bound and diagnostics past it are not listed"}
+
+// Incomplete reports whether d is the diagnostic ending a list that stopped at
+// a bound.
+func (d Diagnostic) Incomplete() bool { return d == incomplete }
+
 // ReadRegular reads name through root, so the name cannot resolve outside the
 // root by "..", an absolute path or a symlink. The file must be a regular file,
 // checked before it is opened so a FIFO or device is never opened (opening one
@@ -27,6 +42,16 @@ const MaxFileBytes = 16 << 20
 // failure it returns a fixed reason for a diagnostic instead of the bytes; the
 // reason never contains name.
 func ReadRegular(root *os.Root, name string) ([]byte, string) {
+	b, reason := readRegular(root, name, MaxFileBytes)
+	if reason != "" {
+		b = nil
+	}
+	return b, reason
+}
+
+// readRegular is ReadRegular with a cap of limit bytes; on failure it also
+// returns any bytes it consumed.
+func readRegular(root *os.Root, name string, limit int) ([]byte, string) {
 	info, err := root.Stat(name)
 	if err != nil {
 		return nil, "does not resolve to a file inside the bundle directory"
@@ -38,28 +63,29 @@ func ReadRegular(root *os.Root, name string) ([]byte, string) {
 		return nil, "cannot be read"
 	}
 	defer f.Close()
-	return readChecked(f, info)
+	return readChecked(f, info, limit)
 }
 
 // readChecked reads f, opened for the regular file that info describes. It
 // first re-checks that f is that same file, so a FIFO or other file swapped in
 // between the check and the open is rejected before any read can block on it;
 // being the same file as info, f is regular.
-func readChecked(f *os.File, info os.FileInfo) ([]byte, string) {
+func readChecked(f *os.File, info os.FileInfo, limit int) ([]byte, string) {
 	if opened, err := f.Stat(); err != nil || !os.SameFile(info, opened) {
 		return nil, "changed between the check and the open"
 	}
-	return readCapped(f, MaxFileBytes)
+	return readCapped(f, limit)
 }
 
 // readCapped reads r to EOF but consumes at most limit+1 bytes, so a larger
-// input is reported without being read into memory whole.
+// input is reported without being read into memory whole. On failure it
+// returns the bytes consumed with the reason.
 func readCapped(r io.Reader, limit int) ([]byte, string) {
 	b, err := io.ReadAll(io.LimitReader(r, int64(limit)+1))
 	if err != nil {
-		return nil, "cannot be read"
+		return b, "cannot be read"
 	} else if len(b) > limit {
-		return nil, fmt.Sprintf("exceeds the %d-byte size cap", limit)
+		return b, fmt.Sprintf("exceeds the %d-byte size cap", limit)
 	}
 	return b, ""
 }
@@ -111,15 +137,22 @@ func Member(path, key string) string {
 	return path + "[" + strconv.QuoteToASCII(key) + "]"
 }
 
-// Faults walks raw's tokens and returns, in document order, a diagnostic at
+// Faults returns the diagnostics of faults as a list (see checker.done).
+func Faults(raw []byte) []Diagnostic {
+	c, complete := faults(raw)
+	return c.done(complete)
+}
+
+// faults walks raw's tokens and collects a diagnostic at
 // the JSON path of each object key repeated in its object and of each key or
 // string value that is not valid UTF-8 or escapes an unpaired surrogate, which
 // encoding/json would silently resolve to the last value or map to U+FFFD. The
 // walk ends at a syntax error or after the first value without reporting it:
 // DecodeJSON then returns ok=false and Inspect adds invalid-json. A path is
-// built only for a fault, and no fault is added once the paths reported total
-// len(raw) bytes, so memory stays linear in len(raw) however deep raw nests.
-func Faults(raw []byte) (faults []Diagnostic) {
+// built only for a fault, and the walk ends, with complete false, at a fault
+// found once the paths reported total len(raw) bytes, so memory stays linear
+// in len(raw) however deep raw nests.
+func faults(raw []byte) (c checker, complete bool) {
 	type frame struct {
 		key  string          // object: the key whose value is next or open
 		keys map[string]bool // nil for an array
@@ -129,6 +162,9 @@ func Faults(raw []byte) (faults []Diagnostic) {
 	dec, stack, budget := json.NewDecoder(bytes.NewReader(raw)), []*frame{{keys: map[string]bool{}, next: 1}}, len(raw)
 	dec.UseNumber() // as DecodeJSON: 1e400 is valid JSON and must not end the walk
 	add := func(code, detail string) {
+		if complete = budget > 0; !complete {
+			return
+		}
 		path := []byte("$") // appended to, never re-copied per level
 		for _, f := range stack[1:] {
 			if f.keys == nil {
@@ -137,13 +173,14 @@ func Faults(raw []byte) (faults []Diagnostic) {
 				path = append(path, Member("", f.key)...)
 			}
 		}
-		faults, budget = append(faults, Diagnostic{string(path), code, detail}), budget-len(path)
+		c.add(string(path), code, "%s", detail)
+		budget -= len(path)
 	}
-	for budget > 0 && (len(stack) > 1 || stack[0].next == 1) {
+	for complete = true; complete && (len(stack) > 1 || stack[0].next == 1); {
 		start := dec.InputOffset()
 		tok, err := dec.Token()
 		if err != nil {
-			return faults
+			return c, true
 		}
 		f, isKey := stack[len(stack)-1], false
 		s, isString := tok.(string)
@@ -174,7 +211,7 @@ func Faults(raw []byte) (faults []Diagnostic) {
 			f.keys[s] = true
 		}
 	}
-	return faults
+	return c, complete
 }
 
 // textFault returns why the string token in lit (the token and any separators

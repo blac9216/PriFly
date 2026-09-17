@@ -40,10 +40,62 @@ type Diagnostic struct{ Path, Code, Detail string }
 
 func (d Diagnostic) String() string { return d.Code + " " + d.Path + ": " + d.Detail }
 
+// MaxDiagnostics caps the diagnostics a list holds, so a fault-dense manifest
+// within MaxFileBytes cannot fill memory or output with them. It is an
+// implementation guard: no planning document fixes a value.
+const MaxDiagnostics = 1000
+
+// checker collects diagnostics as a heap whose top is the last in order,
+// holding at most MaxDiagnostics+1: past that, a diagnostic replaces the top
+// only if it comes before it, so what done lists never depends on the order
+// diagnostics were added in.
 type checker []Diagnostic
 
 func (c *checker) add(path, code, format string, args ...any) {
-	*c = append(*c, Diagnostic{path, code, fmt.Sprintf(format, args...)})
+	d, h := Diagnostic{path, code, fmt.Sprintf(format, args...)}, *c
+	i := len(h)
+	if i <= MaxDiagnostics { // a new leaf, moved up past each parent before it
+		h = append(h, d)
+		for ; i > 0 && order(h[(i-1)/2], d) < 0; i = (i - 1) / 2 {
+			h[i] = h[(i-1)/2]
+		}
+	} else if order(d, h[0]) < 0 { // the top, moved down past each child after it
+		for i = 0; 2*i+1 < len(h); {
+			j := 2*i + 1
+			if j+1 < len(h) && order(h[j+1], h[j]) > 0 {
+				j++
+			}
+			if order(h[j], d) <= 0 {
+				break
+			}
+			h[i], i = h[j], j
+		}
+	} else {
+		return
+	}
+	h[i], *c = d, h
+}
+
+// order compares diagnostics by path, then code, then detail.
+func order(a, b Diagnostic) int {
+	if a.Path != b.Path {
+		return strings.Compare(a.Path, b.Path)
+	} else if a.Code != b.Code {
+		return strings.Compare(a.Code, b.Code)
+	}
+	return strings.Compare(a.Detail, b.Detail)
+}
+
+// done returns c in order and cut to its first MaxDiagnostics, followed by
+// incomplete when it held more or complete is false.
+func (c checker) done(complete bool) []Diagnostic {
+	if slices.SortFunc(c, order); len(c) > MaxDiagnostics {
+		c, complete = c[:MaxDiagnostics], false
+	}
+	if !complete {
+		c = append(c, incomplete)
+	}
+	return c
 }
 
 // object returns v as a closed object of schema, reporting unknown and missing
@@ -140,8 +192,9 @@ func (c *checker) ident(m map[string]any, p, prefix string) identity {
 }
 
 // artifact checks one artifacts[] entry at path p, compares the SHA-256 of its
-// file's exact bytes, read through ReadRegular, with the declared digest, and
-// returns the artifact's identity and its references' identities; a WorkItem/v1
+// file's exact bytes, read through readRegular within the artifact bytes left
+// (w.left), with the declared digest, and
+// returns the artifact's identity and those of its references with an ID; a WorkItem/v1
 // entry is added to w with the body read from its bytes, every entry's schema
 // and ID, and each first ExecutionEnvelope/v1 ID, are added to w, and
 // ExecutionEnvelope/v1 and QualityEvaluation/v1 content is checked.
@@ -155,7 +208,9 @@ func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self i
 	self = c.ident(m, p, prefix)
 	for i, r := range c.list(m, p, "refs") {
 		rp := fmt.Sprintf("%s.refs[%d]", p, i)
-		refs = append(refs, c.ident(c.object(r, rp, Schema, "id", "revision", "sha256"), rp, ""))
+		if ref := c.ident(c.object(r, rp, Schema, "id", "revision", "sha256"), rp, ""); ref.id != "" {
+			refs = append(refs, ref) // closure compares only references with an ID
+		}
 	}
 	isItem, b := schema == "WorkItem/v1", -1
 	if schema == "ExecutionEnvelope/v1" && self.id != "" && !w.schemaIDs[schema+" "+self.id] {
@@ -172,11 +227,14 @@ func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self i
 		}
 	}()
 	name, ok := c.str(m, p, "path")
-	if !ok {
+	if !ok || w.left < 0 { // no entry past MaxArtifactBytes is read
 		return self, refs
 	}
-	content, reason := ReadRegular(root, name)
-	if reason != "" {
+	content, reason := readRegular(root, name, min(MaxFileBytes, w.left))
+	if w.left -= len(content); w.left < 0 {
+		c.add(p+".path", "unreadable-artifact", "%s exceeds the %d-byte cap on artifact bytes read per bundle", Quote(name), MaxArtifactBytes)
+		return self, refs
+	} else if reason != "" {
 		c.add(p+".path", "unreadable-artifact", "%s %s", Quote(name), reason)
 		return self, refs
 	}
@@ -188,6 +246,19 @@ func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self i
 		b = w.read(c, p, schema, got, content)
 	}
 	return self, refs
+}
+
+// entries checks each artifacts[] entry of list and returns the identities
+// closure compares: only artifacts and references with an ID, so an entry
+// without one, such as 0 or {}, is checked but not held.
+func (c *checker) entries(root *os.Root, list []any, w *workItems) (artifacts, refs []identity) {
+	for i, a := range list {
+		self, r := c.artifact(root, fmt.Sprintf("$.artifacts[%d]", i), a, w)
+		if refs = append(refs, r...); self.id != "" {
+			artifacts = append(artifacts, self)
+		}
+	}
+	return artifacts, refs
 }
 
 // closure rejects a repeated artifact ID and resolves each reference by ID,
@@ -217,13 +288,11 @@ func (c *checker) closure(artifacts, refs []identity) {
 }
 
 // Inspect reads and validates the bundle in dir without writing. It returns
-// diagnostics sorted by path then code, and the manifest's SHA-256.
+// diagnostics as checker.done lists them, and the manifest's SHA-256.
 func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 	var c checker
-	defer func() {
-		slices.SortFunc(c, func(a, b Diagnostic) int { return strings.Compare(a.Path+"\x00"+a.Code, b.Path+"\x00"+b.Code) })
-		diags = c
-	}()
+	complete := true
+	defer func() { diags = c.done(complete) }()
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		c.add("$", "unreadable-bundle", "bundle directory cannot be opened")
@@ -237,7 +306,7 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 	}
 	manifestSHA256 = fmt.Sprintf("%x", sha256.Sum256(raw))
 	doc, isJSON := decodeValue(raw)
-	if c = Faults(raw); !isJSON {
+	if c, complete = faults(raw); !isJSON {
 		c.add("$", "invalid-json", "bundle.json is not a single JSON value")
 	}
 	if len(c) > 0 {
@@ -255,13 +324,9 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 			c.add(fmt.Sprintf("$.jobs[%d]", i), "unsupported-job", "job/version %s is not supported", Quote(j))
 		}
 	}
-	var artifacts, refs []identity
-	w := workItems{digest: map[string]int{}, schemaIDs: map[string]bool{}}
-	for i, a := range c.list(top, "$", "artifacts") {
-		self, r := c.artifact(root, fmt.Sprintf("$.artifacts[%d]", i), a, &w)
-		artifacts, refs = append(artifacts, self), append(refs, r...)
-	}
-	c.closure(artifacts, refs)
+	w := workItems{digest: map[string]int{}, schemaIDs: map[string]bool{}, left: MaxArtifactBytes}
+	c.closure(c.entries(root, c.list(top, "$", "artifacts"), &w))
 	c.graph(w)
+	complete = w.left >= 0
 	return
 }
