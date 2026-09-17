@@ -10,9 +10,10 @@
 # stand-in, no engine), each leading its own session; their pids go to
 # $FAKE_STATE/<run>.pids, and stop kills each writer's whole process group, its sleep too.
 # stop-only stops only the loop writer; -slow writes every 20s, so the warm-up times out;
-# signal-sig sends SIG to the runner (this call's grandparent, past timeout) once the writers
-# run; signal-twice sends TERM there, then its stop sends INT and HUP to the runner (only
-# while that pid is still the runner) and takes 3s before stopping. signal-group[-twice]
+# signal-sig sends SIG to the runner (this call's session leader, refused unless its argv
+# holds --launcher) once the writers run; signal-twice sends TERM there, then its stop sends
+# INT and HUP to the runner (only while that pid is still the runner) and takes 3s before
+# stopping. signal-group[-twice]
 # sends TERM there, then its stop and its inventory each send INT and HUP once [twice] to the
 # runner's process group (refused unless the runner leads that group, so the suite is never
 # hit), 1.5s apart. hang-VERB does that call's work, then ignores TERM for 20s. Every call
@@ -44,7 +45,10 @@ case "$verb" in
       echo $! >>"$st/$2.pids"
     done
     sig="${mode#signal-}"; [[ "$sig" == twice || "$sig" == group* ]] && sig=term
-    if [[ "$mode" == signal-* ]]; then ps -o ppid= -p "$PPID" | tr -d ' ' >"$st/runner"; kill -"${sig^^}" "$(cat "$st/runner")"; fi ;;
+    if [[ "$mode" == signal-* ]]; then
+      ps -o sid= -p $$ | tr -d ' ' >"$st/runner"; [[ "$(tr '\0' ' ' <"/proc/$(cat "$st/runner")/cmdline")" == *" --launcher "* ]] || exit 9
+      kill -"${sig^^}" "$(cat "$st/runner")"
+    fi ;;
   stop|inventory)
     [[ "$mode$verb" == stop-fails-oncestop && ! -e "$st/stop-failed" ]] && { : >"$st/stop-failed"; exit 7; }
     if [[ "$mode$verb" == signal-twicestop ]]; then
