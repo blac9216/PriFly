@@ -237,8 +237,7 @@ func TestSSHCommandIgnoresAmbientConfig(t *testing.T) {
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		got := strings.Join(fields.FindAllString(strings.ReplaceAll(string(out), "\r", ""), -1), "\n")
-		if err != nil || got != "debug1: Reading configuration data /dev/null\nbatchmode yes\nstricthostkeychecking true\nidentityagent "+want[0]+
-			"\nidentityfile none\nglobalknownhostsfile /dev/null\nuserknownhostsfile "+want[1] {
+		if err != nil || got != "debug1: Reading configuration data /dev/null\nbatchmode yes\nstricthostkeychecking true\nidentityagent "+want[0]+"\nidentityfile none\nglobalknownhostsfile /dev/null\nuserknownhostsfile "+want[1] {
 			t.Fatalf("ssh -G (%v) with references %q resolved:\n%s", err, refs, got)
 		}
 	}

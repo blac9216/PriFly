@@ -54,8 +54,7 @@ func fixture(t *testing.T) (url, rev, identityFile, envLog string) {
 	if w.Close() != nil {
 		t.Fatal("encrypting fixture")
 	}
-	manifest := fmt.Sprintf(`{"schema":%q,"factory_id":%q,"secrets_path":%q,"secrets_sha256":"%x","secret_schema":%q}`,
-		bootstrap.ManifestSchema, factory, bootstrap.SecretsPath, sha256.Sum256(sealed.Bytes()), bootstrap.SecretSchema)
+	manifest := fmt.Sprintf(`{"schema":%q,"factory_id":%q,"secrets_path":%q,"secrets_sha256":"%x","secret_schema":%q}`, bootstrap.ManifestSchema, factory, bootstrap.SecretsPath, sha256.Sum256(sealed.Bytes()), bootstrap.SecretSchema)
 	envLog = filepath.Join(bin, "ssh-env")
 	ssh := "#!/bin/sh\nenv > '" + envLog + "'\nfor a; do last=$a; done\neval \"exec git upload-pack ${last#git-upload-pack }\"\n"
 	if os.WriteFile(filepath.Join(repo, bootstrap.ManifestPath), []byte(manifest), 0o644) != nil ||
@@ -87,36 +86,45 @@ func TestBootstrapCLI(t *testing.T) {
 	url, rev, identityFile, envLog := fixture(t)
 	refs, fd2, stderrFile := t.TempDir(), os.Stderr, filepath.Join(t.TempDir(), "fd2")
 	sock, knownHosts := filepath.Join(refs, "agent.sock"), filepath.Join(refs, "known_hosts")
+	t.Chdir(refs) // so relative references name existing entries
 	listener, err := net.Listen("unix", sock)
 	os.Stderr, _ = os.Create(stderrFile) // the flag package's default output
-	if err != nil || os.WriteFile(knownHosts, nil, 0o600) != nil {
+	for _, name := range []string{"known_hosts", "known hosts", "known$hosts", "known%hosts", "known~hosts"} {
+		err = errors.Join(err, os.WriteFile(name, nil, 0o600)) // existing files only refPath can refuse
+	}
+	if err != nil || os.Symlink(sock, "link.sock") != nil || os.Symlink(knownHosts, "link_hosts") != nil {
 		t.Fatal("reference fixture")
 	}
 	t.Cleanup(func() { listener.Close(); os.Stderr = fd2 })
-	t.Chdir(refs) // so the relative reference names an existing socket
 	t.Setenv(inherits, canary)
 	t.Setenv("SSH_AUTH_SOCK", "/inherited-agent.sock")
-	outage := errors.New("bucket prifly-canary-bucket unreachable: " + canary)
 	unusable := "ssh agent socket or known-hosts reference unusable"
 	for name, c := range map[string]struct {
-		d      *provider
+		d      bootstrap.Discoverer
 		extra  []string // appended to the full argument list; a repeated flag overrides the earlier value
 		code   int
 		output string
 	}{
-		"existing factory":      {&provider{id: factory}, nil, 0, "existing Factory state discovered at revision " + rev},
-		"provider outage":       {&provider{err: outage}, nil, 1, bootstrap.ErrDiscovery.Error()},
-		"missing config":        {nil, nil, 1, bootstrap.ErrDiscoveryConfig.Error()},
-		"absent state":          {&provider{}, nil, 1, bootstrap.ErrNoFactory.Error()},
-		"missing key":           {&provider{id: factory}, []string{"-age-identity-file", identityFile + "-absent"}, 1, bootstrap.ErrIdentity.Error()},
-		"missing credential":    {&provider{id: factory}, []string{"-fetch-ssh-auth-sock", ""}, 1, "explicit fetch credential and known-hosts references"},
-		"missing known hosts":   {&provider{id: factory}, []string{"-fetch-known-hosts", ""}, 1, "explicit fetch credential and known-hosts references"},
-		"non-socket credential": {&provider{id: factory}, []string{"-fetch-ssh-auth-sock", knownHosts}, 1, unusable},
-		"relative credential":   {&provider{id: factory}, []string{"-fetch-ssh-auth-sock", "agent.sock"}, 1, unusable},
-		"absent known hosts":    {&provider{id: factory}, []string{"-fetch-known-hosts", knownHosts + "-absent"}, 1, unusable},
-		"missing input":         {&provider{id: factory}, []string{"-factory-id", ""}, 2, usage},
-		"positional argument":   {&provider{id: factory}, []string{"extra"}, 2, usage},
-		"unknown flag":          {&provider{id: factory}, []string{"-verbose"}, 2, usage},
+		"existing factory":         {&provider{id: factory}, nil, 0, "existing Factory state discovered at revision " + rev},
+		"provider outage":          {&provider{err: errors.New("bucket prifly-canary-bucket unreachable: " + canary)}, nil, 1, bootstrap.ErrDiscovery.Error()},
+		"missing config":           {nil, nil, 1, bootstrap.ErrDiscoveryConfig.Error()},
+		"absent state":             {&provider{}, nil, 1, bootstrap.ErrNoFactory.Error()},
+		"missing key":              {&provider{id: factory}, []string{"-age-identity-file", identityFile + "-absent"}, 1, bootstrap.ErrIdentity.Error()},
+		"missing credential":       {&provider{id: factory}, []string{"-fetch-ssh-auth-sock", ""}, 1, "explicit fetch credential and known-hosts references"},
+		"missing known hosts":      {&provider{id: factory}, []string{"-fetch-known-hosts", ""}, 1, "explicit fetch credential and known-hosts references"},
+		"non-socket credential":    {&provider{id: factory}, []string{"-fetch-ssh-auth-sock", knownHosts}, 1, unusable},
+		"relative credential":      {&provider{id: factory}, []string{"-fetch-ssh-auth-sock", "./agent.sock"}, 1, unusable},
+		"space in known hosts":     {&provider{id: factory}, []string{"-fetch-known-hosts", filepath.Join(refs, "known hosts")}, 1, unusable},
+		"dollar in known hosts":    {&provider{id: factory}, []string{"-fetch-known-hosts", filepath.Join(refs, "known$hosts")}, 1, unusable},
+		"percent in known hosts":   {&provider{id: factory}, []string{"-fetch-known-hosts", filepath.Join(refs, "known%hosts")}, 1, unusable},
+		"tilde in known hosts":     {&provider{id: factory}, []string{"-fetch-known-hosts", filepath.Join(refs, "known~hosts")}, 1, unusable},
+		"symlinked credential":     {&provider{id: factory}, []string{"-fetch-ssh-auth-sock", filepath.Join(refs, "link.sock")}, 1, unusable},
+		"symlinked known hosts":    {&provider{id: factory}, []string{"-fetch-known-hosts", filepath.Join(refs, "link_hosts")}, 1, unusable},
+		"directory as known hosts": {&provider{id: factory}, []string{"-fetch-known-hosts", refs}, 1, unusable},
+		"absent known hosts":       {&provider{id: factory}, []string{"-fetch-known-hosts", knownHosts + "-absent"}, 1, unusable},
+		"missing input":            {&provider{id: factory}, []string{"-factory-id", ""}, 2, usage},
+		"positional argument":      {&provider{id: factory}, []string{"extra"}, 2, usage},
+		"unknown flag":             {&provider{id: factory}, []string{"-verbose"}, 2, usage},
 	} {
 		t.Run(name, func(t *testing.T) {
 			work, tmp := t.TempDir(), t.TempDir()
@@ -125,11 +133,7 @@ func TestBootstrapCLI(t *testing.T) {
 			args := append([]string{"-repository", url, "-revision", rev, "-factory-id", factory, "-fetch-ssh-auth-sock", sock,
 				"-fetch-known-hosts", knownHosts, "-age-identity-file", identityFile, "-work-dir", work}, c.extra...)
 			var stdout, stderr bytes.Buffer
-			d := bootstrap.Discoverer(nil)
-			if c.d != nil {
-				d = c.d
-			}
-			code := run(context.Background(), args, &stdout, &stderr, d)
+			code := run(context.Background(), args, &stdout, &stderr, c.d)
 			output := stdout.String() + stderr.String()
 			if written, _ := os.ReadFile(stderrFile); code != c.code || !strings.Contains(output, c.output) || c.code == 2 && output != usage || len(written) != 0 {
 				t.Fatalf("exit %d, output %q; want exit %d with %q", code, output, c.code, c.output)
@@ -139,20 +143,18 @@ func TestBootstrapCLI(t *testing.T) {
 					t.Fatalf("output exposes %q: %q", secret, output)
 				}
 			}
-			if left, _ := os.ReadDir(work); len(left) != 0 {
-				t.Fatalf("work directory holds %d entries after the run", len(left))
+			for label, dir := range map[string]string{"work directory": work, "TMPDIR": tmp} {
+				if left, _ := os.ReadDir(dir); len(left) != 0 {
+					t.Fatalf("%s holds %d entries after the run", label, len(left))
+				}
 			}
-			if left, _ := os.ReadDir(tmp); len(left) != 0 {
-				t.Fatalf("TMPDIR holds %d entries after the run", len(left))
-			}
-			if c.d != nil && c.d.sawValue != (len(c.extra) == 0) {
-				t.Fatalf("provider saw decrypted secrets: %t", c.d.sawValue)
+			if p, ok := c.d.(*provider); ok && p.sawValue != (len(c.extra) == 0) {
+				t.Fatalf("provider saw decrypted secrets: %t", p.sawValue)
 			}
 			recorded, err := os.ReadFile(envLog)
-			if c.code == 2 || strings.HasPrefix(strings.Join(c.extra, " "), "-fetch") {
-				if err == nil {
-					t.Fatal("git ran although the inputs were incomplete or unusable")
-				}
+			if blocked := c.code == 2 || strings.HasPrefix(strings.Join(c.extra, " "), "-fetch"); blocked != (err != nil) {
+				t.Fatalf("git ran: %t; want %t (inputs incomplete or unusable: %t)", err == nil, !blocked, blocked)
+			} else if blocked {
 				return
 			}
 			// Fetch's documented allowlist with its values, plus the variables git and sh set themselves.
