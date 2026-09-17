@@ -43,6 +43,34 @@ func (d Diagnostic) String() string { return d.Code + " " + d.Path + ": " + d.De
 // MaxDiagnostics caps the diagnostics a list holds, so a fault-dense manifest
 // within MaxFileBytes cannot fill memory or output with them. It is an
 // implementation guard: no planning document fixes a value.
+//
+// Which diagnostics the cap keeps is decided by path order, with code and then
+// detail breaking a tie between findings at one path, and by nothing else.
+// PR #340 wrote this down in its merge record and this is that sentence, moved
+// here, where a reader of the guard finds it: MaxDiagnostics keeps the first
+// 1,000 in path order however many are added, so on a bundle with more than
+// 1,000 findings a newly named cycle can displace a diagnostic that sorts after
+// it.
+//
+// So the budget buys the findings with the lexicographically smallest paths,
+// and order decides the rest: where the last slot is contested by two findings
+// at one path, the smaller code is kept, and between two findings of one code
+// the smaller detail. Nothing else enters it — not how serious a finding is,
+// not a quota per code, not how many findings a code already has, and not the
+// order they arrived in — so a bundle dense enough to reach the bound can have
+// the only finding of one code cut while a thousand of another are listed. The
+// trigger is a total over every code together, not a quota per code. done says
+// the list was cut, with incomplete, but not what left it.
+//
+// Paths compare as strings, so which findings those are is not the order an
+// operator would guess from the entry numbers: over $.artifacts[0] to
+// $.artifacts[2400] the last five in order are [997], [998], [999], [99] and
+// [9], because after a 9 a ] beats a 9. The finding on the tenth entry is cut
+// while the one on the 2,401st is kept.
+//
+// TestCheckerBudgetBuysSmallestPaths, TestCheckerBudgetBreaksATieByCodeThenDetail
+// and TestCheckerBudgetIsATotalOverCodes pin these, and TestCheckerKeepsFirst
+// pins that none of it depends on the order the diagnostics were added in.
 const MaxDiagnostics = 1000
 
 // checker collects diagnostics as a heap whose top is the last in order,

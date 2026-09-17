@@ -6,7 +6,6 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -73,9 +72,19 @@ func TestCommandArgvRendersASCII(t *testing.T) {
 // is to internal/bundle: a static control over the package's own non-test source,
 // so that a stderr site added later is red rather than silently uncovered by the
 // three cases above. It fails on a strconv quoting call that is not a ToASCII
-// one, on a %q verb in any string literal, and on a format whose verbs it cannot
-// map to their runtime arguments — fmt's explicit argument index, which is how
-// the same check in internal/bundle used to be evadable (see formatVerbs).
+// one, on any string literal holding a directive that renders its argument the
+// way strconv.Quote does, and on a format whose verbs it cannot map to their
+// runtime arguments — fmt's explicit argument index, which is how the same check
+// in internal/bundle used to be evadable (see formatVerbs).
+//
+// Both rules ask what a thing renders rather than how it is spelled, because
+// each used to be evadable by writing the same call another way: the quoting
+// rule reads %q and a sharp-flagged %#v alike, since fmt renders a string under
+// either with strconv.Quote (see formatVerb.quotes), and the strconv rule
+// resolves the package through the file's imports, so an alias is reported and a
+// dot import, which leaves no selector to read at all, is reported as such (see
+// fileImports). A quoting call bound to a name and called through it is the same
+// selector, so it is reported where it is bound.
 //
 // It admits no %q carve-out: unlike internal/bundle, which renders its own Schema
 // constant with one, nothing in this package quotes a value it wrote itself.
@@ -101,7 +110,18 @@ func TestCommandRendersASCII(t *testing.T) {
 			t.Fatal(err)
 		}
 		parsed++
+		imports, dotted := fileImports(f)
+		reportImportHazards(t, fset, f, imports, dotted)
 		ast.Inspect(f, func(n ast.Node) bool {
+			// Every selector, not only one in call position: a quoting call
+			// bound to a name and called through it (q := strconv.Quote; q(s))
+			// is this selector too, so reading them all covers that form.
+			if sel, ok := n.(*ast.SelectorExpr); ok {
+				if x, isName := sel.X.(*ast.Ident); isName && quotesRaw(imports[x.Name], sel.Sel.Name) {
+					t.Errorf("%s: %s leaves printable non-ASCII raw; render operator-supplied text with bundle.Quote "+
+						"or quoteArgs", fset.Position(sel.Pos()), asWritten(x.Name, sel.Sel.Name))
+				}
+			}
 			if call, ok := n.(*ast.CallExpr); ok {
 				switch fun := call.Fun.(type) {
 				case *ast.Ident:
@@ -109,11 +129,6 @@ func TestCommandRendersASCII(t *testing.T) {
 				case *ast.SelectorExpr:
 					if x, isName := fun.X.(*ast.Ident); isName {
 						calls[x.Name+"."+fun.Sel.Name]++
-						if x.Name == "strconv" && !strings.HasSuffix(fun.Sel.Name, "ToASCII") &&
-							(strings.HasPrefix(fun.Sel.Name, "Quote") || strings.HasPrefix(fun.Sel.Name, "AppendQuote")) {
-							t.Errorf("%s: strconv.%s leaves printable non-ASCII raw; render operator-supplied text with bundle.Quote or quoteArgs",
-								fset.Position(fun.Pos()), fun.Sel.Name)
-						}
 					}
 				}
 				return true
@@ -129,12 +144,14 @@ func TestCommandRendersASCII(t *testing.T) {
 			verbs, mappable := formatVerbs(s)
 			if !mappable {
 				t.Errorf("%s: format %q uses fmt syntax this control cannot map to its arguments (an explicit "+
-					"argument index or a star width or precision), so a %%q in it would go unseen; write it plainly",
-					fset.Position(lit.Pos()), s)
+					"argument index or a star width or precision), so a quoting directive in it would go unseen; "+
+					"write it plainly", fset.Position(lit.Pos()), s)
 			}
-			if slices.Contains(verbs, 'q') {
-				t.Errorf("%s: %%q is strconv.Quote and leaves printable non-ASCII raw; render operator-supplied "+
-					"text with bundle.Quote or quoteArgs", fset.Position(lit.Pos()))
+			for _, verb := range verbs {
+				if verb.quotes() {
+					t.Errorf("%s: %v renders its argument with strconv.Quote, which leaves printable non-ASCII raw; "+
+						"render operator-supplied text with bundle.Quote or quoteArgs", fset.Position(lit.Pos()), verb)
+				}
 			}
 			return true
 		})
@@ -142,15 +159,23 @@ func TestCommandRendersASCII(t *testing.T) {
 	if parsed < 2 {
 		t.Errorf("parsed %d non-test files of cmd/prifly, want at least 2", parsed)
 	}
+	// What the count pins is that a site cannot be added silently, not that a
+	// site prints safely: a new print site rendering operator-supplied text with
+	// a plain %s is green once its author records the count here. That is why the
+	// message below leads with the case to add and closes with the count — the
+	// cheapest reading of it is the one that covers the new site. The count also
+	// knows only these five spellings, so a writer that is not one of them is
+	// left to TestBundleImportsNoNetworkOrProcess, which rejects a .Write or
+	// .WriteString selector for its own reasons.
 	for _, c := range []struct {
 		name string
 		want int
 	}{{"quoteArgs", 2}, {"bundle.Quote", 2}, {"fmt.Fprintf", 6}, {"fmt.Fprint", 2}, {"fmt.Fprintln", 2}} {
 		if calls[c.name] != c.want {
-			t.Errorf("%s call sites in cmd/prifly = %d, want %d: a message this package prints renders any "+
-				"operator-supplied part of it through bundle.Quote or quoteArgs, and gets a case in "+
-				"TestCommandArgvRendersASCII driving a printable non-ASCII character through it; record the "+
-				"new count here once it does", c.name, calls[c.name], c.want)
+			t.Errorf("%s call sites in cmd/prifly = %d, want %d: give the new site a case in "+
+				"TestCommandArgvRendersASCII driving a printable non-ASCII character through it, rendering any "+
+				"operator-supplied part of its message through bundle.Quote or quoteArgs; then record the new "+
+				"count here", c.name, calls[c.name], c.want)
 		}
 	}
 }
