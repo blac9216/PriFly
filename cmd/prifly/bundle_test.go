@@ -10,6 +10,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -843,19 +844,100 @@ func printableASCII(t *testing.T, what, s string) {
 	}
 }
 
-// formatVerbs returns the fmt verbs of format in order, "%%" skipped.
-func formatVerbs(format string) (verbs []byte) {
+// formatVerbs returns the fmt verbs of format in order, "%%" skipped, and
+// whether every directive it read maps to a runtime argument at a position a
+// caller can compute by counting verbs.
+//
+// mappable is false for fmt syntax that breaks that counting: an explicit
+// argument index ("%[1]q") names its argument outright, and a star width or
+// precision ("%*d") eats an extra argument, shifting every later one. It is
+// also false for a format ending in a bare percent, which is not a directive at
+// all. A caller must treat a format with mappable false as one it cannot
+// examine — reporting it — rather than as one that holds no verb of interest:
+// before this returned mappable, "%[1]q" yielded the verb "[", never reached
+// the q test, and rendered text through strconv.Quote with the suite green.
+func formatVerbs(format string) (verbs []byte, mappable bool) {
+	mappable = true
 	for i := 0; i < len(format); i++ {
 		if format[i] != '%' {
 			continue
 		}
-		for i++; i < len(format) && strings.ContainsRune("+-# 0123456789.*", rune(format[i])); i++ {
+		i++
+		for ; i < len(format); i++ {
+			c := format[i]
+			if c == '[' { // an explicit argument index, "%[1]q"
+				mappable = false
+				j := strings.IndexByte(format[i:], ']')
+				if j < 0 {
+					return verbs, false
+				}
+				i += j
+				continue
+			}
+			if c == '*' { // a star width or precision, "%*d"
+				mappable = false
+				continue
+			}
+			if !strings.ContainsRune("+-# 0123456789.", rune(c)) {
+				break
+			}
 		}
-		if i < len(format) && format[i] != '%' {
+		if i >= len(format) {
+			return verbs, false // a trailing "%" begins a directive that never ends
+		}
+		if format[i] != '%' {
 			verbs = append(verbs, format[i])
 		}
 	}
-	return verbs
+	return verbs, mappable
+}
+
+// declaredNames returns the positions, by name, of every identifier f declares:
+// constants and variables at any scope, short variable declarations, range
+// variables, functions and methods, types, struct fields, parameters and
+// results, and labels. It is how the Schema carve-out below tells a name with
+// one binding from a name with several, having no type information to ask.
+func declaredNames(fset *token.FileSet, f *ast.File) map[string][]token.Position {
+	at := map[string][]token.Position{}
+	add := func(ids ...*ast.Ident) {
+		for _, id := range ids {
+			if id != nil && id.Name != "_" {
+				at[id.Name] = append(at[id.Name], fset.Position(id.Pos()))
+			}
+		}
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.ValueSpec:
+			add(n.Names...)
+		case *ast.TypeSpec:
+			add(n.Name)
+		case *ast.FuncDecl:
+			add(n.Name)
+		case *ast.Field:
+			add(n.Names...)
+		case *ast.LabeledStmt:
+			add(n.Label)
+		case *ast.AssignStmt:
+			if n.Tok == token.DEFINE {
+				for _, lhs := range n.Lhs {
+					if id, ok := lhs.(*ast.Ident); ok {
+						add(id)
+					}
+				}
+			}
+		case *ast.RangeStmt:
+			if n.Tok == token.DEFINE {
+				for _, e := range []ast.Expr{n.Key, n.Value} {
+					if id, ok := e.(*ast.Ident); ok {
+						add(id)
+					}
+				}
+			}
+		}
+		return true
+	})
+	return at
 }
 
 // TestBundleDiagnosticsRenderASCII pins internal/bundle's diagnostic details to a
@@ -874,6 +956,13 @@ func formatVerbs(format string) (verbs []byte) {
 //
 // The call-site counts are asserted so the enumeration stays by occurrence and
 // not by line: two lines of bundle.go carry two Quote calls each.
+//
+// Both of its judgements fail closed. A format whose verbs formatVerbs cannot map
+// to their arguments is reported rather than skipped, so no fmt syntax this
+// control does not parse — an explicit argument index above all — can carry a %q
+// past it. And the carve-out is refused outright, rather than applied by name, if
+// "Schema" ever names more than the package-level constant: this check reads
+// identifiers, so a second Schema in scope would make the whitelist a guess.
 func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 	const pkg = "../../internal/bundle"
 	files, err := filepath.Glob(filepath.Join(pkg, "*.go"))
@@ -881,6 +970,7 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 		t.Fatal(err)
 	}
 	fset, calls, parsed := token.NewFileSet(), map[string]int{}, 0
+	parsedFiles := map[string]*ast.File{}
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
 			continue
@@ -889,7 +979,27 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		parsed++
+		parsedFiles[file], parsed = f, parsed+1
+	}
+
+	// The carve-out below reads the argument of a %q and admits it when it is an
+	// identifier spelled Schema. That is sound only while the package declares
+	// Schema once, as the constant at bundle.go:19; a second declaration of that
+	// name anywhere — a local, a parameter, a field — would let an unrelated
+	// value be whitelisted, so the carve-out is withdrawn instead and the site it
+	// covered is reported like any other.
+	var schemaDecls []token.Position
+	for _, file := range slices.Sorted(maps.Keys(parsedFiles)) {
+		schemaDecls = append(schemaDecls, declaredNames(fset, parsedFiles[file])["Schema"]...)
+	}
+	schemaIsTheConstant := len(schemaDecls) == 1
+	if !schemaIsTheConstant {
+		t.Errorf("Schema is declared %d times in %s (at %v), so an identifier spelled Schema no longer names "+
+			"the manifest schema constant on sight; the %%q carve-out is withdrawn", len(schemaDecls), pkg, schemaDecls)
+	}
+
+	for _, file := range slices.Sorted(maps.Keys(parsedFiles)) {
+		f := parsedFiles[file]
 		schemaOnly := map[*ast.BasicLit]bool{} // formats whose every %q renders Schema
 		ast.Inspect(f, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
@@ -919,8 +1029,9 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 			if unquoted != nil {
 				return true
 			}
-			only := true
-			for k, verb := range formatVerbs(format) {
+			verbs, mappable := formatVerbs(format)
+			only := mappable && schemaIsTheConstant
+			for k, verb := range verbs {
 				if verb != 'q' {
 					continue
 				} else if 3+k >= len(call.Args) {
@@ -938,7 +1049,17 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 			if !ok || lit.Kind != token.STRING || schemaOnly[lit] {
 				return true
 			}
-			if s, err := strconv.Unquote(lit.Value); err == nil && slices.Contains(formatVerbs(s), 'q') {
+			s, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				return true
+			}
+			verbs, mappable := formatVerbs(s)
+			if !mappable {
+				t.Errorf("%s: format %q uses fmt syntax this control cannot map to its arguments (an explicit "+
+					"argument index or a star width or precision), so a %%q in it would go unseen; write it plainly",
+					fset.Position(lit.Pos()), s)
+			}
+			if slices.Contains(verbs, 'q') {
 				t.Errorf("%s: %%q is strconv.Quote and leaves printable non-ASCII raw; render bundle text with Quote or Member", fset.Position(lit.Pos()))
 			}
 			return true

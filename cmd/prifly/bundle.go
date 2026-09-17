@@ -11,7 +11,7 @@ import (
 // nothing. Exit 0: no diagnostics; 1: diagnostics; 2: usage error.
 func runBundle(args []string, stdout, stderr io.Writer) int {
 	if len(args) != 2 || args[0] != "inspect" {
-		fmt.Fprintf(stderr, "prifly: want bundle inspect <bundle-dir> (got %q)\n\n%s", args, usage)
+		fmt.Fprintf(stderr, "prifly: want bundle inspect <bundle-dir> (got %s)\n\n%s", quoteArgs(args), usage)
 		return 2
 	}
 	diags, manifestSHA256 := bundle.Inspect(args[1])

@@ -42,14 +42,12 @@ var resolves = map[string][2]string{"outcomes": {"Baseline/v1", "unresolved-base
 
 // body is the references read from one distinct content, reported at path, the
 // first Work Item entry naming those bytes; slice is whether its kind is SLICE;
-// next is the position in deps of the first dependency left after removal,
-// found once for every walk; envelope is the valid execution_envelope ID, and
-// known is whether the content is an object naming one.
+// envelope is the valid execution_envelope ID, and known is whether the content
+// is an object naming one.
 type body struct {
 	path, envelope         string
 	deps, users, artifacts []edge
 	slice, known           bool
-	next                   int
 }
 
 // workItem is one WorkItem/v1 artifact entry at path with its ID ("" when
@@ -167,34 +165,24 @@ func (c *checker) body(p string, content []byte) body {
 // consumer naming a Work Item whose content is read but is not a SLICE, and an
 // outcome or execution_envelope naming no entry of its schema, and an
 // ExecutionEnvelope/v1 artifact named by several Work Item entries or by none;
-// it names one cycle per disjoint walk of the dependencies left after removing,
-// iteratively, every Work Item whose dependencies are all removed (Kahn). A
-// body is a node every entry naming it depends on, so shared bytes' edges are
-// held once. Time and memory are linear in the Work Items, bodies and body
-// edges; nothing recurses.
+// cycles then names one cycle in every cyclic component of the dependencies (C1
+// "acyclic dependencies"). A body is a node every entry naming it depends on,
+// so shared bytes' edges are held once. Time and memory are linear in the Work
+// Items, bodies and body edges; nothing recurses.
 func (c *checker) graph(w workItems) {
-	items, n := w.items, len(w.items)
+	items := w.items
 	index := map[string]int{}
 	for i, it := range items {
 		if _, seen := index[it.id]; it.id != "" && !seen {
 			index[it.id] = i
 		}
 	}
-	// Node i < n is Work Item entry i; node n+b is body b.
-	dependents, pending := make([][]int, n+len(w.bodies)), make([]int, n+len(w.bodies))
-	for i, it := range items {
-		if it.body >= 0 {
-			dependents[n+it.body], pending[i] = append(dependents[n+it.body], i), 1
-		}
-	}
-	for b, body := range w.bodies {
+	for _, body := range w.bodies {
 		for m, e := range slices.Concat(body.deps, body.users) {
 			j, found := index[e.id]
 			if e.id != "" && !found {
 				c.add(e.path(body.path), "unresolved-work-item", "no Work Item in this bundle has ID %s", Quote(e.id))
-			} else if found && m < len(body.deps) {
-				dependents[j], pending[n+b] = append(dependents[j], n+b), pending[n+b]+1
-			} else if found && items[j].body >= 0 && !w.bodies[items[j].body].slice {
+			} else if found && m >= len(body.deps) && items[j].body >= 0 && !w.bodies[items[j].body].slice {
 				c.add(e.path(body.path), "non-slice-consumer", "consumer %s is not a SLICE Work Item", Quote(e.id))
 			}
 		}
@@ -207,7 +195,7 @@ func (c *checker) graph(w workItems) {
 	// One envelope binds one Work Item. An entry repeating an earlier Work Item ID
 	// is not counted. A binding that names no resolved envelope is unknown: it may
 	// have meant any envelope, so while one exists no envelope is reported unnamed.
-	named, unknown, counted := map[string]int{}, w.unknown, make([]bool, n)
+	named, unknown, counted := map[string]int{}, w.unknown, make([]bool, len(items))
 	for i, it := range items {
 		if it.body < 0 || !w.bodies[it.body].known {
 			unknown = true // unreadable, not an object, or no valid execution_envelope
@@ -233,36 +221,105 @@ func (c *checker) graph(w workItems) {
 			c.add(e.path+".id", "orphan-envelope", "no Work Item in this bundle names this ExecutionEnvelope/v1 artifact")
 		}
 	}
-	queue := []int{}
-	for i := range pending {
-		if pending[i] == 0 {
-			queue = append(queue, i)
+	c.cycles(w, index)
+}
+
+// cycles names one cycle in every cyclic component of the dependency graph, so
+// one run shows every cycle a producer must break independently.
+//
+// Node i < n is Work Item entry i and node n+b is body b: an entry depends on
+// its body, and a body on the first entry declaring each ID its dependencies
+// name. Entries sharing bytes share their body's edges, so nodes and edges stay
+// linear in the entries, bodies and body dependencies. Every path alternates
+// entry and body nodes, so no node reaches itself in one step: a strongly
+// connected component holds a cycle exactly when it holds more than one node,
+// and every such component holds an entry.
+//
+// The components are Tarjan's, found iteratively: frames carries the traversal's
+// own stack of nodes and of the dependency each has reached, num the order a
+// node was first reached in, low the earliest num reachable from it, and comp
+// the component it was assigned. A node is on stack exactly while it is reached
+// and unassigned, so no separate flag is kept. Every node and edge is traversed
+// once, and the walk that names each cycle stays inside one component, so the
+// components partition its steps.
+func (c *checker) cycles(w workItems, index map[string]int) {
+	items, n := w.items, len(w.items)
+	nodes := n + len(w.bodies)
+	// next is the first successor of node v at or after cursor k, with the cursor
+	// it was found at, or -1 when v has none left.
+	next := func(v, k int) (int, int) {
+		if v < n {
+			if k == 0 && items[v].body >= 0 {
+				return n + items[v].body, 0
+			}
+			return -1, k
 		}
-	}
-	for len(queue) > 0 {
-		for _, d := range dependents[queue[0]] {
-			if pending[d]--; pending[d] == 0 {
-				queue = append(queue, d)
+		for deps := w.bodies[v-n].deps; k < len(deps); k++ {
+			if j, found := index[deps[k].id]; found {
+				return j, k
 			}
 		}
-		queue = queue[1:]
+		return -1, k
 	}
-	// Every Work Item left has a dependency left, so a walk along the first one
-	// either closes a new cycle or reaches an earlier walk.
+	type frame struct{ v, k int }
+	num, low, comp := make([]int, nodes), make([]int, nodes), make([]int, nodes)
+	reached, components, stack, frames, starts := 0, 0, []int{}, []frame{}, []int{}
+	for s := range nodes {
+		if num[s] > 0 {
+			continue
+		}
+		reached++
+		num[s], low[s] = reached, reached
+		stack, frames = append(stack, s), append(frames, frame{s, 0})
+		for len(frames) > 0 {
+			f := len(frames) - 1
+			v := frames[f].v
+			if t, at := next(v, frames[f].k); t < 0 {
+				if frames = frames[:f]; f > 0 { // v is done: its low reaches its parent
+					low[frames[f-1].v] = min(low[frames[f-1].v], low[v])
+				}
+				if low[v] != num[v] {
+					continue
+				}
+				// v roots a component: pop it, and keep the least entry of a component
+				// of more than one node to walk a cycle from.
+				components++
+				least, size := -1, 0
+				for u := -1; u != v; {
+					u = stack[len(stack)-1]
+					stack, comp[u], size = stack[:len(stack)-1], components, size+1
+					if u < n && (least < 0 || u < least) {
+						least = u
+					}
+				}
+				if size > 1 {
+					starts = append(starts, least)
+				}
+			} else if frames[f].k = at + 1; num[t] == 0 {
+				reached++
+				num[t], low[t] = reached, reached
+				stack, frames = append(stack, t), append(frames, frame{t, 0})
+			} else if comp[t] == 0 { // t is on stack, so it reaches v
+				low[v] = min(low[v], num[t])
+			}
+		}
+	}
+	// Every entry of a cyclic component has a dependency inside it, so a walk
+	// along the first one never stops short and, the component being finite,
+	// closes on an entry it already walked. Each component is walked once and
+	// holds the entries it walks, so the walks cost one step per entry at most.
 	walked, pos, via, walk := make([]int, n), make([]int, n), make([]edge, n), []int{}
-	for s := range items {
-		cur := s
-		for walk = walk[:0]; pending[cur] > 0 && walked[cur] == 0; {
-			walked[cur], pos[cur], walk = s+1, len(walk), append(walk, cur)
-			for b := &w.bodies[items[cur].body]; b.next < len(b.deps); b.next++ {
-				if t, found := index[b.deps[b.next].id]; found && pending[t] > 0 {
-					via[cur], cur = b.deps[b.next], t
+	for _, s := range starts {
+		cur, id := s, comp[s]
+		for walk = walk[:0]; walked[cur] != id; {
+			walked[cur], pos[cur] = id, len(walk)
+			walk = append(walk, cur)
+			for _, e := range w.bodies[items[cur].body].deps {
+				if j, found := index[e.id]; found && comp[j] == id {
+					via[cur], cur = e, j
 					break
 				}
 			}
-		}
-		if pending[cur] == 0 || walked[cur] != s+1 {
-			continue
 		}
 		cycle := walk[pos[cur]:]
 		names := make([]string, 0, len(cycle)+1)
