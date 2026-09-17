@@ -30,15 +30,38 @@ These are exactly the six `docs-checks.yml` steps plus the sanitize scan; a mani
 log actually ran them.
 
 Go suite (`cmd/`, `internal/`): exactly the steps of the always-reporting, not-yet-required
-`go` job in `.github/workflows/go-checks.yml`, same order and flags. Use the toolchain
-`go.mod`'s `go` directive pins: read the `sha256` of `go<version>.<os>-<arch>.tar.gz` from
-`https://go.dev/dl/?mode=json&include=all`, download `https://go.dev/dl/<that file>`, run
-`echo "<sha256>  <that file>" | sha256sum -c -`, extract it outside the checkout, put its
-`go/bin` first on `PATH`, and export `GOTOOLCHAIN=local` and `GOFLAGS=-mod=readonly`:
+`go` job in `.github/workflows/go-checks.yml`, same order and flags.
+
+Toolchain: CI and the local recipe install the same go.dev archive and check it against
+the same digest. Both values are pinned once, as `GO_ARCHIVE` and `GO_ARCHIVE_SHA256` on
+the `go` job's install step in `go-checks.yml`. That step fails unless the runner is
+Linux x86-64, the archive name matches `go.mod`'s `go` directive, and `sha256sum -c`
+accepts the download. Only then does it extract the archive and put its `go/bin` first
+on `PATH`. CI does not use `actions/setup-go`. Locally, on Linux x86-64, from the
+repository root:
+
+```sh
+GO_ARCHIVE=$(sed -n 's/^ *GO_ARCHIVE: //p' .github/workflows/go-checks.yml) &&
+GO_ARCHIVE_SHA256=$(sed -n 's/^ *GO_ARCHIVE_SHA256: //p' .github/workflows/go-checks.yml) &&
+curl -fsSL --proto '=https' --proto-redir '=https' -o "<scratch-path>/$GO_ARCHIVE" "https://go.dev/dl/$GO_ARCHIVE" &&
+(cd <scratch-path> && echo "$GO_ARCHIVE_SHA256  $GO_ARCHIVE" | sha256sum -c -) &&
+tar -C <scratch-path> -xzf "<scratch-path>/$GO_ARCHIVE"
+```
+
+The commands are one `&&` chain, so the block fails closed whether it is pasted or run as a
+script: a digest that is not the pinned one makes `sha256sum -c` exit 1, the chain stops
+before `tar`, nothing is extracted and the block exits 1. Otherwise
+put `<scratch-path>/go/bin` first on `PATH` and export `GOTOOLCHAIN=local` and
+`GOFLAGS=-mod=readonly`. The recipe checks the pinned digest, not a live read of the
+go.dev index. No digest is pinned for any other OS or architecture. The Go toolchain row
+of the dependency inventory in [source-register.md](../reference/source-register.md)
+restates both values as the identity it dispositions; the workflow is the source of truth.
+To bump Go, change `go.mod`, `GO_ARCHIVE`, `GO_ARCHIVE_SHA256` and that inventory row in
+one change, taking the new digest from `https://go.dev/dl/?mode=json&include=all`.
 
 | Suite | Command | Environment |
 |---|---|---|
-| Identity | `git rev-parse HEAD`, then `go version` | Checkout; pinned `go` first on `PATH`. |
+| Identity | `git rev-parse HEAD`, then `command -v go`, `go version`, `go env GOROOT` | Checkout; pinned `go` first on `PATH`. |
 | Format | `test -z "$(gofmt -l .)"` | Same; exits 1 if any file is unformatted. |
 | Vet | `go vet ./...` | Same. |
 | Unit tests | `go test -count=1 -race -v ./...` | Same; uncached; `-race` needs cgo. |
