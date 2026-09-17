@@ -161,9 +161,20 @@ var hostile = map[string]func(dir string) error{
 	"shared-envelope-many": func(dir string) error { // with the valid SLICE; the last two share bytes
 		return addItems(dir, naming(xenID, slice(-1)), naming(xenID, slice()), naming(xenID, slice()))
 	},
-	"orphan-envelope": func(dir string) error { // wi0 repeats the valid SLICE's ID and alone names xen1; xen2 repeats xen0's ID; xen3's ID is invalid
-		return errors.Join(addItems(dir, naming(fmt.Sprintf("xen_%032x", 1), slice())), addArtifacts(dir, "xen", "ExecutionEnvelope/v1", `{}`, envelope, envelope, envelope),
-			replaceIn(dir, `"`+wiN(0)+`"`, `"`+wiN(-1)+`"`), replaceIn(dir, fmt.Sprintf(`"xen_%032x"`, 2), fmt.Sprintf(`"xen_%032x"`, 0)), replaceIn(dir, fmt.Sprintf(`"xen_%032x"`, 3), `"xen_\u001b[2K"`))
+	"orphan-envelope": func(dir string) error { // wi0 and wi1 repeat the valid SLICE's ID: wi0 alone names xen1, wi1 names xen4 before wi2; xen2 repeats xen0's ID; xen3's ID is invalid
+		return errors.Join(addItems(dir, naming(fmt.Sprintf("xen_%032x", 1), slice()), naming(fmt.Sprintf("xen_%032x", 4), slice()), naming(fmt.Sprintf("xen_%032x", 4), slice(-1))),
+			addArtifacts(dir, "xen", "ExecutionEnvelope/v1", `{}`, envelope, envelope, envelope, envelope), replaceIn(dir, `"`+wiN(0)+`"`, `"`+wiN(-1)+`"`), replaceIn(dir, `"`+wiN(1)+`"`, `"`+wiN(-1)+`"`),
+			replaceIn(dir, fmt.Sprintf(`"xen_%032x"`, 2), fmt.Sprintf(`"xen_%032x"`, 0)), replaceIn(dir, fmt.Sprintf(`"xen_%032x"`, 3), `"xen_\u001b[2K"`))
+	},
+	// Each unknown-binding bundle holds one Work Item whose binding is unknown beside an unnamed envelope.
+	"unknown-binding-missing":     unknownBinding(strings.Replace(slice(), ", "+bound, "", 1)),
+	"unknown-binding-type":        unknownBinding(strings.Replace(slice(), `"`+own+`"`, "7", 1)),
+	"unknown-binding-id":          unknownBinding(naming(`xen_\u001b[2K`, slice())),
+	"unknown-binding-unresolved":  unknownBinding(naming(fmt.Sprintf("xen_%032x", 99), slice())),
+	"unknown-binding-workitem-v2": func(dir string) error { return addArtifacts(dir, "wi", "WorkItem/v2", slice()) }, // its own envelope is unnamed
+	"unrelated-unsupported-schemas": func(dir string) error { // QualityEvaluation/v2 and ExecutionEnvelope/v2 entries beside an unnamed envelope
+		return errors.Join(addArtifacts(dir, "qev", "QualityEvaluation/v2", `{}`), addArtifacts(dir, "xen", "ExecutionEnvelope/v1", envelope, `{}`),
+			replaceIn(dir, `"ExecutionEnvelope/v1", "path": "artifacts/xen1.json"`, `"ExecutionEnvelope/v2", "path": "artifacts/xen1.json"`))
 	},
 	"envelope-cardinality": func(dir string) error { // wi4 repeats wi3's bytes; wi7 repeats wi0's bytes and ID; the invalid IDs leave unknown whether xen0 is named
 		unresolved, invalid := fmt.Sprintf("xen_%032x", 99), `xen_\u001b[2K`
@@ -187,6 +198,13 @@ const (
 	own      = "xen_<own>" // replaced by ownXen of the content naming it
 	envelope = `{"bounds": {"attempts": 3, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 360}}`
 )
+
+// unknownBinding adds content as a Work Item and an unnamed envelope.
+func unknownBinding(content string) func(dir string) error {
+	return func(dir string) error {
+		return errors.Join(addItems(dir, content), addArtifacts(dir, "xen", "ExecutionEnvelope/v1", envelope))
+	}
+}
 
 // ownXen is the envelope ID a content naming own names once added: identical
 // contents name one envelope.
@@ -352,6 +370,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 			`unsupported-schema ` + wi + `.schema: artifact schema "\x1b[2K" is not supported`,
 			`unreadable-artifact ` + bsl + `.path: "\r\u202e" does not resolve to a file inside the bundle directory`,
 			unnamedWI,
+			"orphan-envelope $.artifacts[3].id: no Work Item in this bundle names this ExecutionEnvelope/v1 artifact",
 			`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "a\x1b[1A\rresult: ok\u202e"`,
 			`unsupported-job $.jobs[1]: job/version "\x1b[1A" is not supported`,
 			`invalid-revision $.revision: want integer >= 1, got "\x1b[8m"`,
@@ -467,11 +486,18 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"shared-envelope":      {shared("$.artifacts[2].content", 2, xen2ID), shared(at(0, ""), 2, xen2ID)},
 		"shared-envelope-many": {shared(wi+".content", 4, xenID), shared(at(0, ""), 4, xenID), shared(at(1, ""), 4, xenID), shared(at(2, ""), 4, xenID)},
 		"orphan-envelope": {
+			`duplicate-id $.artifacts[10].id: artifact ID "xen_` + fmt.Sprintf("%032x", 0) + `" is already declared at $.artifacts[8].id`,
+			`invalid-id $.artifacts[11].id: want xen_<32 lowercase hex>, got "xen_\x1b[2K"`,
 			`duplicate-id $.artifacts[5].id: artifact ID "` + wiN(-1) + `" is already declared at ` + wi + ".id",
-			"missing-field " + at(1, ".bounds"+missing),
-			"orphan-envelope $.artifacts[6].id: no Work Item in this bundle names this ExecutionEnvelope/v1 artifact",
-			`duplicate-id $.artifacts[8].id: artifact ID "xen_` + fmt.Sprintf("%032x", 0) + `" is already declared at $.artifacts[6].id`,
-			`invalid-id $.artifacts[9].id: want xen_<32 lowercase hex>, got "xen_\x1b[2K"`},
+			`duplicate-id $.artifacts[6].id: artifact ID "` + wiN(-1) + `" is already declared at ` + wi + ".id",
+			"missing-field " + at(3, ".bounds"+missing),
+			"orphan-envelope $.artifacts[8].id: no Work Item in this bundle names this ExecutionEnvelope/v1 artifact"},
+		"unknown-binding-missing":       {"unbound-work-item " + at(0, ".execution_envelope: Work Item names no ExecutionEnvelope/v1 artifact")},
+		"unknown-binding-type":          {"invalid-type " + at(0, ".execution_envelope: want string")},
+		"unknown-binding-id":            {"invalid-id " + at(0, `.execution_envelope: want xen_<32 lowercase hex>, got "xen_\x1b[2K"`)},
+		"unknown-binding-unresolved":    {"unresolved-envelope " + at(0, `.execution_envelope: no ExecutionEnvelope/v1 artifact in this bundle has ID "xen_`+fmt.Sprintf("%032x", 99)+`"`)},
+		"unknown-binding-workitem-v2":   {`unsupported-schema $.artifacts[5].schema: artifact schema "WorkItem/v2" is not supported`},
+		"unrelated-unsupported-schemas": {`unsupported-schema $.artifacts[5].schema: artifact schema "QualityEvaluation/v2" is not supported`, "orphan-envelope $.artifacts[6].id: no Work Item in this bundle names this ExecutionEnvelope/v1 artifact", `unsupported-schema $.artifacts[7].schema: artifact schema "ExecutionEnvelope/v2" is not supported`},
 		"envelope-cardinality": {
 			shared(wi+".content", 2, xenID),
 			"invalid-id " + at(5, `.execution_envelope: want xen_<32 lowercase hex>, got "xen_\x1b[2K"`),

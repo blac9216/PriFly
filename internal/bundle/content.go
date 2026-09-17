@@ -2,7 +2,7 @@
 // bounds, and results that are present and neither blocking FAIL/UNKNOWN nor
 // NOT_APPLICABLE without an applicability path (C1 "finite envelopes, and
 // absence of blocking FAIL/UNKNOWN"; ADR-0021 item 5). Only these fields are
-// read; structural validation of the rest is #181.
+// read; the rest of each artifact is not validated structurally here.
 
 package bundle
 
@@ -63,8 +63,8 @@ func numberText(v any) string {
 // evaluation rejects every FAIL or UNKNOWN result in a QualityEvaluation/v1
 // content at p: no reviewed descriptor mapping makes an imported criterion
 // non-blocking yet (P14; ADR-0021 item 5; B02 split ruling, conflict 2). An
-// empty results array (#281 ruling) and a NOT_APPLICABLE result without a
-// non-empty applicability string (#288 ruling) are unresolved and rejected too.
+// empty results array and a NOT_APPLICABLE result without a non-empty
+// applicability string are unresolved and rejected too.
 func (c *checker) evaluation(p string, content []byte) {
 	m, cp := c.content(p, content), p+".content"
 	if _, present := m["results"]; m != nil && !present {

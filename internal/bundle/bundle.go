@@ -164,7 +164,8 @@ func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self i
 	if self.id != "" {
 		w.schemaIDs[schema+" "+self.id] = true
 	}
-	w.unknown = w.unknown || !supported
+	// An entry of another WorkItem schema version may be a Work Item.
+	w.unknown = w.unknown || !supported && strings.HasPrefix(schema, "WorkItem/")
 	defer func() { // an unreadable Work Item is still an entry, with no body
 		if isItem {
 			w.items = append(w.items, workItem{p, self.id, b})
