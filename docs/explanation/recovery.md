@@ -99,3 +99,9 @@ At least one verified recovery root is retained against ordinary cleanup until a
 | PF-REC-10 | Initial repository access and age decryption material are independently retained; neither can depend solely on the repository/file it unlocks. |
 | PF-REC-11 | Decrypted secrets use restricted transient handling and scoped provisioning, not prompts, logs, plaintext Git files, or ordinary Worker environments. |
 | PF-REC-12 | Bootstrap and secret rotation preserve identity, compatibility, remote-state discovery, and supported recovery-root decryption. |
+
+### Initial profile lineage and installation artifacts
+
+Every recovery successor uses a fresh never-reused replica prefix. A normal restart first establishes continuity and sole-writer ownership with replication paused; missing or inconsistent metadata must not reset numbering in an existing prefix. Recovery protects the exact predecessor frontier and every supported Git/evidence/key dependency. Real tests include compaction/retention aging, interrupted INITIALIZING recovery, stale runtime and inherited possibly-sent operations.
+
+The initial self-installation artifact is a content-digested OCI archive retained in R2, with its expected identity supplied by the owner-selected private bootstrap Git revision. Upload/read verification precedes a published reference. This avoids requiring general release-provider automation for initial handover; unknown uploads and missing dependencies remain explicit. Rotation must retain compatible independent decryption material or prove a rewrap path for each supported root.

@@ -106,3 +106,5 @@ Executable JSON Schemas and tests must exist when a real producer/consumer for t
 ## Initial execution profile bindings
 
 Bundle inspection/import stages an immutable proposal, checks complete references/evaluations/authority and never directly launches work. The owner transport authenticates local peer identity and binds confirmation to exact package/source/rendered digest, permitted phase, scope and envelope. Pilot/Worker transports cannot confirm those operations. Attempt results bind current generation, run, role/job, subject/revisions, prompt/tool/schema manifests and immutable evidence; replay, wrong head and late results fail.
+
+All authoritative command responses identify published sequence/generation. Identical command ID and bytes reconcile to the original published result; same ID with different bytes conflicts. Unresolved publication/provider outcomes retain their original identity. Canonical queries use a published snapshot; provisional diagnostics are explicitly separate. Pagination binds query/snapshot. Recovery/upgrade have separate restricted pre-ACTIVE methods and never act as an alternate delivery engine.

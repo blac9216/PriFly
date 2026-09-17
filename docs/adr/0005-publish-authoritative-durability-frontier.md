@@ -1,6 +1,7 @@
 # ADR-0005: Publish an authoritative durability frontier before acknowledgement
 
 Status: Accepted
+Amended-by: 0031
 Date: 2026-09-13
 
 ## Context

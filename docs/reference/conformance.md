@@ -132,8 +132,8 @@ Changing a mechanism in a way that changes the required semantic result is an ar
 
 ## Initial handover profile qualification
 
-Required additional profile observations: (1) externally imported stale/forged/incomplete packages never dispatch; (2) real interactive Codex and Claude attempts cannot access controller sockets/other workspaces and all sentinels/Docker writers stop before handoff. These are required future tests, not claimed PASS evidence.
+Required additional profile observations: (1) externally imported stale/forged/incomplete packages never dispatch; (2) real interactive Codex and Claude attempts cannot access controller sockets/other workspaces and all sentinels/Docker writers stop before handoff; (3) every publication's exact remote restore contains the expected sequence/command and no pending successor; (4) retention/compaction/local loss preserves current and older supported roots while unsafe lineage reuse/reset is rejected; (7) old/new controller lost-reply trials enforce the publication rollback cutoff; (8) fixed-load/resource/storage pressure preserves control-plane headroom and never deletes required evidence. These are required future tests, not claimed PASS evidence.
 
-Adversarial lifecycle qualification delays Create/Start across cancellation, retirement, successor lease and takeover. A stopped-only control must fail; retired IDs cannot write.
+Adversarial lifecycle qualification delays Create/Start across cancellation, retirement, successor lease and takeover. A stopped-only control must fail; retired IDs cannot write. Storage qualification exhausts permits and loses debit/response continuity across incarnation changes: no unsafe reuse/refill, unbounded body or under-counted old sender is permitted.
 
-Repeat delayed lifecycle-operation probes through Worker Docker/Compose.
+Quota tests expire the ordinary grant immediately after N commits: its precharged ticket must complete publication, and renewal must precede the next ordinary commit. Missing reservations block before commit; violated bounds halt without recursive renewal. Repeat delayed lifecycle-operation probes through Worker Docker/Compose and verify Git checkpoint size accounting separately from R2.
