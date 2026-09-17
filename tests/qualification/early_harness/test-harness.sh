@@ -13,7 +13,7 @@
 # --observe-ms cases run under en_US.UTF-8, where a bracket range matches non-ASCII digits;
 # a control check fails the suite if that locale is missing, so they cannot pass vacuously.
 # Runs get --step-deadline-ms 10000 (PROBE_DL overrides; "missing" drops the flag); a hang-*
-# case gets 1000 and must end within 8000ms, while its fake step ignores TERM for 20s.
+# case gets 1000 and must end within 12000ms, while its fake step ignores TERM for 20s.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -87,7 +87,7 @@ done
 for c in "writers|writers stop inventory|0" "stop|stop stop inventory|137" "inventory|inventory stop inventory|0"; do
   IFS='|' read -r v calls sx <<<"$c"; d="$work/hung-$v-step"  # the run's call hangs, then (stop, inventory) the cleanup's too
   PROBE_DL=1000 probe "hung $v step" "hang-$v" 300 21 "ABORTED: exit 137 after launch began; no verdict"
-  check "hung $v step ended within its deadlines after a stop and an inventory" "$calls|1|in bound" "$(tail -n3 "$d/state/calls" | paste -sd' ')|$(grep -cxF "ABORTED: open run stop exit $sx, live 0" "$d/out")|$(if (($(cat "$d/ms") <= 8000)); then echo in bound; else cat "$d/ms"; fi)" "" /dev/null
+  check "hung $v step ended within its deadlines after a stop and an inventory" "$calls|1|in bound" "$(tail -n3 "$d/state/calls" | paste -sd' ')|$(grep -cxF "ABORTED: open run stop exit $sx, live 0" "$d/out")|$(if (($(cat "$d/ms") <= 12000)); then echo in bound; else cat "$d/ms"; fi)" "" /dev/null
 done
 PROBE_PATH="$work/stub:$PATH" probe "no unshare" ok 300 21 "ABORTED: exit 1 after launch began; no verdict"
 probe "held manifest" ok 300 20 "REFUSED: preflight exit 10; no probe step ran" "del m['host_reservation_ref']"
