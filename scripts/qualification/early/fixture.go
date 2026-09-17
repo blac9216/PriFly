@@ -145,15 +145,16 @@ func canon(v any) any {
 
 // strict decodes doc into v and returns doc as read (loose) and v as re-encoded (round): the two are
 // equal only when every key is an exact field name and no field is missing, null or of the wrong type
-// (a wrong-typed value leaves its field's zero value, which round then shows).
+// (a wrong-typed value leaves its field's zero value, which round then shows). v is filled even when ok
+// is false, so ok alone refuses what the byte and token checks refuse.
 func strict(doc []byte, v any) (loose, round any, ok bool) {
+	_ = json.Unmarshal(doc, v)
 	d := json.NewDecoder(bytes.NewReader(doc))
 	d.UseNumber()
 	if !utf8.Valid(doc) || slices.ContainsFunc(escape.FindAll(doc, -1), func(m []byte) bool { return len(m) == 6 }) ||
 		json.Unmarshal(doc, &loose) != nil || scan(d) != nil {
 		return nil, nil, false
 	}
-	_ = json.Unmarshal(doc, v)
 	out, _ := json.Marshal(v)
 	_ = json.Unmarshal(out, &round)
 	return loose, canon(round), true

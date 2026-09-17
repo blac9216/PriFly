@@ -37,8 +37,8 @@ verdict() {  # name, want exit, want whole output line, procedure, trace
     echo "FAIL $1: exit $rc (want $2), want line: $3"; head -n 4 "$out" | sed 's/^/     | /' || true; fails=$((fails + 1)); fi
 }
 feed() { cat >"$work/${1// /-}.jsonl"; verdict "$1" "$2" "$3" "$EARLY/publication.json" "$work/${1// /-}.jsonl"; }  # trace on stdin
-edit() { jq -c "$3 | .[]" -s "$good" | feed "$1" 2 "fixture: malformed trace line $2"; }
-text() { sed "$3" "$good" | feed "$1" 2 "fixture: malformed trace line $2"; }
+edit() { feed "$1" 2 "fixture: malformed trace line $2" < <(jq -c "$3 | .[]" -s "$good"); }
+text() { feed "$1" 2 "fixture: malformed trace line $2" < <(sed "$3" "$good"); }
 input() { echo "INPUT: fixed procedure and $1 well-formed trace lines; no feasibility verdict, not a Q13 PASS"; }
 proc() {  # name, sed expression over publication.json
   sed "$2" "$EARLY/publication.json" >"$work/${1// /-}.json"
@@ -62,11 +62,11 @@ text "leading next-line character" 1 '1s/^/\xc2\x85/'
 text "trailing line separator" 6 '$s/$/\xe2\x80\xa8/'
 # Size guards: 4,096 lines of at most 4,096 bytes (the trace read stops past 16,781,312 bytes)
 pad=$((4096 - $(sed -n 5p "$good" | wc -c) + 1))
-sed "5s/\"lineage-1\"/\"lineage-1$(printf "%${pad}s" | tr ' ' x)\"/" "$good" | feed "line of 4096 bytes" 0 "$(input 6)"
+feed "line of 4096 bytes" 0 "$(input 6)" < <(sed "5s/\"lineage-1\"/\"lineage-1$(printf "%${pad}s" | tr ' ' x)\"/" "$good")
 text "line over 4096 bytes" 5 "5s/\"lineage-1\"/\"lineage-1$(printf "%$((pad + 1))s" | tr ' ' x)\"/"
-{ cat "$good"; awk 'NR == 3 { for (i = 0; i < 4090; i++) print }' "$good"; } | feed "trace of 4096 lines" 0 "$(input 4096)"
-{ cat "$good"; awk 'NR == 3 { for (i = 0; i < 4091; i++) print }' "$good"; } | feed "trace over 4096 lines" 2 "fixture: trace over 4096 lines"
-{ sed -n 1p "$good"; head -c 16781312 /dev/zero | tr '\0' x; } | feed "trace over 16781312 bytes" 2 "fixture: cannot read procedure or trace within 16781312 bytes"
+feed "trace of 4096 lines" 0 "$(input 4096)" < <(cat "$good"; awk 'NR == 3 { for (i = 0; i < 4090; i++) print }' "$good")
+feed "trace over 4096 lines" 2 "fixture: trace over 4096 lines" < <(cat "$good"; awk 'NR == 3 { for (i = 0; i < 4091; i++) print }' "$good")
+feed "trace over 16781312 bytes" 2 "fixture: cannot read procedure or trace within 16781312 bytes" < <(sed -n 1p "$good"; head -c 16781312 /dev/zero | tr '\0' x)
 # Keys: no duplicate, exact case, exactly the event's keys
 text "duplicate key" 5 '5s/"outcome":"published"/"outcome":"failed","outcome":"published"/'
 text "key case variant" 5 '5s/"ticket":/"TICKET":/'
@@ -90,12 +90,12 @@ text "integer written as 0.0" 6 '6s/"casSeq":0,/"casSeq":0.0,/'
 edit "nested value" 5 "$(line 5 '.lineage = ["lineage-1"]')"
 edit "negative number" 5 "$(line 5 '.writes = -1000000')"
 edit "number over 2^53-1" 5 "$(line 5 '.bytes = 9007199254740992')"
-sed '5s/"bytes":328192/"bytes":9007199254740991/' "$good" | feed "number of exactly 2^53-1" 0 "$(input 6)"
+feed "number of exactly 2^53-1" 0 "$(input 6)" < <(sed '5s/"bytes":328192/"bytes":9007199254740991/' "$good")
 text "negative zero" 2 '2s/"run":1,/"run":-0,/'
 text "invalid UTF-8" 5 '5s/"txid":"t1"/"txid":"t1\xff"/'
 text "lone surrogate escape" 5 '5s/"txid":"t1"/"txid":"t1\\ud800"/'
-sed '5s/"txid":"t1"/"txid":"t1\\ud83d\\ude00"/' "$good" | feed "surrogate pair escape" 0 "$(input 6)"
-sed '5s/"txid":"t1"/"txid":"t1\\\\ud800"/' "$good" | feed "escaped backslash before u" 0 "$(input 6)"
+feed "surrogate pair escape" 0 "$(input 6)" < <(sed '5s/"txid":"t1"/"txid":"t1\\ud83d\\ude00"/' "$good")
+feed "escaped backslash before u" 0 "$(input 6)" < <(sed '5s/"txid":"t1"/"txid":"t1\\\\ud800"/' "$good")
 edit "empty string" 2 "$(line 2 '.generator = ""')"
 edit "published with an empty T" 5 "$(line 5 '.txid = "" | .restoreTxid = "" | .casTxid = ""')"
 edit "unknown outcome" 5 "$(line 5 '.outcome = "done"')"
