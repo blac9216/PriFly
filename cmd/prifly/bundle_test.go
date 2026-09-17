@@ -97,15 +97,16 @@ var hostile = map[string]func(dir string) error{
 	"duplicate-key-trailing": func(dir string) error {
 		return errors.Join(replaceIn(dir, `"revision": 1`, `"revision": 1, "revision": 1`), replaceIn(dir, "\n}\n", "\n}\n}"))
 	},
-	"dependency-cycle": func(dir string) error { // a self-loop; a 2-cycle; a tail into a 2-cycle closed at a second dependency; a later tail
-		return addItems(dir, slice(0), slice(2), slice(1), slice(4), slice(5), slice(-1, 4), slice(-1, 1), slice(-1))
+	"dependency-cycle": func(dir string) error { // a self-loop; a 2-cycle; a tail into a 2-cycle closed at a second dependency; a later tail; an acyclic chain
+		return addItems(dir, slice(0), slice(2), slice(1), slice(4), slice(5), slice(-1, 4), slice(-1, 1), slice(8), slice(-1))
 	},
 	"unnamed-consumer": func(dir string) error {
 		return addItems(dir, `{"kind": "ENABLER", "dependencies": []}`, `{"kind": "ENABLER", "consumers": [], "dependencies": []}`,
 			`{"kind": "ENABLER", "consumers": "`+wiN(0)+`", "dependencies": []}`, `{"kind": "SLICE", "dependencies": []}`)
 	},
 	"unresolved-work-item": func(dir string) error {
-		return addItems(dir, `{"kind": "ENABLER", "consumers": ["`+wiN(99)+`", "bsl_6e73c229223db574a3c8fa28dd5a1a5a", 7, "`+wiN(0)+`"], "dependencies": [{"work_item": "`+wiN(98)+`"}, "`+wiN(0)+`", {"condition": "x"}, {"work_item": "wi_\u001b[2K"}]}`)
+		err := addItems(dir, `{"kind": "ENABLER", "consumers": ["`+wiN(99)+`", "bsl_6e73c229223db574a3c8fa28dd5a1a5a", 7, "`+wiN(1)+`"], "dependencies": [{"work_item": "`+wiN(98)+`"}, "`+wiN(0)+`", {"condition": "x"}, {"work_item": "wi_\u001b[2K"}]}`, "{}")
+		return errors.Join(err, os.Remove(dir+"/artifacts/item1.json")) // an unreadable Work Item is still one a consumer can name
 	},
 	"invalid-content": func(dir string) error {
 		return addItems(dir, `[]`, `{"kind": "SLICE", "kind": "SLICE", "dependencies": []}`, `{"dependencies": []}`,
@@ -277,7 +278,8 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"unresolved-work-item " + at(0, `.dependencies[0].work_item: no Work Item in this bundle has ID "`+wiN(98)+`"`),
 			"invalid-type " + at(0, `.dependencies[1]: want object`),
 			"missing-field " + at(0, `.dependencies[2].work_item`+missing),
-			"invalid-id " + at(0, `.dependencies[3].work_item: want wi_<32 lowercase hex>, got "wi_\x1b[2K"`)},
+			"invalid-id " + at(0, `.dependencies[3].work_item: want wi_<32 lowercase hex>, got "wi_\x1b[2K"`),
+			`unreadable-artifact $.artifacts[4].path: "artifacts/item1.json" does not resolve to a file inside the bundle directory`},
 		"invalid-content": {
 			"invalid-content " + at(0, ": want one JSON object with unique keys and exact strings"),
 			"invalid-content " + at(1, ": want one JSON object with unique keys and exact strings"),
