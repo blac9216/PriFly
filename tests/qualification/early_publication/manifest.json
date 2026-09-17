@@ -1,0 +1,14 @@
+{
+  "schema": "prifly/qualification/early-environment/v1",
+  "host_reservation_ref": "reservation:example-q13",
+  "isolated_host": {"host_ref": "host:example-early", "engine_socket_path": "/run/example/engine.sock", "workspace_root_path": "/srv/example-early"},
+  "r2": {"bucket_ref": "bucket:example", "prefix": "prifly-q13-example/"},
+  "bootstrap_identity_ref": "bootstrap:example",
+  "subscription_tuples": [
+    {"harness": "codex-cli", "harness_version": "0.154.0", "interactive_mode": "interactive", "model_id": "model:example-a", "effort": "effort:example", "account_ref": "account:example-a", "auth_mode": "subscription"},
+    {"harness": "claude-code", "harness_version": "2.1.268", "interactive_mode": "interactive", "model_id": "model:example-b", "effort": "effort:example", "account_ref": "account:example-b", "auth_mode": "subscription"}
+  ],
+  "credential_refs": {"r2": {"mechanism": "with-secrets", "ref": "example-r2"}, "codex-cli": {"mechanism": "with-secrets", "ref": "example-codex"}, "claude-code": {"mechanism": "with-secrets", "ref": "example-claude"}},
+  "test_mutation_authorization_ref": "https://example.invalid/authorization",
+  "envelope": {"ref": "docs/reference/deployment-parameters.md P12a", "scope": "shared-cumulative"}
+}
