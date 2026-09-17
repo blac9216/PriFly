@@ -148,6 +148,9 @@ edit "fixture step with 30000 requests" 1 "$FIXTICKET" "$(runfield 1 '.requests 
 edit "fixture step naming a later grant" 1 "$FIXGRANT" "$(runfield 1 '.grant = 1')"
 edit "fixture step before its grant" 1 "$FIXGRANT" 'map(if .ev == "grant" and .run == 1 and .ticket == null then .t += 1 else . end)'
 edit "fixture step after its grant ends" 1 "$FIXGRANT" 'map(if .ev == "grant" and .run == 1 and .ticket == null then .t -= 600001 | .deadline = .t + 600000 else . end)'
+# grant 0 ends exactly at t0 (inclusive): a renewal ticketed at t0, beside the fixture step, opens grant 1 for command 1 onwards,
+# so every run-1 sequence number moves up one and every later plan names the next grant
+edit "fixture step at its grant's deadline" 0 "$PASS" "$renewal"'. else . end) | (1000000 - $g.ticket) as $d | ($g | '"$shift"' | .t = .ack | .deadline = .ack + 600000 | .txid = "r-t0" | .restoreTxid = .txid | .casTxid = .txid | .restoredSeq = 1 | .casSeq = 1) as $r0 | map(if .run != 1 then . elif .ev == "grant" and .ticket == null then (.t -= 600000 | .deadline -= 600000), $r0 elif .ev == "grant" or .ev == "cmd" then .restoredSeq += 1 | .casSeq += 1 | (if .n == 1 then (1100 as $d | '"$shift"') else . end) elif .ev == "plan" and .t > 1000000 then .grant += 1 else . end) + [{ev: "plan", run: 1, t: 1001100, grant: 1, bytes: 0, writes: 0, requests: 1}]'
 # Plan calls (#252 ruling 5714969372 items 1 and 4): no writes, charged to the live grant they name, one before each ticketed entry
 PLAN1='(map(.ev == "plan" and .run == 1) | index(true)) as $i | .[$i]' PLANGRANT="REJECT EXPIRED-PERMIT run 1 n 0: plan call outside the live grant it names"
 edit "plan call with one write" 1 "REJECT LEDGER run 1 n 0: plan call records writes" "$PLAN1.writes = 1"
@@ -175,6 +178,9 @@ edit "plan lines out of file order" 0 "$PASS" '(map(select(.ev == "plan" and .ru
 edit "renewal without a plan call" 1 "REJECT PLAN run 1 n 0: $NOPLAN" '(map(select(.ev == "grant" and .run == 1))[1]) as $g | map(select(.ev != "plan" or .run != 1 or .t != $g.ticket))'
 # the fixture step's window is t0 alone; grant 0 also opens at t0, so the moved plan is outside its grant too
 edit "fixture step's plan call before t0" 1 "REJECT PLAN run 1 n 0: $SPARE" '(map(.ev == "plan" and .run == 1) | index(true)) as $i | .[$i].t -= 1'
+# the fixture step's window ends at t0 too: with command 1 ticketed 5 s later (its plan at its ticket), a fixture plan at t0+1 serves no fixture step
+edit "fixture step's plan call after t0" 1 "REJECT PLAN run 1 n 0: $NOPLAN" \
+  "(map(.ev == \"plan\" and .run == 1) | indices(true)) as \$p | .[\$p[0]].t += 1 | .[\$p[1]].t += 5000 | 5000 as \$d | $(at 1 1 "$shift")"
 # the fixture plan and command 1's share clock t0, so the one left serves the fixture step and command 1 has none
 edit "fixture step without a plan call" 1 "REJECT PLAN run 2 n 1: $NOPLAN" '(map(.ev == "plan" and .run == 2) | index(true)) as $i | del(.[$i])'
 for f in bytes:268435457 writes:1025 requests:8193; do
