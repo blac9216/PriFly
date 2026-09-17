@@ -2,8 +2,8 @@
 # Local fake launcher for test-harness.sh: no harness, provider, network, engine or R2.
 # FAKE_MODE: ok | stop-only | stop-only-slow | engine | herdr | other-workspace | stale |
 # untyped | no-detached | garbage | stop-fails-once | signal-term | signal-int |
-# signal-hup | signal-twice | signal-group | signal-group-twice | hang-probe | hang-result |
-# hang-writers | hang-stop | hang-inventory; a mode named like a probe target leaks that
+# signal-hup | signal-twice | signal-group | signal-group-twice | KIND-VERB (KIND below, VERB
+# any launcher verb); a mode named like a probe target leaks that
 # target. Each probe appends "<target> <path>" to $FAKE_STATE/probes. Access probes run in a
 # private user+mount namespace that hides the target unless the mode leaks it; if unshare or
 # mount fails the probe exits non-zero, never "denied". Writers are real local processes
@@ -16,15 +16,25 @@
 # runner) and takes 3s before stopping. signal-group[-twice] sends TERM there, then its stop
 # and its inventory each send INT and HUP once [twice] to the runner's process group
 # (refused unless the runner leads that group, so the suite is never hit), 1.5s apart.
-# hang-VERB does that call's work; the case's first hung call also starts a sleep 20 in its
-# own session holding this call's stdout (added to the run's pids, so stop kills it); then
-# the call ignores TERM and waits on a sleep 20 child, which inherits that and outlives 2D
-# in the call's process group. Every call appends its pid to $FAKE_STATE/launchers and
-# "<verb> <epoch-ms>" to $FAKE_STATE/t.
+# KIND-VERB, for KIND hang | hangterm | zombie | zombieheld | stray, does that call's work; then
+# the case's first such call (stray aside) starts a sleep 20 in its own session holding this
+# call's stdout (added to the run's pids, so stop kills it), and the call writes its process
+# group to $FAKE_STATE/hungpg and creates $FAKE_STATE/hung. hang ignores TERM and waits on a
+# sleep 20 child that inherits that and outlives 2D in the call's group (timeout exit 137).
+# hangterm starts a TERM-ignoring sleep 20 child and waits on a sleep 20 of its own, so the
+# launcher dies on TERM and timeout exits 124 while its child outlives 2D in the group.
+# zombie and zombieheld first start a holder that leads a new group of the same session (so a
+# KILL of the call's group misses it; its pid goes to the run's pids for stop) and whose child
+# rejoins the call's group and exits there, a zombie; then they hang as hang does. zombie's
+# holder reaps it 300ms after the launcher is gone; zombieheld's only after 20s. stray leaves a
+# sleep 20 in its group and returns 0. Once hungpg exists, every call first appends "<verb>
+# <processes in that group>" to $FAKE_STATE/overlap. Every call appends its pid to
+# $FAKE_STATE/launchers and "<verb> <epoch-ms>" to $FAKE_STATE/t.
 # shellcheck disable=SC2016  # the sh -c bodies expand inside the child shell
 set -euo pipefail
 st="$FAKE_STATE" mode="$FAKE_MODE" verb="$1"
 echo "$verb" >>"$st/calls"; echo $$ >>"$st/launchers"; echo "$verb $(($(date +%s%N) / 1000000))" >>"$st/t"
+[[ ! -e "$st/hungpg" ]] || echo "$verb $(ps -eo pgid= | awk -v g="$(cat "$st/hungpg")" '$1 == g' | wc -l)" >>"$st/overlap"
 case "$verb" in
   launch) echo "$5" >"$st/$4.ws" ;;
   probe)
@@ -73,7 +83,29 @@ case "$verb" in
       n=0; for p in "${pids[@]}"; do [[ -d /proc/$p ]] && n=$((n + 1)); done; echo "$n"
     fi ;;
 esac
-if [[ "$mode" == "hang-$verb" ]]; then
-  [[ -e "$st/holder" ]] || { setsid sleep 20 2>/dev/null </dev/null & echo $! >>"$st/$2.pids"; : >"$st/holder"; }
-  trap '' TERM; sleep 20
+run="$2" kind="${mode%-"$verb"}"; [[ "$verb" == launch ]] && run="$4"
+if [[ "$mode" == *-"$verb" && " hang hangterm zombie zombieheld stray " == *" $kind "* ]]; then
+  [[ -e "$st/holder" || "$kind" == stray ]] || { setsid sleep 20 2>/dev/null </dev/null & echo $! >>"$st/$run.pids"; : >"$st/holder"; }
+  [[ "$kind" != zombie* ]] || python3 -c 'import os, sys, time
+st, run, kind, launcher = sys.argv[1:]
+g = os.getpgid(0)
+if os.fork():
+    sys.exit()
+os.setpgid(0, 0)
+with open(f"{st}/{run}.pids", "a") as f:
+    f.write(f"{os.getpid()}\n")
+if os.fork() == 0:
+    os.setpgid(0, g)
+    os._exit(0)
+end = time.time() + 20
+while (kind == "zombieheld" or os.path.exists(f"/proc/{launcher}")) and time.time() < end:
+    time.sleep(0.05)
+time.sleep(0.3)
+os.wait()' "$st" "$run" "$kind" $$ </dev/null
+  ps -o pgid= -p $$ | tr -d ' ' >"$st/hungpg"; : >"$st/hung"
+  case "$kind" in
+    stray) sleep 20 & ;;
+    hangterm) sh -c 'trap "" TERM; exec sleep 20' </dev/null & sleep 20 ;;
+    *) trap '' TERM; sleep 20 ;;
+  esac
 fi

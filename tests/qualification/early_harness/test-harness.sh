@@ -14,13 +14,27 @@
 # matches non-ASCII digits; a control check fails the suite if that locale is missing, so
 # they cannot pass vacuously.
 # Runs get --step-deadline-ms 10000 (PROBE_DL overrides; "missing" drops the flag). A hung
-# VERB case (probe, result, writers, stop, inventory) gets D = 1000 and a fake call whose
-# child ignores TERM and would outlive 2D by 18s, plus a sleep outside the call's group
-# holding its stdout. Each hung call must end within 2D + 1000ms (the runner's 1s group wait
-# and its own work), timed from the call's start to the next call's start or the runner's
-# exit (written to <case>/steps), and no process may carry the case's FAKE_STATE when the
-# runner exits (counted into <case>/left). The suite passes with uutils or GNU timeout first
-# on PATH.
+# case gets D = 1000 and a fake call of one hang kind (fake-launcher.sh): hang, whose child
+# ignores TERM and would outlive 2D by 18s, for probe, result, writers, stop and inventory;
+# hangterm, whose launcher dies on TERM while its child outlives 2D (timeout exit 124), for
+# probe and stop; zombie, which leaves a zombie in the call's group until 300ms after the
+# launcher is gone, for probe; each plus a sleep outside the call's group holding its stdout.
+# Each hung call must end within 2D + 1000ms (the runner's group wait and its own work), timed
+# from the call's start to the next call's start or the runner's exit (written to
+# <case>/steps); no process may carry the case's FAKE_STATE when the runner exits (counted
+# into <case>/left); and every later call must find the hung call's group empty
+# (<case>/state/overlap), with no group report. zombieheld's zombie stays, so the runner must
+# report the group after a 1000..1499ms wait. stray's writers call returns leaving a process
+# in its group, which the runner must report, kill and abort on. Signal cases send one signal
+# while a hang or hangterm call to launch, probe or writers hangs (500ms after it starts) or,
+# for hang probe, expires (1500ms): a real ^C written to the pty the runner leads as its
+# controlling terminal (sigpty.py), TERM to the runner's pid, or HUP to its process group. The
+# runner must exit 21 within 1000ms of the signal (<case>/sig holds its epoch ms, <case>/rc
+# the exit), stop and inventory the open run with live 0 only once the call's group is empty,
+# and leave no process. The first check fails, naming the cause, when this suite inherited
+# SIGINT ignored (a background job of a non-interactive shell does, and bash cannot trap an
+# ignored signal), since the signal int cases then cannot pass; sigpty.py resets it for the
+# runner it starts. The suite passes with uutils or GNU timeout first on PATH.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,6 +42,34 @@ HARNESS="${HARNESS:-$HERE/../../../scripts/qualification/early/harness.sh}" FAKE
 work="${TMPDIR:-/tmp}/prifly-early-harness-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
 [[ "$work" != *[A-Z]* ]] || { echo "FAIL: $work holds upper case, which preflight refuses (#240); set TMPDIR"; exit 1; }
 mkdir -m 700 "$work"
+cat >"$work/sigpty.py" <<'DRIVER'
+import os, pty, signal, sys, time
+d, sig, delay, out = sys.argv[1], sys.argv[2], int(sys.argv[3]) / 1000, os.dup(1)
+pid, fd = pty.fork()
+if pid == 0:  # the runner leads a session on this pty, INT, TERM, HUP and PIPE at their defaults, output to the case's file
+    for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGPIPE):
+        signal.signal(s, signal.SIG_DFL)
+    os.dup2(out, 1), os.dup2(out, 2), os.execvp(sys.argv[4], sys.argv[4:])
+def exited(secs, hung=False):  # the runner's wait status once it exits within secs, else None (sooner once the call hangs, if hung)
+    until = time.time() + secs
+    while time.time() < until and not (hung and os.path.exists(d + "/state/hung")):
+        p, w = os.waitpid(pid, os.WNOHANG)
+        if p:
+            return w
+        time.sleep(0.01)
+    return None
+st = exited(60, True)
+if st is None:
+    time.sleep(delay)
+    with open(d + "/sig", "w") as f:
+        f.write(str(time.time_ns() // 1000000))
+    {"int": lambda: os.write(fd, b"\x03"), "term": lambda: os.kill(pid, signal.SIGTERM), "hup": lambda: os.killpg(pid, signal.SIGHUP)}[sig]()
+    st = exited(60)
+    if st is None:
+        os.kill(pid, signal.SIGKILL)
+        st = os.waitpid(pid, 0)[1]
+sys.exit(os.waitstatus_to_exitcode(st))
+DRIVER
 # shellcheck disable=SC2086  # $1 and $2 are glob patterns
 reap() {  # count, then kill (a writer with its process group), still-live pids recorded in state files $2 whose cmdline holds $3
   cat "$work"/$1/state/$2 2>/dev/null | while read -r p; do grep -qs "$3" "/proc/$p/cmdline" && { kill -- "-$p" || kill "$p"; } 2>/dev/null && echo "$p"; done | wc -l
@@ -52,6 +94,8 @@ check() {  # name, want exit, got exit, want line ("" skips the line), output fi
   if [[ "$3" == "$2" ]] && { [[ -z "$4" ]] || grep -qxF -- "$4" "$5"; }; then echo "ok   $1"; else
     echo "FAIL $1: exit $3 (want $2), want line: $4"; sed 's/^/     | /' "$5"; fails=$((fails + 1)); fi
 }
+sigign="$(awk '$1 == "SigIgn:" {print $2}' /proc/$$/status)"
+check "SIGINT not inherited as ignored: the signal int cases cannot pass when it is (a background job of a non-interactive shell gets it ignored, and bash cannot trap an ignored signal); run the suite from a foreground shell" 0 "$((16#$sigign & 2))" "" /dev/null
 probe() {  # name, mode, observe-ms, want exit, want line [, python on manifest m in dir d, extra args]
   # the runner leads its own session and process group, so a group signal never reaches this suite
   local d="$work/${1// /-}" dl=(--step-deadline-ms "${PROBE_DL-10000}") t; settle "${1// /-}"; mkdir -p "$d/state" "$d/control"; : >"$d/control/engine.sock"; : >"$d/control/herdr.sock"
@@ -63,9 +107,10 @@ exec(sys.argv[3])
 json.dump(m, open(d + '/manifest.json', 'w'))
 PY
   [[ "${PROBE_DL-}" != missing ]] || dl=(); t="$(date +%s%N)"
-  set +e; PATH="${PROBE_PATH:-$PATH}" LC_ALL="${PROBE_LC:-${LC_ALL:-}}" FAKE_MODE="$2" FAKE_STATE="$d/state" setsid -w bash "$HARNESS" --manifest "$d/manifest.json" \
+  local run=(setsid -w); [[ -z "${PROBE_SIG-}" ]] || read -ra run <<<"python3 $work/sigpty.py $d $PROBE_SIG"
+  set +e; PATH="${PROBE_PATH:-$PATH}" LC_ALL="${PROBE_LC:-${LC_ALL:-}}" FAKE_MODE="$2" FAKE_STATE="$d/state" "${run[@]}" bash "$HARNESS" --manifest "$d/manifest.json" \
     --launcher "$FAKE" --herdr-socket "$d/control/herdr.sock" --work "$d" --observe-ms "$3" "${dl[@]}" "${@:7}" >"$d/out" 2>&1; rc=$?; set -e
-  echo $((($(date +%s%N) - t) / 1000000)) >"$d/ms"; echo $(($(date +%s%N) / 1000000)) >"$d/end"
+  echo $((($(date +%s%N) - t) / 1000000)) >"$d/ms"; echo $(($(date +%s%N) / 1000000)) >"$d/end"; echo "$rc" >"$d/rc"
   check "$1" "$4" "$rc" "$5" "$d/out"
 }
 probe "success trace" ok 300 0 "VERDICT: expected observations for both candidates (local trace only; not a live PASS)"
@@ -91,13 +136,29 @@ for sig in term int hup twice group group-twice; do  # lower case: upper case in
   check "signal $sig stopped and inventoried the open run" "writers stop inventory|1" "$(tail -n3 "$work/$d/state/calls" | paste -sd' ')|$(grep -cxF 'ABORTED: open run stop exit 0, live 0' "$work/$d/out")" "" /dev/null
   check "signal $sig left no writer, launcher or other process" "0 0 0" "$(reap "$d" '*.pids' sentinel) $(reap "$d" launchers fake-launcher) $(left "$d")" "" /dev/null
 done
-for c in "probe|probe stop inventory|0" "result|result stop inventory|0" "writers|writers stop inventory|0" "stop|stop stop inventory|137" "inventory|inventory stop inventory|0"; do
-  IFS='|' read -r v calls sx <<<"$c"; d="$work/hung-$v-step"  # the run's call hangs, then (stop, inventory) the cleanup's too
-  PROBE_DL=1000 probe "hung $v step" "hang-$v" 300 21 "ABORTED: exit 137 after launch began; no verdict"
+for c in "hang probe|0|137" "hang result|0|137" "hang writers|0|137" "hang stop|137|137" "hang inventory|0|137" "hangterm probe|0|124" "hangterm stop|124|124" "zombie probe|0|137"; do
+  IFS='|' read -r kv sx ax <<<"$c"; read -r k v <<<"$kv"; n="${k/#hang/hung} $v step" d="$work/${k/#hang/hung}-$v-step"  # the run's call hangs, then (stop, inventory) the cleanup's too
+  PROBE_DL=1000 probe "$n" "$k-$v" 300 21 "ABORTED: exit $ax after launch began; no verdict"
   { grep -lxzsF "FAKE_STATE=$d/state" /proc/[0-9]*/environ || :; } | wc -l >"$d/left"
-  check "hung $v step left no process at runner exit" 0 "$(cat "$d/left")" "" /dev/null
+  check "$n left no process at runner exit" 0 "$(cat "$d/left")" "" /dev/null
   awk -v v="$v" -v end="$(cat "$d/end")" '{n[NR] = $1; t[NR] = $2} END {t[NR + 1] = end; for (i = 1; i <= NR; i++) if (n[i] == v) print v, t[i + 1] - t[i]}' "$d/state/t" >"$d/steps"
-  check "hung $v step ended within its deadlines after a stop and an inventory" "$calls|1|in bound" "$(tail -n3 "$d/state/calls" | paste -sd' ')|$(grep -cxF "ABORTED: open run stop exit $sx, live 0" "$d/out")|$(awk '$2 > 3000 {bad = 1} END {print bad ? "over 3000ms" : NR ? "in bound" : "no call"}' "$d/steps")" "" /dev/null
+  check "$n ended within its deadlines after a stop and an inventory" "$v stop inventory|1|in bound" "$(tail -n3 "$d/state/calls" | paste -sd' ')|$(grep -cxF "ABORTED: open run stop exit $sx, live 0" "$d/out")|$(awk '$2 > 3000 {bad = 1} END {print bad ? "over 3000ms" : NR ? "in bound" : "no call"}' "$d/steps")" "" /dev/null
+  check "$n group was empty at every later call, with no group report" "stop 0 inventory 0|0" "$(paste -sd' ' "$d/state/overlap")|$(grep -c ' still had a process ' "$d/out")" "" /dev/null
+done
+d="$work/zombieheld-probe-step"  # the zombie's holder sits outside the call's group and never reaps it, so the group cannot empty
+PROBE_DL=1000 probe "zombieheld probe step" zombieheld-probe 300 21 "ABORTED: exit 137 after launch began; no verdict"
+{ grep -lxzsF "FAKE_STATE=$d/state" /proc/[0-9]*/environ || :; } | wc -l >"$d/left"
+check "zombieheld probe step reported its group after a 1000..1499ms wait, stopped with live 0, left no process, within 2D + 2000ms" "1|1|1|0|in bound" "$(grep -cE "^ABORTED: probe call's process group [0-9]+ still had a process 1[0-4][0-9]{2}ms after KILL$" "$d/out")|$(grep -cxF "ABORTED: open run stop exit 0, live 0" "$d/out")|$(grep -c '^stop 1$' "$d/state/overlap")|$(cat "$d/left")|$(awk '$1 == "probe" {p = $2; next} p {print ($2 - p > 4000 ? "over 4000ms" : "in bound"); exit}' "$d/state/t")" "" /dev/null
+d="$work/stray-writers-step"  # the writers call returns 0 but leaves a sleep 20 in its own group
+probe "stray writers step" stray-writers 300 21 "ABORTED: exit 21 after launch began; no verdict"
+check "stray writers step was reported, killed, then stopped with live 0, leaving no process" "1|1|stop 0 inventory 0|0" "$(grep -cE '^ABORTED: writers call returned leaving a process in its process group [0-9]+$' "$d/out")|$(grep -cxF "ABORTED: open run stop exit 0, live 0" "$d/out")|$(paste -sd' ' "$d/state/overlap")|$({ grep -lxzsF "FAKE_STATE=$d/state" /proc/[0-9]*/environ || :; } | wc -l)" "" /dev/null
+for sig in int term hup; do  # int: a real ^C on the runner's pty; term: TERM to the runner's pid; hup: HUP to the runner's process group
+  for c in hang-launch:500 hang-probe:500 hang-writers:500 hangterm-launch:500 hangterm-probe:500 hangterm-writers:500 hang-probe:1500; do
+    m="${c%:*}" ms="${c#*:}"; v="${m#*-}" n="signal $sig ${ms}ms into $m" d="$work/signal-$sig-${ms}ms-into-$m"
+    PROBE_DL=1000 PROBE_SIG="$sig $ms" probe "$n" "$m" 300 21 "ABORTED: exit 143 after launch began; no verdict"
+    { grep -lxzsF "FAKE_STATE=$d/state" /proc/[0-9]*/environ || :; } | wc -l >"$d/left"
+    check "$n emptied the call's group, then stopped and inventoried with live 0 and left no process, within 1000ms of the signal" "$v stop inventory|stop 0 inventory 0|1|0|in bound" "$(tail -n3 "$d/state/calls" | paste -sd' ')|$(paste -sd' ' "$d/state/overlap")|$(grep -cxF 'ABORTED: open run stop exit 0, live 0' "$d/out")|$(cat "$d/left")|$(awk -v s="$(cat "$d/sig" 2>/dev/null)" '{print s && $1 - s < 1000 ? "in bound" : "no signal or over 1000ms"}' "$d/end")" "" /dev/null
+  done
 done
 PROBE_PATH="$work/stub:$PATH" probe "no unshare" ok 300 21 "ABORTED: exit 1 after launch began; no verdict"
 probe "held manifest" ok 300 20 "REFUSED: preflight exit 10; no probe step ran" "del m['host_reservation_ref']"
