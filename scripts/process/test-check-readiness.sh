@@ -483,6 +483,8 @@ checkbox_case quote-tab-code "$ac_h" $'>\t  x\n    - [ ] Q1\n' \
   'checkbox in indented code after a quote tab and 2 spaces of indented code fails'
 checkbox_case quote-item-lazy "$ac_h" $'> - a\n    - [ ] Q1\n' \
   'checkbox indented 4 after a list item inside a quote fails'
+checkbox_case item-quote "$ac_h" $'  - > ```\n        - [ ] Q1\n' \
+  'checkbox indented 4 past a list item opened on a quote line fails'
 # #271: "- - -" and "___" are thematic breaks, "--" a setext underline, "#" an empty heading and
 # "#######" no heading; a line of exactly the content column's spaces keeps an empty item open; a
 # tab after "-" reaches column 4.

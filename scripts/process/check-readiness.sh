@@ -268,7 +268,8 @@ def clean_numbered(text):
                     continue
                 if HEADING_RE.match(line, pos) and not items:
                     in_para, raw = False, raw.lstrip(' ')
-                elif HEADING_RE.match(line, pos) or BREAK_RE.match(stripped) or empty_item:
+                elif HEADING_RE.match(line, pos) or BREAK_RE.match(stripped) or empty_item \
+                        or line.startswith('>', pos):  # a quote in a list item: no paragraph, fail closed
                     in_para = False
                 elif not in_para or pos > indent:
                     in_para, para_depth = True, len(items)
