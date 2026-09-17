@@ -98,7 +98,7 @@ func TestDecodeJSON(t *testing.T) {
 		t.Run(label, func(t *testing.T) {
 			v, ok := DecodeJSON([]byte(c.raw))
 			if ok != c.ok || ok && Quote(v.([]any)[0]) != c.quoted {
-				t.Errorf("DecodeJSON(%q) = %#v, %v; want ok=%v, element %s", c.raw, v, ok, c.ok, c.quoted)
+				t.Errorf("DecodeJSON(%q) = %#v, %v; want ok=%v, element %q", c.raw, v, ok, c.ok, c.quoted)
 			}
 		})
 	}
@@ -128,7 +128,7 @@ func TestQuote(t *testing.T) {
 	} {
 		t.Run(label, func(t *testing.T) {
 			if got := Quote(c.v); got != c.want {
-				t.Errorf("Quote(%#v) = %s, want %s", c.v, got, c.want)
+				t.Errorf("Quote(%#v) = %q, want %q", c.v, got, c.want)
 			}
 			printableASCII(t, Quote(c.v))
 		})
@@ -146,7 +146,7 @@ func TestMember(t *testing.T) {
 	} {
 		t.Run(label, func(t *testing.T) {
 			if got := Member("$", c.key); got != c.want {
-				t.Errorf("Member(%q) = %s, want %s", c.key, got, c.want)
+				t.Errorf("Member(%q) = %q, want %q", c.key, got, c.want)
 			}
 			printableASCII(t, Member("$", c.key))
 		})
