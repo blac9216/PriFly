@@ -63,11 +63,18 @@ type Request struct {
 
 // Manifest is the non-secret bootstrap.json.
 type Manifest struct {
-	Schema        string `json:"schema"`
-	FactoryID     string `json:"factory_id"`
-	SecretsPath   string `json:"secrets_path"`
-	SecretsSHA256 string `json:"secrets_sha256"`
-	SecretSchema  string `json:"secret_schema"`
+	Schema          string           `json:"schema"`
+	FactoryID       string           `json:"factory_id"`
+	SecretsPath     string           `json:"secrets_path"`
+	SecretsSHA256   string           `json:"secrets_sha256"`
+	RequiredSecrets []RequiredSecret `json:"required_secrets"`
+	SecretSchema    string           `json:"secret_schema"`
+}
+
+// RequiredSecret names, in the reviewed manifest, a secret the decrypted file must hold at exactly Generation.
+type RequiredSecret struct {
+	ID         string `json:"id"`
+	Generation int    `json:"generation"`
 }
 
 // Verified is the result of a successful fetch. Secrets is still encrypted.
@@ -220,14 +227,15 @@ func checkTree(listing []byte) error {
 }
 
 // manifestKeys are the member names parseManifest accepts, spelled exactly (see secretKeys).
-var manifestKeys = map[string]bool{"schema": true, "factory_id": true, "secrets_path": true, "secrets_sha256": true, "secret_schema": true}
+var manifestKeys = map[string]bool{"schema": true, "factory_id": true, "secrets_path": true, "secrets_sha256": true,
+	"required_secrets": true, "id": true, "generation": true, "secret_schema": true}
 
 func parseManifest(data []byte, factoryID string) (Manifest, error) {
 	var m Manifest
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if strictMembers(json.NewDecoder(bytes.NewReader(data)), manifestKeys) != nil || dec.Decode(&m) != nil || dec.Decode(&struct{}{}) != io.EOF {
-		return Manifest{}, fmt.Errorf("%w: not exactly one object of known, unique, exactly spelled fields", ErrManifest)
+		return Manifest{}, fmt.Errorf("%w: not exactly one object of known, unique, exactly spelled, non-null fields", ErrManifest)
 	}
 	switch {
 	case m.Schema != ManifestSchema:
@@ -240,6 +248,15 @@ func parseManifest(data []byte, factoryID string) (Manifest, error) {
 		return Manifest{}, fmt.Errorf("%w: secrets_sha256 must be 64 lowercase hex", ErrManifest)
 	case m.SecretSchema == "":
 		return Manifest{}, fmt.Errorf("%w: secret_schema is required", ErrManifest)
+	case len(m.RequiredSecrets) == 0:
+		return Manifest{}, fmt.Errorf("%w: required_secrets must name at least one secret", ErrManifest)
+	}
+	ids := map[string]bool{}
+	for _, r := range m.RequiredSecrets {
+		if r.ID == "" || r.Generation < 1 || ids[r.ID] {
+			return Manifest{}, fmt.Errorf("%w: each required secret needs a unique id and generation >= 1", ErrManifest)
+		}
+		ids[r.ID] = true
 	}
 	return m, nil
 }

@@ -20,7 +20,7 @@ const factory = "prifly-fixture-factory"
 var (
 	ciphertext = []byte("fixture ciphertext placeholder\n")
 	digestHex  = fmt.Sprintf("%x", sha256.Sum256(ciphertext))
-	manifest   = fmt.Sprintf(`{"schema":%q,"factory_id":%q,"secrets_path":%q,"secrets_sha256":%q,"secret_schema":"prifly.secrets/v1"}`,
+	manifest   = fmt.Sprintf(`{"schema":%q,"factory_id":%q,"secrets_path":%q,"secrets_sha256":%q,"required_secrets":[{"id":"r2","generation":1}],"secret_schema":"prifly.secrets/v1"}`,
 		ManifestSchema, factory, SecretsPath, digestHex)
 )
 
@@ -115,23 +115,27 @@ func TestFetchRejects(t *testing.T) {
 		factory string
 		want    error
 	}{
-		"executable":        {tree(entry{"100755", ManifestPath, "{}"}), factory, ErrTree},
-		"symlink":           {tree(entry{"120000", ReadmePath, "fixture-target"}), factory, ErrTree},
-		"submodule":         {tree(entry{"160000", ReadmePath, ""}), factory, ErrTree},
-		".gitmodules":       {tree(entry{"100644", ".gitmodules", "[submodule \"x\"]\n"}), factory, ErrTree},
-		".gitattr":          {tree(entry{"100644", ".gitattributes", "* filter=x\n"}), factory, ErrTree},
-		".githooks":         {tree(entry{"100755", ".githooks/post-checkout", "#!/bin/sh\n"}), factory, ErrTree},
-		"other file":        {tree(entry{"100644", "prifly-canary-entry", "echo\n"}), factory, ErrTree},
-		"missing secrets":   {tree(entry{"", SecretsPath, ""}), factory, ErrTree},
-		"identity mismatch": {withManifest(factory, "other-factory"), factory, ErrManifest},
-		"empty identity":    {withManifest(factory, ""), "", ErrManifest},
-		"unknown field":     {withManifest(`v1"}`, `v1","extra":1}`), factory, ErrManifest},
-		"trailing data":     {withManifest(`v1"}`, `v1"}{}`), factory, ErrManifest},
-		"schema":            {withManifest(ManifestSchema, "prifly.bootstrap/v0"), factory, ErrManifest},
-		"digest format":     {withManifest(`"secrets_sha256":"`, `"secrets_sha256":"X`), factory, ErrManifest},
-		"secrets path":      {withManifest(`"secrets_path":"`+SecretsPath, `"secrets_path":"other.age`), factory, ErrManifest},
-		"secret schema":     {withManifest(`"prifly.secrets/v1"`, `""`), factory, ErrManifest},
-		"digest mismatch":   {withManifest(digestHex, strings.Repeat("0", 64)), factory, ErrDigest},
+		"executable":            {tree(entry{"100755", ManifestPath, "{}"}), factory, ErrTree},
+		"symlink":               {tree(entry{"120000", ReadmePath, "fixture-target"}), factory, ErrTree},
+		"submodule":             {tree(entry{"160000", ReadmePath, ""}), factory, ErrTree},
+		".gitmodules":           {tree(entry{"100644", ".gitmodules", "[submodule \"x\"]\n"}), factory, ErrTree},
+		".gitattr":              {tree(entry{"100644", ".gitattributes", "* filter=x\n"}), factory, ErrTree},
+		".githooks":             {tree(entry{"100755", ".githooks/post-checkout", "#!/bin/sh\n"}), factory, ErrTree},
+		"other file":            {tree(entry{"100644", "prifly-canary-entry", "echo\n"}), factory, ErrTree},
+		"missing secrets":       {tree(entry{"", SecretsPath, ""}), factory, ErrTree},
+		"identity mismatch":     {withManifest(factory, "other-factory"), factory, ErrManifest},
+		"empty identity":        {withManifest(factory, ""), "", ErrManifest},
+		"unknown field":         {withManifest(`v1"}`, `v1","extra":1}`), factory, ErrManifest},
+		"trailing data":         {withManifest(`v1"}`, `v1"}{}`), factory, ErrManifest},
+		"schema":                {withManifest(ManifestSchema, "prifly.bootstrap/v0"), factory, ErrManifest},
+		"digest format":         {withManifest(`"secrets_sha256":"`, `"secrets_sha256":"X`), factory, ErrManifest},
+		"secrets path":          {withManifest(`"secrets_path":"`+SecretsPath, `"secrets_path":"other.age`), factory, ErrManifest},
+		"secret schema":         {withManifest(`"prifly.secrets/v1"`, `""`), factory, ErrManifest},
+		"digest mismatch":       {withManifest(digestHex, strings.Repeat("0", 64)), factory, ErrDigest},
+		"no required secret":    {withManifest(`[{"id":"r2","generation":1}]`, `[]`), factory, ErrManifest},
+		"required id":           {withManifest(`{"id":"r2"`, `{"id":""`), factory, ErrManifest},
+		"required generation":   {withManifest(`"generation":1}`, `"generation":0}`), factory, ErrManifest},
+		"duplicate required id": {withManifest(`1}]`, `1},{"id":"r2","generation":2}]`), factory, ErrManifest},
 		// encoding/json alone keeps the last duplicate and matches names case-insensitively, accepting each of these.
 		"duplicate key":           {withManifest(`{`, `{"factory_id":"prifly-canary-factory",`), factory, ErrManifest},
 		"duplicate same value":    {withManifest(`{`, `{"schema":"`+ManifestSchema+`",`), factory, ErrManifest},
