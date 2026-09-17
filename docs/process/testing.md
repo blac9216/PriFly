@@ -79,6 +79,7 @@ none is a live PASS.
 
 | Suite | Command | Environment |
 |---|---|---|
+| Runner namespace setting | `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` | CI only, on the disposable GitHub-hosted runner, whose AppArmor setting otherwise makes `unshare -r` fail (`write failed /proc/self/uid_map: Operation not permitted`). Do not run it on a shared or development host; there, the probe below shows whether the host already allows namespaces. |
 | Namespace probe | `unshare -rm mount -t tmpfs none /tmp` | Linux with unprivileged user and mount namespaces; the mount exists only inside the namespace. Exits non-zero where the host denies them (for example an AppArmor user-namespace restriction), and the job fails rather than skipping the harness proof. |
 | Evaluator vet | `go vet scripts/qualification/early/result.go` | Pinned `go` first on `PATH`; `result.go` is `//go:build ignore`, so `go vet ./...` skips it. |
 | Evaluator proof | `bash tests/qualification/early_harness/test-result.sh` | Same; `jq`. Builds `result.go` under `${TMPDIR:-/tmp}`; prints one `ok` line per case and `failures: 0`. |
