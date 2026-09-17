@@ -14,8 +14,11 @@
 #   longer matches GO_ARCHIVE fails the step; bump go.mod, both values and the
 #   inventory row together, with the new digest read from
 #   https://go.dev/dl/?mode=json&include=all.
-# - No module or build cache: no go.sum exists yet (no dependencies). Add one in
-#   the same change that adds a go.sum.
+# - Module cache only, no build cache: actions/cache, pinned by commit SHA,
+#   restores and saves the Go module download cache under a key that is the
+#   exact go.sum digest, with no restore-keys fallback. `go mod verify` then
+#   checks every cached module against go.sum before anything is built. Tests
+#   stay uncached (-count=1). Inventory: docs/reference/source-register.md.
 # - runs-on: ubuntu-latest is a mutable GitHub-hosted runner image. This job
 #   is CI infrastructure, not the product runtime profile; no product
 #   deployment parameter pins a CI runner image, so no pin is applied here.
@@ -52,8 +55,15 @@ jobs:
           (cd "$RUNNER_TEMP" && echo "$GO_ARCHIVE_SHA256  $GO_ARCHIVE" | sha256sum -c -)
           tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/$GO_ARCHIVE"
           echo "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
+      - name: Restore Go module cache (keyed by go.sum)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ hashFiles('go.sum') }}
       - name: Record tested commit and toolchain
         run: git rev-parse HEAD && command -v go && go version && go env GOROOT
+      - name: go mod verify (cached modules match go.sum)
+        run: go mod verify
       - name: gofmt (no unformatted files)
         run: test -z "$(gofmt -l .)"
       - name: go vet

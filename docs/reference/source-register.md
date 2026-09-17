@@ -271,7 +271,10 @@ Go toolchain row (for [#189](https://github.com/blac9216/PriFly/issues/189)), th
 "Outside this inventory" paragraph and update-policy rule 1 were changed again. Later still on
 17 September 2026, for [#202](https://github.com/blac9216/PriFly/issues/202), the Launchpad
 `noble` publications and copyright file of `gawk` were read, and S61 and the `awk` row were
-changed to name both `noble` `awk` candidates.
+changed to name both `noble` `awk` candidates. Later again on 17 September 2026, for
+[#203](https://github.com/blac9216/PriFly/issues/203), S64 and S65 were added against source
+commit `a6a63e5105dee0f2cb4d4ae834dee9f846271455`, the Go module rows and the `actions/cache` row
+replaced the former "None" module row, and the vulnerability disposition was re-run.
 A license identifier is the cited official source's classification, not legal advice. A fact
 that was not verified is `UNKNOWN`.
 
@@ -308,12 +311,24 @@ that was not verified is `UNKNOWN`.
 ### source-s63
 **S63 — Advisory reads for `actions/checkout`.** The tag [`v7.0.1`](https://github.com/actions/checkout/releases/tag/v7.0.1), which resolves to commit `3d3c42e5aac5ba805825da76410c181273ba90b1`, the commit `.github/workflows/` pins; the repository's published security advisories; and the [GitHub Advisory Database](https://github.com/advisories) queried for `actions/checkout` in the `actions` ecosystem. Read 17 September 2026. Both advisory reads returned no entries.
 
+### source-s64
+**S64 — `filippo.io/age` v1.3.2 and its required modules.** For each of `filippo.io/age` v1.3.2, `filippo.io/hpke` v0.4.0, `golang.org/x/crypto` v0.56.0, `golang.org/x/sys` v0.47.0, `golang.org/x/term` v0.45.0 and `c2sp.org/CCTV/age` v0.0.0-20260829155415-4448f2097b2d: the [module proxy](https://proxy.golang.org/) `.info` record, the [checksum database](https://sum.golang.org/) lookup record, the pkg.go.dev license tab (for example [`filippo.io/age@v1.3.2?tab=licenses`](https://pkg.go.dev/filippo.io/age@v1.3.2?tab=licenses)) and the license files in the downloaded module; and the [vulnerability database index](https://vuln.go.dev/index/modules.json) with its entries [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932), [GO-2026-6354](https://pkg.go.dev/vuln/GO-2026-6354) and [GO-2026-6355](https://pkg.go.dev/vuln/GO-2026-6355). Read 17 September 2026. The proxy records name upstream commits `b74dce4cdbe35b5e5f66c06d9612b72f89028758` (age), `73de0d40e4c029b58240bf5c64b480d44cdc8587` (hpke), `86efde54dc7069251a8b007026c500d28e4239ce` (crypto), `9e7e939dcafac07e8ab4cffa6e5fc74908413f00` (sys), `9f69229da31ca6a34b522f59dbe07cad5ea21587` (term) and `4448f2097b2daa812c91a26141f9f36c2096b9ca` (CCTV, subdirectory `age`). Each checksum record equals the module's two `go.sum` lines. pkg.go.dev classifies the first five BSD-3-Clause; for `c2sp.org/CCTV/age` its license-tab request redirects to the module page and no classification is shown, and the module holds only `internal/LICENSE`. For the requirement-graph-only modules `filippo.io/edwards25519` v1.2.0, `filippo.io/nistec` v0.0.4, `github.com/rogpeppe/go-internal` v1.16.0, `golang.org/x/net` v0.57.0, `golang.org/x/text` v0.41.0 and `golang.org/x/tools` v0.49.0, read the same day: the proxy `.info` records name upstream commits `b182a6575cfd9f4fbb1d1d4e487a6b00a3ec06f7`, `31a9bd87262540dbced1e04ca8c209958eb9b1f8`, `49d4e9ddb921430d6bb9ed28aeafc16676a18c65`, `b8f09f6f062ceb4531b7af4bd17a5c8fe9c4b2b5`, `acdba6655fd45cdb5ab73c9d6a8981333bd65a39` and `18332fec72972efbb8ab9881984fec2d8cfc2b58`; pkg.go.dev classifies all six BSD-3-Clause; no checksum record was compared, because none has `go.sum` lines, and no license file was read, because resolving the graph fetches only their `go.mod` files and no module zip; the vulnerability index names, as each entry's fixed version, versions at or below those selected, and has no entry for go-internal or `x/tools`. The hpke, crypto, sys and term `LICENSE` files are byte-identical to go1.27.1's `LICENSE` ([S53](#source-s53)). GO-2026-6354 and GO-2026-6355 affect `golang.org/x/crypto/ssh` below v0.56.0; GO-2026-5932 affects the `golang.org/x/crypto/openpgp` packages in every version and has no fix.
+
+### source-s65
+**S65 — `actions/cache` v6.1.0.** The tag [`v6.1.0`](https://github.com/actions/cache/releases/tag/v6.1.0), which resolves to commit `55cc8345863c7cc4c66a329aec7e433d2d1c52a9`; the repository license, classified MIT by the GitHub license API; the repository's published security advisories; and the [GitHub Advisory Database](https://github.com/advisories) queried for `actions/cache` in the `actions` ecosystem. Read 17 September 2026. Both advisory reads returned no entries.
+
 ### Current dependency inventory
 
 | Component | Exact identity | Pinned by | License | Vulnerability disposition |
 |---|---|---|---|---|
 | Go toolchain and standard library — CI (`go-checks.yml`) and local Go suite | `go1.27.1`; `go1.27.1.linux-amd64.tar.gz` from go.dev, SHA-256 `63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445` ([S53](#source-s53)), checked locally with `sha256sum -c` on the read date. This row restates the digest as the identity it dispositions; the pin is `GO_ARCHIVE_SHA256` in `go-checks.yml`, and if the two differ the workflow is what runs, this row is stale and `scripts/docs/check-go-digest.sh` fails the documentation suite. Other platform archives' digests: `UNKNOWN`, not recorded. | Version: `go` directive in `go.mod`; `GOTOOLCHAIN=local`. Archive: `GO_ARCHIVE` and `GO_ARCHIVE_SHA256` on the `go` job's install step. **Verified in CI**: that step checks the download with `sha256sum -c` before extracting it, and fails on a digest mismatch or on a `GO_ARCHIVE` that does not match `go.mod` ([S59](#source-s59)). The [testing.md](../process/testing.md) recipe reads both values from the workflow and checks its download the same way. | BSD-3-Clause ([S53](#source-s53)); BoringCrypto note below | No known vulnerability found; see below |
-| Third-party Go modules | None. `go list -m all` lists only `github.com/blac9216/PriFly`; `go.mod` has no `require` and no `go.sum` exists. | `go.mod`; `GOFLAGS=-mod=readonly` | Not applicable | Not applicable |
+| `filippo.io/age` (bootstrap decryption; built) | `v1.3.2`, `h1:r6RSZLFSMm6rzKepZ7ZAYkKCu14f3/Me8c7uKYh7C8c=` ([S64](#source-s64)) | Direct `require` in `go.mod`; `go.sum`; `GOFLAGS=-mod=readonly`; CI `go mod verify` | BSD-3-Clause ([S64](#source-s64)) | No known vulnerability: govulncheck reports none (below); its one database entry was fixed in v1.2.1 |
+| `filippo.io/hpke` (required by age; built) | `v0.4.0`, `h1:p575VVQ6ted4pL+it6M00V/f2qTZITO0zgmdKCkd5+A=` ([S64](#source-s64)) | Indirect `require` in `go.mod`; `go.sum`; as above | BSD-3-Clause ([S64](#source-s64)) | No known vulnerability: no database entry |
+| `golang.org/x/crypto` (required by age; built) | `v0.56.0`, `h1:GUh5Ii4J5jtcseSMiRqr1jXCNHoxjeV9Fmekc2oLy6Y=` ([S64](#source-s64)). age requires v0.55.0; v0.56.0 is selected because it fixes GO-2026-6354 and GO-2026-6355 | Indirect `require` in `go.mod`; `go.sum`; as above | BSD-3-Clause ([S64](#source-s64)) | GO-2026-5932 (`openpgp`, no fix) is in the module but not called: no `openpgp` package is in the build. Accepted until a module change re-runs the scan (rule 3) |
+| `golang.org/x/sys` (required by x/crypto; built; `unix` in tests) | `v0.47.0`, `h1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=` ([S64](#source-s64)) | Direct `require` in `go.mod`; `go.sum`; as above | BSD-3-Clause ([S64](#source-s64)) | No known vulnerability: both database entries are fixed at or below v0.44.0 |
+| `golang.org/x/term`, `c2sp.org/CCTV/age` (`go.sum` lines only; not built) | `v0.45.0`, `h1:NwWyBmoJCbfTHpxrWoZ9C6/VxOf7ic219I8xZZFdrf0=`; `v0.0.0-20260829155415-4448f2097b2d`, `h1:Blprhc2SbChNZtWcU+BLTM4YdoqYAS9V7cJgOwJKyAs=` ([S64](#source-s64)). Checksums only: no package of either is built or tested by this module | `go.sum` | BSD-3-Clause; `UNKNOWN` for CCTV ([S64](#source-s64)) | Not in the scanned packages; the database index has no entry for either |
+| `filippo.io/edwards25519`, `filippo.io/nistec`, `github.com/rogpeppe/go-internal`, `golang.org/x/net`, `golang.org/x/text`, `golang.org/x/tools` (requirement graph only; no `go.sum` line; not built) | `v1.2.0`, `v0.0.4`, `v1.16.0`, `v0.57.0`, `v0.41.0`, `v0.49.0` as `go list -m all` selects them; `go mod graph` shows age requiring the first three and `x/tools`, and `golang.org/x/crypto` requiring `x/net` and `x/text` ([S64](#source-s64)). No module hash is recorded: none has a `go.sum` line, and no package of any is in `go list -deps -test ./...` | Version selection by the `go.mod` requirement graph only; nothing checks their content | BSD-3-Clause ([S64](#source-s64)) | Not scanned: govulncheck reports modules of built packages only. Every database entry for edwards25519, nistec, `x/net` and `x/text` is fixed at or below the selected version; go-internal and `x/tools` have no entry ([S64](#source-s64)) |
+| `actions/cache` (CI module cache only; not in the build output) | Commit `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` (tag `v6.1.0`, [S65](#source-s65)) on the `uses:` line of `go-checks.yml` | That `uses:` line; the key is the `go.sum` digest, and `go mod verify` checks restored modules | MIT ([S65](#source-s65)) | No known vulnerability found: no advisory at the read date ([S65](#source-s65)). Point-in-time; re-read on any pin change (rule 3) |
 | `actions/checkout` (CI only; not in the build output) | Commit `3d3c42e5aac5ba805825da76410c181273ba90b1` (tag `v7.0.1`, [S63](#source-s63)) on the `uses:` lines of `.github/workflows/`; both CI jobs log downloading that SHA ([S60](#source-s60)) | Those `uses:` lines | MIT ([S57](#source-s57)) | No known vulnerability found: no advisory in the GitHub Advisory Database or the repository at the read date ([S63](#source-s63)). govulncheck does not scan Actions. Point-in-time; re-read on any pin change (rule 3) |
 
 BoringCrypto note: pkg.go.dev classifies `src/crypto/internal/boring/LICENSE` in go1.27.1 as
@@ -353,18 +368,24 @@ other than linux/amd64.
 ### Vulnerability disposition
 
 `go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 -show verbose ./...` from the repository root
-with go1.27.1, `GOTOOLCHAIN=local` and `GOFLAGS=-mod=readonly` scanned 4 root packages in 1 module
-(`github.com/blac9216/PriFly`) and the go1.27.1 standard library against `https://vuln.go.dev`
-(database updated 2026-09-15 18:39:25 UTC). Result: "No vulnerabilities found.", exit 0. Tool
+with go1.27.1, `GOTOOLCHAIN=local` and `GOFLAGS=-mod=readonly`, at the #203 change, scanned 6 root
+packages in 5 modules (`github.com/blac9216/PriFly`, `filippo.io/age@v1.3.2`,
+`filippo.io/hpke@v0.4.0`, `golang.org/x/crypto@v0.56.0`, `golang.org/x/sys@v0.47.0`) and the
+go1.27.1 standard library against `https://vuln.go.dev` (database updated 2026-09-15 18:39:25
+UTC). Result, exit 0: "No vulnerabilities found." for symbols and packages, and one module-level
+finding, GO-2026-5932 in `golang.org/x/crypto@v0.56.0` with "Fixed in: N/A", which "your code
+doesn't appear to call". With `golang.org/x/crypto@v0.55.0`, the version age requires, the same
+scan also reported GO-2026-6354 and GO-2026-6355 ([S64](#source-s64)). Tool
 identity: `golang.org/x/vuln` v1.8.0, module hash `h1:clG4qBU6zH5VKjti8n5j8BBuYzoSha392xXMkXS351U=`,
 `go.mod` hash `h1:Fzm4XK3Hbl1ZvZ7JpNTEWb7CJWOZ7m2LX0GLu4Fsrwo=`, matching its checksum-database
 record; BSD-3-Clause ([S54](#source-s54)).
 
 Source-mode govulncheck does not report vulnerabilities in the `go` command itself. In the same
 database index, no `stdlib` or `toolchain` entry lacks a fixed version or names a fixed version
-later than go1.27.1 ([S54](#source-s54)). Disposition: no known vulnerability is outstanding or
-accepted for the current subject. The result is point-in-time and does not carry over to a
-changed `go.mod`, toolchain or database.
+later than go1.27.1 ([S54](#source-s54)). Disposition: GO-2026-5932 is accepted as not reachable,
+because no `golang.org/x/crypto/openpgp` package is in the build; no other known vulnerability is
+outstanding or accepted for the current subject. The result is point-in-time and does not carry
+over to a changed `go.mod`, toolchain or database.
 
 ### Candidate dependencies — not qualified
 

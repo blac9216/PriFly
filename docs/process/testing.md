@@ -66,6 +66,7 @@ one change, taking the new digest from `https://go.dev/dl/?mode=json&include=all
 | Suite | Command | Environment |
 |---|---|---|
 | Identity | `git rev-parse HEAD`, then `command -v go`, `go version`, `go env GOROOT` | Checkout; pinned `go` first on `PATH`. |
+| Modules | `go mod verify` | Same; checks downloaded modules, including CI's restored module cache, against `go.sum`. |
 | Format | `test -z "$(gofmt -l .)"` | Same; exits 1 if any file is unformatted. |
 | Vet | `go vet ./...` | Same. |
 | Unit tests | `go test -count=1 -race -v ./...` | Same; uncached; `-race` needs cgo. |
