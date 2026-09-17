@@ -98,8 +98,8 @@ var hostile = map[string]func(dir string) error{
 		return errors.Join(replaceIn(dir, `"revision": 1`, `"revision": 1, "revision": 1`), replaceIn(dir, "\n}\n", "\n}\n}"))
 	},
 	"dependency-cycle": func(dir string) error { // a self-loop; a 2-cycle; a tail into a 2-cycle closed at a second dependency; a later tail; an acyclic chain;
-		// a 2-cycle beside a repeated dependency, and a repeated dependency outside it
-		return addItems(dir, slice(0), slice(2), slice(1), slice(4), slice(5), slice(-1, 4), slice(-1, 1), slice(8), slice(-1), slice(11, 11, 10), slice(9), slice(), slice(11, 11))
+		// a 2-cycle beside a repeated dependency, and a repeated dependency outside it; two entries sharing bytes that depend on the second
+		return addItems(dir, slice(0), slice(2), slice(1), slice(4), slice(5), slice(-1, 4), slice(-1, 1), slice(8), slice(-1), slice(11, 11, 10), slice(9), slice(), slice(11, 11), slice(14), slice(14))
 	},
 	"enabler-consumer": func(dir string) error { // two SLICEs with the same bytes, each depending twice on the ENABLER naming both
 		return addItems(dir, slice(2, 2), slice(2, 2), `{"kind": "ENABLER", "consumers": ["`+wiN(0)+`", "`+wiN(1)+`"], "dependencies": []}`)
@@ -109,7 +109,8 @@ var hostile = map[string]func(dir string) error{
 			`{"kind": "ENABLER", "consumers": "`+wiN(0)+`", "dependencies": []}`, `{"kind": "SLICE", "dependencies": []}`)
 	},
 	"unresolved-work-item": func(dir string) error {
-		err := addItems(dir, `{"kind": "ENABLER", "consumers": ["`+wiN(99)+`", "bsl_6e73c229223db574a3c8fa28dd5a1a5a", 7, "`+wiN(1)+`"], "dependencies": [{"work_item": "`+wiN(98)+`"}, "`+wiN(0)+`", {"condition": "x"}, {"work_item": "wi_\u001b[2K"}]}`, "{}")
+		// the last two contents share bytes, so their unresolved reference is reported once, at the first
+		err := addItems(dir, `{"kind": "ENABLER", "consumers": ["`+wiN(99)+`", "bsl_6e73c229223db574a3c8fa28dd5a1a5a", 7, "`+wiN(1)+`"], "dependencies": [{"work_item": "`+wiN(98)+`"}, "`+wiN(0)+`", {"condition": "x"}, {"work_item": "wi_\u001b[2K"}]}`, "{}", slice(97), slice(97))
 		return errors.Join(err, os.Remove(dir+"/artifacts/item1.json")) // an unreadable Work Item is still one a consumer can name
 	},
 	"invalid-content": func(dir string) error {
@@ -269,6 +270,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"enabler-consumer": {"result: ok manifest_sha256=d72147c7e751181bf47b247a5fb65896eec7013ca0513b01c1fb2085807ca6ba (nothing staged or started)"},
 		"dependency-cycle": {
 			"dependency-cycle " + at(10, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(9) + `" -> "` + wiN(10) + `" -> "` + wiN(9) + `"`,
+			"dependency-cycle " + at(14, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(14) + `" -> "` + wiN(14) + `"`,
 			"dependency-cycle " + at(0, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(0) + `" -> "` + wiN(0) + `"`,
 			"dependency-cycle " + at(2, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(1) + `" -> "` + wiN(2) + `" -> "` + wiN(1) + `"`,
 			"dependency-cycle " + at(5, `.dependencies[1].work_item`) + `: Work Items depend in a cycle: "` + wiN(4) + `" -> "` + wiN(5) + `" -> "` + wiN(4) + `"`},
@@ -285,7 +287,8 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"invalid-type " + at(0, `.dependencies[1]: want object`),
 			"missing-field " + at(0, `.dependencies[2].work_item`+missing),
 			"invalid-id " + at(0, `.dependencies[3].work_item: want wi_<32 lowercase hex>, got "wi_\x1b[2K"`),
-			`unreadable-artifact $.artifacts[4].path: "artifacts/item1.json" does not resolve to a file inside the bundle directory`},
+			`unreadable-artifact $.artifacts[4].path: "artifacts/item1.json" does not resolve to a file inside the bundle directory`,
+			"unresolved-work-item " + at(2, `.dependencies[0].work_item: no Work Item in this bundle has ID "`+wiN(97)+`"`)},
 		"invalid-content": {
 			"invalid-content " + at(0, ": want one JSON object with unique keys and exact strings"),
 			"invalid-content " + at(1, ": want one JSON object with unique keys and exact strings"),
