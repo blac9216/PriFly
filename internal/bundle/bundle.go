@@ -141,7 +141,9 @@ func (c *checker) ident(m map[string]any, p, prefix string) identity {
 // artifact checks one artifacts[] entry at path p, compares the SHA-256 of its
 // file's exact bytes, read through ReadRegular, with the declared digest, and
 // returns the artifact's identity and its references' identities; a WorkItem/v1
-// entry is added to w with the body read from its bytes.
+// entry is added to w with the body read from its bytes, a Baseline/v1 entry's
+// ID is added to w, and ExecutionEnvelope/v1 and QualityEvaluation/v1 content
+// is checked.
 func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self identity, refs []identity) {
 	m := c.object(a, p, "id", "revision", "schema", "path", "sha256", "refs")
 	schema, isString := c.str(m, p, "schema")
@@ -155,6 +157,9 @@ func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self i
 		refs = append(refs, c.ident(c.object(r, rp, "id", "revision", "sha256"), rp, ""))
 	}
 	isItem, b := schema == "WorkItem/v1", -1
+	if schema == "Baseline/v1" && self.id != "" {
+		w.baselines[self.id] = true
+	}
 	defer func() { // an unreadable Work Item is still an entry, with no body
 		if isItem {
 			w.items = append(w.items, workItem{p, self.id, b})
@@ -173,8 +178,8 @@ func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self i
 	if self.digest != "" && got != self.digest {
 		c.add(p+".sha256", "digest-mismatch", "declared %s, exact bytes hash to %s", Quote(self.digest), got)
 	}
-	if isItem {
-		b = w.read(c, p, got, content)
+	if isItem || schema == "ExecutionEnvelope/v1" || schema == "QualityEvaluation/v1" {
+		b = w.read(c, p, schema, got, content)
 	}
 	return self, refs
 }
@@ -245,7 +250,7 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 		}
 	}
 	var artifacts, refs []identity
-	w := workItems{digest: map[string]int{}}
+	w := workItems{digest: map[string]int{}, baselines: map[string]bool{}}
 	for i, a := range c.list(top, "$", "artifacts") {
 		self, r := c.artifact(root, fmt.Sprintf("$.artifacts[%d]", i), a, &w)
 		artifacts, refs = append(artifacts, self), append(refs, r...)
