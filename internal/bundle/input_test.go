@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -124,12 +126,18 @@ func TestReadChecked(t *testing.T) {
 	}
 }
 
-// countingReader serves n bytes, then io.EOF, and counts the bytes consumed.
-type countingReader struct{ n, consumed int }
+// countingReader serves n bytes, then err or else io.EOF, and counts the bytes
+// consumed.
+type countingReader struct {
+	n, consumed int
+	err         error
+}
 
 func (r *countingReader) Read(p []byte) (int, error) {
 	k := min(len(p), r.n-r.consumed)
-	if k == 0 {
+	if k == 0 && r.err != nil {
+		return 0, r.err
+	} else if k == 0 {
 		return 0, io.EOF
 	}
 	r.consumed += k
@@ -137,20 +145,23 @@ func (r *countingReader) Read(p []byte) (int, error) {
 }
 
 // TestReadCapped pins the read bound: with a 16-byte cap, readCapped consumes
-// at most 17 bytes of a 1 MiB input, however much the input holds.
+// at most 17 bytes of a 1 MiB input, however much the input holds, and returns
+// every byte it consumed, also with a failure reason.
 func TestReadCapped(t *testing.T) {
 	for label, c := range map[string]struct {
 		n, consumed int
 		reason      string
+		err         error
 	}{
-		"under-cap": {15, 15, ""},
-		"at-cap":    {16, 16, ""},
-		"over-cap":  {1 << 20, 17, "exceeds the 16-byte size cap"},
+		"under-cap":  {15, 15, "", nil},
+		"at-cap":     {16, 16, "", nil},
+		"over-cap":   {1 << 20, 17, "exceeds the 16-byte size cap", nil},
+		"read-error": {3, 3, "cannot be read", io.ErrUnexpectedEOF},
 	} {
 		t.Run(label, func(t *testing.T) {
-			r := &countingReader{n: c.n}
+			r := &countingReader{n: c.n, err: c.err}
 			b, reason := readCapped(r, 16)
-			if reason != c.reason || r.consumed != c.consumed || reason == "" && len(b) != c.n {
+			if reason != c.reason || r.consumed != c.consumed || len(b) != c.consumed {
 				t.Errorf("readCapped(%d bytes) = %d bytes, %q after consuming %d; want %q after consuming %d", c.n, len(b), reason, r.consumed, c.reason, c.consumed)
 			}
 		})
@@ -197,6 +208,56 @@ func TestDecodeJSON(t *testing.T) {
 				t.Errorf("DecodeJSON(%q) = %#v, %v; want ok=%v, element %q", c.raw, v, ok, c.ok, c.quoted)
 			}
 		})
+	}
+}
+
+// TestFaultsBudget pads 10 nested objects, each repeating its 10-byte key, so
+// that the paths of the four deepest faults total exactly the input's length:
+// the fifth fault is then past the budget, so it is not listed and the list is
+// marked incomplete.
+func TestFaultsBudget(t *testing.T) {
+	raw, budget, want := strings.Repeat(`{"kkkkkkkkkk": `, 10)+"1"+strings.Repeat(`, "kkkkkkkkkk": 1}`, 10), 0, []Diagnostic{}
+	for d := 7; d <= 10; d++ {
+		path := "$" + strings.Repeat(".kkkkkkkkkk", d)
+		budget, want = budget+len(path), append(want, Diagnostic{path, "duplicate-key", "key repeats an earlier key of this object"})
+	}
+	raw += strings.Repeat(" ", budget-len(raw))
+	if got := Faults([]byte(raw)); !slices.Equal(got, append(want, incomplete)) {
+		t.Errorf("Faults(%d bytes) = %q, want %q", len(raw), got, append(want, incomplete))
+	}
+}
+
+// TestCheckerKeepsFirst adds n diagnostics, drawn from 84 distinct ones so
+// that repeats and ties on path and code are common, in 20 shuffled orders. The
+// checker must never hold more than MaxDiagnostics+1, and done must list the
+// first MaxDiagnostics of the diagnostics sorted by path, code and detail,
+// followed by incomplete exactly when n is over MaxDiagnostics.
+func TestCheckerKeepsFirst(t *testing.T) {
+	rng := rand.New(rand.NewPCG(248, 1))
+	for _, n := range []int{0, 1, 999, 1000, 1001, 1002, 2001, 2002, 2003, 5000} {
+		all := make([]Diagnostic, n)
+		for i := range all {
+			all[i] = Diagnostic{fmt.Sprintf("$.p%d", rng.IntN(7)), fmt.Sprintf("code-%d", rng.IntN(4)), fmt.Sprintf("detail %d", rng.IntN(3))}
+		}
+		want := slices.Clone(all)
+		slices.SortFunc(want, func(a, b Diagnostic) int {
+			return strings.Compare(a.Path+"\x00"+a.Code+"\x00"+a.Detail, b.Path+"\x00"+b.Code+"\x00"+b.Detail)
+		})
+		if n > MaxDiagnostics {
+			want = append(want[:MaxDiagnostics], incomplete)
+		}
+		for range 20 {
+			rng.Shuffle(n, func(i, j int) { all[i], all[j] = all[j], all[i] })
+			var c checker
+			for _, d := range all {
+				if c.add(d.Path, d.Code, "%s", d.Detail); len(c) > MaxDiagnostics+1 {
+					t.Fatalf("n=%d: checker holds %d diagnostics", n, len(c))
+				}
+			}
+			if got := c.done(true); !slices.Equal(got, want) {
+				t.Fatalf("n=%d: done lists %d diagnostics, not the first of the sorted list", n, len(got))
+			}
+		}
 	}
 }
 

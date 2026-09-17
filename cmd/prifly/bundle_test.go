@@ -182,18 +182,11 @@ var hostile = map[string]func(dir string) error{
 			naming(invalid, slice()), naming(invalid, slice(-1)), naming(xenID, slice())), addArtifacts(dir, "xen", "ExecutionEnvelope/v1", envelope), replaceIn(dir, `"`+wiN(7)+`"`, `"`+wiN(0)+`"`))
 	},
 	"diagnostic-cap": func(dir string) error { // $.zz is added first, the unreadable artifact last
-		return errors.Join(replaceIn(dir, `"jobs": [`, `"zz": 1, "jobs": [`+strings.Repeat("7, ", 2100)), replaceIn(dir, `"artifacts/baseline.json"`, `"artifacts/missing.json"`))
+		return errors.Join(replaceIn(dir, `"jobs": [`, `"zz": 1, "jobs": [`+strings.Repeat("7, ", 2000)), replaceIn(dir, `"artifacts/baseline.json"`, `"artifacts/missing.json"`))
 	},
 	"fault-budget":        nested(10), // 4 of 10 repeated keys total the manifest's length in paths
 	"fault-budget-at-end": nested(5),  // the last repeated key brings the paths past it
-	"artifact-bytes-cap": func(dir string) error { // 120 MiB before $.artifacts[12], which is not read past the cap, and [13] is not read
-		entries := ""
-		for i, name := range []string{"half", "baseline", "baseline", "baseline", "baseline", "baseline", "baseline", "baseline", "missing"} {
-			entries += fmt.Sprintf(`, {"id": "bsl_%032x", "revision": 1, "schema": "Baseline/v1", "path": "artifacts/%s.json", "sha256": "%x", "refs": []}`, i, name, sha256.Sum256(make([]byte, map[string]int{"half": 8 << 20, "baseline": 16 << 20}[name])))
-		}
-		return errors.Join(os.WriteFile(dir+"/artifacts/half.json", make([]byte, 8<<20), 0o644), os.WriteFile(dir+"/artifacts/baseline.json", make([]byte, 16<<20), 0o644), replaceIn(dir, "}\n  ", "}"+entries+"\n  "))
-	},
-	"invalid-utf8": func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, "\"wi_\xff\xfe8887ffc") },
+	"invalid-utf8":        func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, "\"wi_\xff\xfe8887ffc") },
 	"lone-surrogate": func(dir string) error { // a high, a low before a pair, and a pair beside an escaped backslash
 		return errors.Join(replaceIn(dir, `"bnd_`, `"bnd_\ud800`), replaceIn(dir, `"reviewer.implementation/v1"`, `"\udc00\ud83d\ude00"`),
 			replaceIn(dir, `"WorkItem/v1"`, `"\ud83d\ude00\\ud800"`))
@@ -223,11 +216,11 @@ func nested(d int) func(dir string) error {
 	}
 }
 
-// capped is diagnostic-cap's output: the 1,000 lines first in byte order, the
-// unreadable artifact then 999 of 2,100 jobs, before $.zz; then incomplete.
+// capped is diagnostic-cap's output, 1,000 of its 2,002 diagnostics: the
+// unreadable artifact then 999 of 2,000 jobs, before $.zz; then incomplete.
 func capped() []string {
 	jobs := []string{}
-	for i := range 2100 {
+	for i := range 2000 {
 		jobs = append(jobs, fmt.Sprintf("unsupported-job $.jobs[%d]: job/version 7 is not supported", i))
 	}
 	slices.Sort(jobs)
@@ -601,31 +594,78 @@ func TestBundleInspectFixtures(t *testing.T) {
 	}
 }
 
-// TestArtifactBytesCap asserts artifact-bytes-cap's exact output on one run, as
-// it reads 128 MiB, and that the bytes this process reads meanwhile (rchar in
-// /proc/self/io) exceed MaxArtifactBytes by at most 1 MiB: $.artifacts[12], 16
-// MiB, is reached with about 8 MiB left.
+// zeroArtifacts writes each file of sizes as that many zero bytes and adds a
+// Baseline/v1 entry for each of names, declaring the digest of sizes[name] zero
+// bytes, after the valid bundle's five entries (764 bytes of artifacts).
+func zeroArtifacts(dir string, sizes map[string]int, names ...string) error {
+	errs, entries := []error{}, ""
+	for name, n := range sizes {
+		errs = append(errs, os.WriteFile(dir+"/artifacts/"+name+".json", make([]byte, n), 0o644))
+	}
+	for i, name := range names {
+		entries += fmt.Sprintf(`, {"id": "bsl_%032x", "revision": 1, "schema": "Baseline/v1", "path": "artifacts/%s.json", "sha256": "%x", "refs": []}`, i, name, sha256.Sum256(make([]byte, sizes[name])))
+	}
+	return errors.Join(append(errs, replaceIn(dir, "}\n  ", "}"+entries+"\n  "))...)
+}
+
+// TestArtifactBytesCap runs inspect once per case, as each reads about 128 MiB,
+// and asserts its exact output and the bytes this process reads meanwhile (rchar
+// in /proc/self/io): the manifest, the first /proc/self/io read and the artifact
+// bytes, one past MaxArtifactBytes once it is passed, plus under 4,096 bytes of
+// other reads by the process (8 to 96 bytes were seen), so a read limit even
+// 4,096 bytes too high fails.
+//   - over-cap: $.artifacts[12], 16 MiB, is reached with 8 MiB - 702 B left, and
+//     [13] is not read.
+//   - at-cap: the artifacts total exactly MaxArtifactBytes, which is not passed.
+//   - past-cap: at-cap, then an 8-byte artifact with a wrong digest, which gets
+//     the cap diagnostic, and a missing one, which is not read.
 func TestArtifactBytesCap(t *testing.T) {
-	dir := bundleCopy(t, "valid")
-	if err := hostile["artifact-bytes-cap"](dir); err != nil {
-		t.Fatal(err)
-	}
-	rchar := func() (n int) {
-		b, err := os.ReadFile("/proc/self/io")
-		if _, scanErr := fmt.Sscanf(string(b), "rchar: %d", &n); err != nil || scanErr != nil {
-			t.Fatal(err, scanErr)
-		}
-		return n
-	}
-	var stdout, stderr bytes.Buffer
-	before := rchar()
-	code := run([]string{"bundle", "inspect", dir}, &stdout, &stderr)
-	read := rchar() - before
-	want := `unreadable-artifact $.artifacts[12].path: "artifacts/baseline.json" exceeds the 134217728-byte cap on artifact bytes read per bundle
-digest-mismatch $.artifacts[1].sha256: declared "` + bslSHA + `", exact bytes hash to 080acf35a507ac9849cfcba47dc2ad83e01b75663a516279c8b9d243b719643e
-` + incomplete + "\nresult: invalid diagnostics-listed=3 (list incomplete; nothing staged or started)\n"
-	if code != 1 || stdout.String() != want || stderr.Len() != 0 || read < 128<<20 || read > 129<<20 {
-		t.Errorf("exit=%d, %d bytes read, stdout:\n%s\nstderr: %q; want exit 1, 128-129 MiB read, stdout:\n%s", code, read, stdout.String(), stderr.String(), want)
+	const over = ` exceeds the 134217728-byte cap on artifact bytes read per bundle
+`
+	zeros, fill := map[string]int{"zero": 16 << 20, "rest": 16<<20 - 764}, []string{"rest", "zero", "zero", "zero", "zero", "zero", "zero", "zero"}
+	for _, c := range []struct {
+		name  string
+		setup func(dir string) error
+		read  int
+		want  string
+	}{
+		{"over-cap", func(dir string) error {
+			return zeroArtifacts(dir, map[string]int{"half": 8 << 20, "baseline": 16 << 20}, "half", "baseline", "baseline", "baseline", "baseline", "baseline", "baseline", "baseline", "missing")
+		}, bundle.MaxArtifactBytes + 1, `unreadable-artifact $.artifacts[12].path: "artifacts/baseline.json"` + over + `digest-mismatch $.artifacts[1].sha256: declared "` + bslSHA + `", exact bytes hash to 080acf35a507ac9849cfcba47dc2ad83e01b75663a516279c8b9d243b719643e
+` + incomplete + "\nresult: invalid diagnostics-listed=3 (list incomplete; nothing staged or started)\n"},
+		{"at-cap", func(dir string) error { return zeroArtifacts(dir, zeros, fill...) }, bundle.MaxArtifactBytes, "result: ok"},
+		{"past-cap", func(dir string) error {
+			return errors.Join(os.WriteFile(dir+"/artifacts/tampered.json", []byte("tampered"), 0o644), zeroArtifacts(dir, zeros, append(fill, "tampered", "missing")...))
+		}, bundle.MaxArtifactBytes + 1, `unreadable-artifact $.artifacts[13].path: "artifacts/tampered.json"` + over + incomplete + "\nresult: invalid diagnostics-listed=2 (list incomplete; nothing staged or started)\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := bundleCopy(t, "valid")
+			manifest, err := os.ReadFile(dir + "/bundle.json")
+			if err = errors.Join(c.setup(dir), err); err == nil {
+				manifest, err = os.ReadFile(dir + "/bundle.json")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			rchar := func() (n, size int) {
+				b, err := os.ReadFile("/proc/self/io")
+				if _, scanErr := fmt.Sscanf(string(b), "rchar: %d", &n); err != nil || scanErr != nil {
+					t.Fatal(err, scanErr)
+				}
+				return n, len(b)
+			}
+			var stdout, stderr bytes.Buffer
+			before, size := rchar()
+			code := run([]string{"bundle", "inspect", dir}, &stdout, &stderr)
+			after, _ := rchar()
+			want, wantCode, wantRead := c.want, 1, size+len(manifest)+c.read
+			if want == "result: ok" {
+				want, wantCode = fmt.Sprintf("result: ok manifest_sha256=%x (nothing staged or started)\n", sha256.Sum256(manifest)), 0
+			}
+			if code != wantCode || stdout.String() != want || stderr.Len() != 0 || after-before < wantRead || after-before >= wantRead+4096 {
+				t.Errorf("exit=%d, %d bytes read, stdout:\n%s\nstderr: %q; want exit %d, %d bytes read (+4,095), stdout:\n%s", code, after-before, stdout.String(), stderr.String(), wantCode, wantRead, want)
+			}
+		})
 	}
 }
 
