@@ -3,6 +3,7 @@ package bundle
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -220,6 +221,32 @@ func TestFaultsMemory(t *testing.T) {
 				t.Errorf("Faults allocated %d bytes for %d input bytes (limit 32x), first of %d faults %.40q", n, len(raw), len(faults), faults)
 			}
 		})
+	}
+}
+
+// TestGraphMemory runs graph over a ring of 1,000 and of 16,000 Work Items, the
+// longest possible cycle, and bounds the bytes allocated per Work Item at the
+// larger size to twice those at the smaller: a cycle name or walk copied per
+// step would allocate quadratically, about 16 times as much per item.
+func TestGraphMemory(t *testing.T) {
+	perItem := func(n int) uint64 {
+		items := make([]workItem, n)
+		for i := range items {
+			items[i] = workItem{path: "$", id: fmt.Sprintf("wi_%032x", i), deps: []edge{{"dependencies", 0, fmt.Sprintf("wi_%032x", (i+1)%n)}}}
+		}
+		var c checker
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		c.graph(items)
+		runtime.ReadMemStats(&after)
+		if len(c) != 1 || c[0].Code != "dependency-cycle" {
+			t.Errorf("ring of %d: got %d diagnostics, want one dependency-cycle", n, len(c))
+		}
+		return (after.TotalAlloc - before.TotalAlloc) / uint64(n)
+	}
+	if small, large := perItem(1000), perItem(16000); large > 2*small {
+		t.Errorf("graph allocated %d bytes per Work Item for 16,000, %d for 1,000 (limit 2x)", large, small)
 	}
 }
 

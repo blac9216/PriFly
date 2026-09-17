@@ -6,7 +6,7 @@
   "jobs": ["implementer.implementation/v1", "reviewer.implementation/v1"],
   "x\u001b[2K": 1, "x\u001b[2K": 2,
   "artifacts": [
-    {"id": "wi_8887ffc730f707abb82bb7cb7068e914", "revision": 1, "schema": "WorkItem/v1", "path": "artifacts/work-item.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "sha256": "e7d95ce6f478a7f82dbca4bee40b67d11efe93cdb245a22a03a28703024fa143", "refs": [
+    {"id": "wi_8887ffc730f707abb82bb7cb7068e914", "revision": 1, "schema": "WorkItem/v1", "path": "artifacts/work-item.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "sha256": "cd905736886656931e4d9113e0251dce6e5b75e2fd8cb04f45a99cd358ac7500", "refs": [
       {"id": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "revision": 1, "sha256": "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34", "\u0069d": "bsl_6e73c229223db574a3c8fa28dd5a1a5a"}
     ]},
     {"id": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "revision": 1, "schema": "Baseline/v1", "path": "artifacts/baseline.json", "sha256": "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34", "refs": [], "refs": {}}

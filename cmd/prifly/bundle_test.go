@@ -97,6 +97,20 @@ var hostile = map[string]func(dir string) error{
 	"duplicate-key-trailing": func(dir string) error {
 		return errors.Join(replaceIn(dir, `"revision": 1`, `"revision": 1, "revision": 1`), replaceIn(dir, "\n}\n", "\n}\n}"))
 	},
+	"dependency-cycle": func(dir string) error { // a self-loop, a 2-cycle, a 3-cycle closed at a second dependency, a tail into the 2-cycle
+		return addItems(dir, slice(0), slice(2), slice(1), slice(4), slice(5), slice(-1, 3), slice(-1, 1), slice(-1))
+	},
+	"unnamed-consumer": func(dir string) error {
+		return addItems(dir, `{"kind": "ENABLER", "dependencies": []}`, `{"kind": "ENABLER", "consumers": [], "dependencies": []}`,
+			`{"kind": "ENABLER", "consumers": "`+wiN(0)+`", "dependencies": []}`, `{"kind": "SLICE", "dependencies": []}`)
+	},
+	"unresolved-work-item": func(dir string) error {
+		return addItems(dir, `{"kind": "ENABLER", "consumers": ["`+wiN(99)+`", "bsl_6e73c229223db574a3c8fa28dd5a1a5a", 7, "`+wiN(0)+`"], "dependencies": [{"work_item": "`+wiN(98)+`"}, "`+wiN(0)+`", {"condition": "x"}, {"work_item": "wi_\u001b[2K"}]}`)
+	},
+	"invalid-content": func(dir string) error {
+		return addItems(dir, `[]`, `{"kind": "SLICE", "kind": "SLICE", "dependencies": []}`, `{"dependencies": []}`,
+			`{"kind": "slice\u001b[2K", "dependencies": []}`, `{"kind": "SLICE"}`, `{"kind": "SLICE", "dependencies": {}}`, `{"kind": 7, "dependencies": []}`)
+	},
 	"invalid-utf8": func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, "\"wi_\xff\xfe8887ffc") },
 	"lone-surrogate": func(dir string) error { // a high, a low before a pair, and a pair beside an escaped backslash
 		return errors.Join(replaceIn(dir, `"bnd_`, `"bnd_\ud800`), replaceIn(dir, `"reviewer.implementation/v1"`, `"\udc00\ud83d\ude00"`),
@@ -107,8 +121,39 @@ var hostile = map[string]func(dir string) error{
 const (
 	bundleID = "bnd_8d0e1c6f026fef7621a0c7b017f12c12"
 	bslSHA   = "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34"
-	wiSHA    = "e7d95ce6f478a7f82dbca4bee40b67d11efe93cdb245a22a03a28703024fa143"
+	wiSHA    = "cd905736886656931e4d9113e0251dce6e5b75e2fd8cb04f45a99cd358ac7500"
 )
+
+// wiN is the Work Item ID addItems gives its n-th content; -1 is the valid fixture's work item.
+func wiN(n int) string {
+	if n < 0 {
+		return "wi_8887ffc730f707abb82bb7cb7068e914"
+	}
+	return fmt.Sprintf("wi_%032x", n)
+}
+
+// slice is SLICE content depending, in order, on wiN of each n.
+func slice(ns ...int) string {
+	deps := []string{}
+	for _, n := range ns {
+		deps = append(deps, `{"work_item": "`+wiN(n)+`", "condition": "integrated"}`)
+	}
+	return `{"kind": "SLICE", "dependencies": [` + strings.Join(deps, ", ") + `]}`
+}
+
+// addItems writes each content to artifacts/item<n>.json and declares it, by
+// its exact-bytes digest, as Work Item wiN(n) after the valid fixture's artifacts.
+func addItems(dir string, contents ...string) error {
+	entries := ""
+	for n, content := range contents {
+		name := fmt.Sprintf("artifacts/item%d.json", n)
+		entries += fmt.Sprintf(`, {"id": "%s", "revision": 1, "schema": "WorkItem/v1", "path": "%s", "sha256": "%x", "refs": []}`, wiN(n), name, sha256.Sum256([]byte(content)))
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	return replaceIn(dir, "}\n  ]\n}", "}"+entries+"\n  ]\n}")
+}
 
 func replaceIn(dir, old, new string) error {
 	b, err := os.ReadFile(dir + "/bundle.json")
@@ -130,10 +175,14 @@ func TestBundleInspectFixtures(t *testing.T) {
 		unresolved = "unreadable-bundle $: bundle.json does not resolve to a file inside the bundle directory"
 		wi, bsl    = "$.artifacts[0]", "$.artifacts[1]"
 		baseline   = "unreadable-artifact " + bsl + `.path: "artifacts/baseline.json" `
+		unnamedWI  = `unresolved-work-item $.artifacts[2].content.consumers[0]: no Work Item in this bundle has ID "wi_8887ffc730f707abb82bb7cb7068e914"`
+		missing    = ": required field is absent"
+		item       = "$.artifacts[%d].content"
 	)
+	at := func(n int, rest string) string { return fmt.Sprintf(item, n+3) + rest }
 	for variant, want := range map[string][]string{
-		"valid":           {"result: ok manifest_sha256=6f358423ad86a871c441a2bac7c0e1c7d21f9ba8b4c05e7a9b318d1bfb1620d4 (nothing staged or started)"},
-		"tampered-digest": {"digest-mismatch " + wi + `.sha256: declared "` + wiSHA + `", exact bytes hash to be9861302628ee7be1c9586b626e6d9ecf1403d9dec73e1f148e037140a1ade6`},
+		"valid":           {"result: ok manifest_sha256=930aa88a3c990d7a649c3766aec7415633cd58c8d9303cc97613e0912027bc0b (nothing staged or started)"},
+		"tampered-digest": {"digest-mismatch " + wi + `.sha256: declared "` + wiSHA + `", exact bytes hash to 505b47608bd627b3695e76c8b61598e82fa1738e8ba2f6e52d328e1cff6ff20a`},
 		"unsupported-version": {
 			"unsupported-schema " + bsl + `.schema: artifact schema "Baseline/v2" is not supported`,
 			`unsupported-job $.jobs[0]: job/version "implementer.implementation/v2" is not supported`},
@@ -185,7 +234,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"unsupported-job $.jobs[0]: job/version 7 is not supported",
 			"unsupported-job $.jobs[1]: job/version null is not supported",
 			"unsupported-job $.jobs[2]: job/version object is not supported"},
-		"artifact-id-pattern": {`invalid-id ` + wi + `.id: want wi_<32 lowercase hex>, got "wi_8887FFC730f707abb82bb7cb7068e914"`},
+		"artifact-id-pattern": {`invalid-id ` + wi + `.id: want wi_<32 lowercase hex>, got "wi_8887FFC730f707abb82bb7cb7068e914"`, unnamedWI},
 		"id-prefix":           {`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "wi_8d0e1c6f026fef7621a0c7b017f12c12"`},
 		"id-length":           {`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "` + bundleID + `0"`},
 		"id-type":             {"invalid-type $.bundle_id: want string"},
@@ -199,6 +248,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 			`invalid-digest ` + wi + `.refs[0].sha256: want 64 lowercase hex SHA-256, got "\x1b[8m"`,
 			`unsupported-schema ` + wi + `.schema: artifact schema "\x1b[2K" is not supported`,
 			`unreadable-artifact ` + bsl + `.path: "\r\u202e" does not resolve to a file inside the bundle directory`,
+			unnamedWI,
 			`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "a\x1b[1A\rresult: ok\u202e"`,
 			`unsupported-job $.jobs[1]: job/version "\x1b[1A" is not supported`,
 			`invalid-revision $.revision: want integer >= 1, got "\x1b[8m"`,
@@ -211,6 +261,31 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"symlink-escape-artifact": {baseline + "does not resolve to a file inside the bundle directory"},
 		"over-size-cap-artifact":  {baseline + "exceeds the 16777216-byte size cap"},
 		"top-level-array":         {notObject}, "top-level-null": {notObject}, "top-level-string": {notObject},
+		"dependency-cycle": {
+			"dependency-cycle " + at(0, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(0) + `" -> "` + wiN(0) + `"`,
+			"dependency-cycle " + at(2, `.dependencies[0].work_item`) + `: Work Items depend in a cycle: "` + wiN(1) + `" -> "` + wiN(2) + `" -> "` + wiN(1) + `"`,
+			"dependency-cycle " + at(5, `.dependencies[1].work_item`) + `: Work Items depend in a cycle: "` + wiN(3) + `" -> "` + wiN(4) + `" -> "` + wiN(5) + `" -> "` + wiN(3) + `"`},
+		"unnamed-consumer": {
+			"unnamed-consumer " + at(0, ".consumers: ENABLER names no consuming Work Item"),
+			"unnamed-consumer " + at(1, ".consumers: ENABLER names no consuming Work Item"),
+			"invalid-type " + at(2, ".consumers: want array"),
+			"unnamed-consumer " + at(2, ".consumers: ENABLER names no consuming Work Item")},
+		"unresolved-work-item": {
+			"unresolved-work-item " + at(0, `.consumers[0]: no Work Item in this bundle has ID "`+wiN(99)+`"`),
+			"invalid-id " + at(0, `.consumers[1]: want wi_<32 lowercase hex>, got "bsl_6e73c229223db574a3c8fa28dd5a1a5a"`),
+			"invalid-type " + at(0, `.consumers[2]: want string`),
+			"unresolved-work-item " + at(0, `.dependencies[0].work_item: no Work Item in this bundle has ID "`+wiN(98)+`"`),
+			"invalid-type " + at(0, `.dependencies[1]: want object`),
+			"missing-field " + at(0, `.dependencies[2].work_item`+missing),
+			"invalid-id " + at(0, `.dependencies[3].work_item: want wi_<32 lowercase hex>, got "wi_\x1b[2K"`)},
+		"invalid-content": {
+			"invalid-content " + at(0, ": want one JSON object with unique keys and exact strings"),
+			"invalid-content " + at(1, ": want one JSON object with unique keys and exact strings"),
+			"missing-field " + at(2, ".kind"+missing),
+			"invalid-kind " + at(3, `.kind: want "SLICE" or "ENABLER", got "slice\x1b[2K"`),
+			"missing-field " + at(4, ".dependencies"+missing),
+			"invalid-type " + at(5, ".dependencies: want array"),
+			"invalid-kind " + at(6, `.kind: want "SLICE" or "ENABLER", got 7`)},
 	} {
 		t.Run(variant, func(t *testing.T) {
 			setup, isHostile := hostile[variant]

@@ -78,15 +78,26 @@ func (c *checker) str(m map[string]any, path, key string) (string, bool) {
 // artifact schema or a reference) accepts any type prefix. It returns the ID,
 // or "" when it is absent or invalid.
 func (c *checker) id(m map[string]any, path, key, prefix string) string {
-	s, ok := c.str(m, path, key)
-	if g := idRE.FindStringSubmatch(s); ok && (g == nil || prefix != "" && g[1] != prefix) {
+	if _, present := m[key]; !present {
+		return ""
+	}
+	return c.idValue(m[key], path+"."+key, prefix)
+}
+
+// idValue is id for the value v at path.
+func (c *checker) idValue(v any, path, prefix string) string {
+	s, ok := v.(string)
+	if g := idRE.FindStringSubmatch(s); !ok {
+		c.add(path, "invalid-type", "want string")
+	} else if g == nil || prefix != "" && g[1] != prefix {
 		if prefix == "" {
 			prefix = "<type>"
 		}
-		c.add(path+"."+key, "invalid-id", "want %s_<32 lowercase hex>, got %s", prefix, Quote(s))
-		return ""
+		c.add(path, "invalid-id", "want %s_<32 lowercase hex>, got %s", prefix, Quote(s))
+	} else {
+		return s
 	}
-	return s
+	return ""
 }
 
 // revision checks a revision, returning it, or "" when it is absent or invalid.
@@ -129,8 +140,9 @@ func (c *checker) ident(m map[string]any, p, prefix string) identity {
 
 // artifact checks one artifacts[] entry at path p, compares the SHA-256 of its
 // file's exact bytes, read through ReadRegular, with the declared digest, and
-// returns the artifact's identity and its references' identities.
-func (c *checker) artifact(root *os.Root, p string, a any) (self identity, refs []identity) {
+// returns the artifact's identity, its references' identities and, for a
+// WorkItem/v1 entry, the Work Item read from its bytes.
+func (c *checker) artifact(root *os.Root, p string, a any) (self identity, refs []identity, item *workItem) {
 	m := c.object(a, p, "id", "revision", "schema", "path", "sha256", "refs")
 	schema, isString := c.str(m, p, "schema")
 	prefix, supported := artifactSchemas[schema]
@@ -142,16 +154,24 @@ func (c *checker) artifact(root *os.Root, p string, a any) (self identity, refs 
 		rp := fmt.Sprintf("%s.refs[%d]", p, i)
 		refs = append(refs, c.ident(c.object(r, rp, "id", "revision", "sha256"), rp, ""))
 	}
+	if schema == "WorkItem/v1" {
+		item = &workItem{path: p, id: self.id}
+	}
 	name, ok := c.str(m, p, "path")
 	if !ok {
-		return self, refs
+		return self, refs, item
 	}
-	if content, reason := ReadRegular(root, name); reason != "" {
+	content, reason := ReadRegular(root, name)
+	if reason != "" {
 		c.add(p+".path", "unreadable-artifact", "%s %s", Quote(name), reason)
+		return self, refs, item
 	} else if got := fmt.Sprintf("%x", sha256.Sum256(content)); self.digest != "" && got != self.digest {
 		c.add(p+".sha256", "digest-mismatch", "declared %s, exact bytes hash to %s", Quote(self.digest), got)
 	}
-	return self, refs
+	if item != nil {
+		*item = c.workItem(p, self.id, content)
+	}
+	return self, refs, item
 }
 
 // closure rejects a repeated artifact ID and resolves each reference by ID,
@@ -220,10 +240,14 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 		}
 	}
 	var artifacts, refs []identity
+	var items []workItem
 	for i, a := range c.list(top, "$", "artifacts") {
-		self, r := c.artifact(root, fmt.Sprintf("$.artifacts[%d]", i), a)
-		artifacts, refs = append(artifacts, self), append(refs, r...)
+		self, r, item := c.artifact(root, fmt.Sprintf("$.artifacts[%d]", i), a)
+		if artifacts, refs = append(artifacts, self), append(refs, r...); item != nil {
+			items = append(items, *item)
+		}
 	}
 	c.closure(artifacts, refs)
+	c.graph(items)
 	return
 }
