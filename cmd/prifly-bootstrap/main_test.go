@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"filippo.io/age"
 
@@ -125,10 +126,16 @@ func TestBootstrapCLI(t *testing.T) {
 		"missing input":            {&provider{id: factory}, []string{"-factory-id", ""}, 2, usage},
 		"positional argument":      {&provider{id: factory}, []string{"extra"}, 2, usage},
 		"unknown flag":             {&provider{id: factory}, []string{"-verbose"}, 2, usage},
+		"zero fetch timeout":       {&provider{id: factory}, []string{"-fetch-timeout", "0s"}, 2, usage},
 	} {
 		t.Run(name, func(t *testing.T) {
 			work, tmp := t.TempDir(), t.TempDir()
 			t.Setenv("TMPDIR", tmp)
+			if leftover := filepath.Join(work, "prifly-secrets-4242"); c.code != 2 { // plaintext a killed run left
+				if os.Mkdir(leftover, 0o700) != nil || os.WriteFile(filepath.Join(leftover, "secrets.json"), []byte(canary), 0o600) != nil {
+					t.Fatal("leftover fixture")
+				}
+			}
 			os.Remove(envLog)
 			args := append([]string{"-repository", url, "-revision", rev, "-factory-id", factory, "-fetch-ssh-auth-sock", sock,
 				"-fetch-known-hosts", knownHosts, "-age-identity-file", identityFile, "-work-dir", work}, c.extra...)
@@ -174,5 +181,38 @@ func TestBootstrapCLI(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestBootstrapCLIFetchDeadline puts in front of the serving ssh a stand-in that never answers. The CLI must
+// block within the deadline with a fixed diagnostic, leave the work directory empty and leave no ssh running.
+func TestBootstrapCLIFetchDeadline(t *testing.T) {
+	url, rev, identityFile, _ := fixture(t)
+	bin, refs, work := t.TempDir(), t.TempDir(), t.TempDir()
+	pidFile, sock, knownHosts := filepath.Join(bin, "ssh-pid"), filepath.Join(refs, "agent.sock"), filepath.Join(refs, "known_hosts")
+	listener, err := net.Listen("unix", sock)
+	if err != nil || os.WriteFile(knownHosts, nil, 0o600) != nil ||
+		os.WriteFile(filepath.Join(bin, "ssh"), []byte("#!/bin/sh\necho $$ > '"+pidFile+"'\nexec sleep 20\n"), 0o700) != nil {
+		t.Fatal("fixture")
+	}
+	t.Cleanup(func() { listener.Close() })
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var stdout, stderr bytes.Buffer
+	start := time.Now()
+	code := run(context.Background(), []string{"-repository", url, "-revision", rev, "-factory-id", factory, "-fetch-ssh-auth-sock", sock,
+		"-fetch-known-hosts", knownHosts, "-age-identity-file", identityFile, "-work-dir", work, "-fetch-timeout", "2s"}, &stdout, &stderr, &provider{id: factory})
+	elapsed, output := time.Since(start), stdout.String()+stderr.String()
+	pid, _ := os.ReadFile(pidFile)
+	if left, _ := os.ReadDir(work); code != 1 || elapsed > 10*time.Second || len(pid) == 0 || len(left) != 0 ||
+		output != "prifly-bootstrap: blocked: "+bootstrap.ErrFetch.Error()+": deadline exceeded\n" {
+		t.Fatalf("exit %d after %v with %d work entries, output %q; ssh stand-in ran: %t", code, elapsed, len(left), output, len(pid) != 0)
+	}
+	for end := time.Now().Add(5 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		stat, err := os.ReadFile("/proc/" + strings.TrimSpace(string(pid)) + "/stat")
+		if fields := strings.Fields(string(stat)); err != nil || len(fields) > 2 && fields[2] == "Z" {
+			break
+		} else if time.Now().After(end) {
+			t.Fatalf("ssh stand-in still running 5s after the CLI returned (state %v)", fields[2:3])
+		}
 	}
 }

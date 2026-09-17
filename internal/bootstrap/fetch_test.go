@@ -132,6 +132,11 @@ func TestFetchRejects(t *testing.T) {
 		"secrets path":      {withManifest(`"secrets_path":"`+SecretsPath, `"secrets_path":"other.age`), factory, ErrManifest},
 		"secret schema":     {withManifest(`"prifly.secrets/v1"`, `""`), factory, ErrManifest},
 		"digest mismatch":   {withManifest(digestHex, strings.Repeat("0", 64)), factory, ErrDigest},
+		// encoding/json alone keeps the last duplicate and matches names case-insensitively, accepting each of these.
+		"duplicate key":           {withManifest(`{`, `{"factory_id":"prifly-canary-factory",`), factory, ErrManifest},
+		"duplicate same value":    {withManifest(`{`, `{"schema":"`+ManifestSchema+`",`), factory, ErrManifest},
+		"case-variant key":        {withManifest(`"factory_id"`, `"Factory_ID"`), factory, ErrManifest},
+		"case-variant dup schema": {withManifest(`{"schema":`, `{"schema":"other/v9","SCHEMA":`), factory, ErrManifest},
 	} {
 		t.Run(name, func(t *testing.T) {
 			url, rev := fixtureRepo(t, c.entries)
@@ -240,5 +245,43 @@ func TestSSHCommandIgnoresAmbientConfig(t *testing.T) {
 		if err != nil || got != "debug1: Reading configuration data /dev/null\nbatchmode yes\nstricthostkeychecking true\nidentityagent "+want[0]+"\nidentityfile none\nglobalknownhostsfile /dev/null\nuserknownhostsfile "+want[1] {
 			t.Fatalf("ssh -G (%v) with references %q resolved:\n%s", err, refs, got)
 		}
+	}
+}
+
+// TestFetchSizeGuards pads each file to exactly its guard, which passes, and one byte over, which fails with
+// ErrTooLarge before git is ever asked for that blob's content.
+func TestFetchSizeGuards(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	bin := t.TempDir()
+	argLog := filepath.Join(bin, "git-args")
+	if err != nil || os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '"+argLog+"'\nexec '"+realGit+"' \"$@\"\n"), 0o700) != nil {
+		t.Fatal("writing git shim")
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for name, c := range map[string]struct {
+		path string
+		over int
+		want error
+	}{
+		"manifest at guard": {ManifestPath, 0, nil}, "manifest over guard": {ManifestPath, 1, ErrTooLarge},
+		"secrets at guard": {SecretsPath, 0, nil}, "secrets over guard": {SecretsPath, 1, ErrTooLarge},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := validEntries()
+			if c.path == ManifestPath {
+				e[0].data += strings.Repeat(" ", MaxManifestBytes-len(manifest)+c.over)
+			} else {
+				e[1].data = strings.Repeat("s", MaxSecretsBytes+c.over)
+				e[0].data = strings.Replace(manifest, digestHex, fmt.Sprintf("%x", sha256.Sum256([]byte(e[1].data))), 1)
+			}
+			url, rev := fixtureRepo(t, e)
+			os.Remove(argLog)
+			v, err := fetch(t, url, rev, factory)
+			args, _ := os.ReadFile(argLog)
+			read := strings.Contains(string(args), "cat-file blob "+rev+":"+c.path+"\n")
+			if !errors.Is(err, c.want) || read != (c.want == nil) || c.want == nil && (v == nil || len(v.Secrets) != len(e[1].data)) {
+				t.Fatalf("err = %v, want %v; blob content read: %t", err, c.want, read)
+			}
+		})
 	}
 }

@@ -17,7 +17,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // Fixed repository layout and manifest schema.
@@ -28,6 +31,14 @@ const (
 	ManifestSchema = "prifly.bootstrap/v1"
 )
 
+// Size guards, checked with git cat-file -s before a blob is read. No planning document fixes a value: these
+// are implementation guards sized to the Recovery Kit contents in docs/explanation/recovery.md, a non-secret
+// manifest of identities, references and coordinates and one encrypted file of structured credentials.
+const (
+	MaxManifestBytes = 64 << 10
+	MaxSecretsBytes  = 1 << 20
+)
+
 // Failure classes. Errors wrap exactly one of these and never carry the
 // repository locator, Git output or file contents.
 var (
@@ -36,6 +47,7 @@ var (
 	ErrTree       = errors.New("bootstrap: revision tree has a disallowed entry")
 	ErrManifest   = errors.New("bootstrap: manifest invalid")
 	ErrDigest     = errors.New("bootstrap: secrets digest does not match manifest")
+	ErrTooLarge   = errors.New("bootstrap: file exceeds its size guard")
 )
 
 // Request names the Recovery Kit inputs for one fetch.
@@ -102,6 +114,10 @@ func validRef(path string, typ os.FileMode) bool {
 func runGit(ctx context.Context, env []string, dir string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append(append([]string{}, hardening...), args...)...)
 	cmd.Dir, cmd.Env, cmd.Stderr = dir, env, io.Discard
+	// Cancellation kills git's whole process group, so an ssh or upload-pack child cannot outlive it or hold
+	// the output pipe open; WaitDelay bounds the wait if a descendant left the group.
+	cmd.SysProcAttr, cmd.WaitDelay = &syscall.SysProcAttr{Setpgid: true}, time.Second
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	return cmd.Output()
 }
 
@@ -139,10 +155,13 @@ func Fetch(ctx context.Context, req Request, workDir string) (*Verified, error) 
 	} else if err := checkTree(tree); err != nil {
 		return nil, err
 	}
-	manifestBytes, err1 := git("cat-file", "blob", req.Revision+":"+ManifestPath)
-	secrets, err2 := git("cat-file", "blob", req.Revision+":"+SecretsPath)
-	if err1 != nil || err2 != nil {
-		return nil, fmt.Errorf("%w: file unreadable", ErrFetch)
+	manifestBytes, err := readBlob(git, req.Revision, ManifestPath, MaxManifestBytes)
+	if err != nil {
+		return nil, err
+	}
+	secrets, err := readBlob(git, req.Revision, SecretsPath, MaxSecretsBytes)
+	if err != nil {
+		return nil, err
 	}
 	m, err := parseManifest(manifestBytes, req.FactoryID)
 	if err != nil {
@@ -153,6 +172,23 @@ func Fetch(ctx context.Context, req Request, workDir string) (*Verified, error) 
 		return nil, ErrDigest
 	}
 	return &Verified{Revision: req.Revision, Manifest: m, Secrets: secrets}, nil
+}
+
+// readBlob reads rev:path only after git reports its size as at most limit bytes.
+func readBlob(git func(...string) ([]byte, error), rev, path string, limit int64) ([]byte, error) {
+	out, err := git("cat-file", "-s", rev+":"+path)
+	size, perr := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil || perr != nil {
+		return nil, fmt.Errorf("%w: file unreadable", ErrFetch)
+	}
+	if size > limit {
+		return nil, fmt.Errorf("%w: %s", ErrTooLarge, path)
+	}
+	data, err := git("cat-file", "blob", rev+":"+path)
+	if err != nil || int64(len(data)) != size {
+		return nil, fmt.Errorf("%w: file unreadable", ErrFetch)
+	}
+	return data, nil
 }
 
 // checkTree admits only the three top-level regular, non-executable files of
@@ -175,12 +211,15 @@ func checkTree(listing []byte) error {
 	return nil
 }
 
+// manifestKeys are the member names parseManifest accepts, spelled exactly (see secretKeys).
+var manifestKeys = map[string]bool{"schema": true, "factory_id": true, "secrets_path": true, "secrets_sha256": true, "secret_schema": true}
+
 func parseManifest(data []byte, factoryID string) (Manifest, error) {
 	var m Manifest
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&m); err != nil || dec.Decode(&struct{}{}) != io.EOF {
-		return Manifest{}, fmt.Errorf("%w: not exactly one object of known fields", ErrManifest)
+	if strictMembers(json.NewDecoder(bytes.NewReader(data)), manifestKeys) != nil || dec.Decode(&m) != nil || dec.Decode(&struct{}{}) != io.EOF {
+		return Manifest{}, fmt.Errorf("%w: not exactly one object of known, unique, exactly spelled fields", ErrManifest)
 	}
 	switch {
 	case m.Schema != ManifestSchema:
