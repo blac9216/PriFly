@@ -78,10 +78,19 @@ CONTEXT.md at repo root · domain model: docs/explanation/domain-model.md
 
 ## CI
 
-`check-pointers.sh`, `adr-index.sh --check`, the mechanical design-doc audit, and
-repository-relative Markdown link/fragment validation run in:
+After checkout, the `design-docs` job runs these eight steps, in this order, in:
 .github/workflows/docs-checks.yml (always-report)
-Scripts source: scripts/docs/
+
+1. `check-pointers.sh` — rationale-index pointers resolve.
+2. `adr-index.sh --check` — the ADR index matches the ADR files.
+3. `audit.sh` — the mechanical design-doc audit.
+4. `check-links.sh` — repository-relative Markdown links and fragments resolve.
+5. `test-check-links.sh` — link-checker regression tests.
+6. `check-go-digest.sh` — the register's Go toolchain row matches `GO_ARCHIVE_SHA256`.
+7. `test-check-go-digest.sh` — Go digest checker regression tests.
+8. `scripts/process/test-check-readiness.sh` — readiness-checker regression tests.
+
+Scripts source: scripts/docs/ (step 8: scripts/process/)
 
 Mechanical checks do not establish semantic quality, product qualification or owner authority.
 Applicable pinned quality profiles, exact source traceability and independent scenario review
