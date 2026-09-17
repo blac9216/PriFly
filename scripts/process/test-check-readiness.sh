@@ -488,8 +488,8 @@ checkbox_case quote-item-lazy "$ac_h" $'> - a\n    - [ ] Q1\n' \
 # tab after "-" reaches column 4.
 checkbox_case break-dash "$ac_h" $'- - -\n  ```text\n- [ ] Q1\n   ```\n' \
   'checkbox inside a fence after a - - - thematic break fails'
-checkbox_case heading-7 "$ac_h" $'Then:\n####### x\n2. ```text\n    ```\n   - [ ] Q1\n' \
-  'checkbox after a 2. ```text line continuing a ####### paragraph line passes' 0
+checkbox_case heading-7 "$ac_h" $'Then:\n####### x\n2. ```text\n   ```\n   - [ ] Q1\n   ```\n' \
+  'checkbox inside a fence opened after a ####### paragraph line and a 2. ```text line fails'
 after_para underscore '___' 'checkbox under a 2. ```text step after a ___ thematic break passes'
 after_para setext-dash '--' 'checkbox under a 2. ```text step after a -- setext underline passes'
 after_para heading-empty '#' 'checkbox under a 2. ```text step after an empty # heading passes'
