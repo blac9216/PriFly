@@ -91,8 +91,8 @@ fits() {  # HELD_B HELD_W HELD_R: the reservation RB RW RR beside a held ticket 
   ((PB + UB + RB + $1 <= EB && PR + UR + RR + $3 <= ER)) || { REASON=envelope; return 1; }
   ((QB + RB + $1 <= GB && QW + RW + $2 <= GW && QR + RR + $3 <= GR)) || { REASON=grant-headroom; return 1; }
 }
-publish() {  # N PAYLOAD_BYTES: lane entry KIND at sequence SEQ, debiting reservation RB RW RR before any send
-  now; CLK=([ticket]=$NOW) LB=$RB LW=$RW LR=$RR PART="" TXID=""
+publish() {  # N PAYLOAD_BYTES: entry KIND at sequence SEQ, ticketed at the NOW its checks read; debits RB RW RR before sending
+  CLK=([ticket]=$NOW) LB=$RB LW=$RW LR=$RR PART="" TXID=""
   QB=$((QB + RB)) QW=$((QW + RW)) QR=$((QR + RR)) UB=$((UB + RB)) UR=$((UR + RR)); ledger
   [[ $KIND == renewal ]] || step "payloadSha256 payloadBytes" artifact "$run" "$1" "$KIND" "$2" || return 1
   timed commit "before after dbBytes" "$1" && timed sync "txid lineage" || return 1
