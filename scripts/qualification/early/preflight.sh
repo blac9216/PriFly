@@ -25,12 +25,14 @@
 # of 64 hex digits (the R2 secret access key shape; this also rejects a sha256 digest used
 # as a reference) and any 32+ character run of [A-Za-z0-9+/=_-] mixing upper case, lower
 # case and digits. In a value that starts as a location (scheme:// URL, op:// style vault
-# reference, or /absolute/path) a run without + or = is split at /, and then a piece of
-# 32+ [A-Za-z0-9_-] or 16+ [A-Za-z0-9] mixing all three is flagged; a run holding + or =
-# stays whole as base64. It misses shorter or single-case secrets, ones split by other
-# punctuation, and base64 inside a location that has no + or = and splits at / into
-# shorter pieces. It fails closed on some legitimate references (e.g. host:rk-01, or a
-# location whose query mixes = with a long mixed-case path).
+# reference, or /absolute/path) a run is checked whole when it holds + or = (base64) or a
+# 16+ [A-Za-z0-9] stretch mixing upper and lower case; any other run is split at / and
+# only its 32+ pieces are checked. It misses shorter or single-case secrets and ones split
+# by other punctuation. In a location it also misses a secret whose 16+ alphanumeric
+# stretches (between / _ -) are all single-case or absent and whose / pieces of 32+ lack a
+# class, e.g. base64 broken by / into pieces under 16, or a 32-hex R2 access key id under
+# op://Vault/Item/. It fails closed on some legitimate references (e.g. host:rk-01, a
+# location with a 16+ mixed-case name beside a digit, or a query mixing = with a path).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -161,8 +163,9 @@ def check(s, v, path, out):
 def looks(x):
     runs = re.findall(r'[A-Za-z0-9+/=_-]{32,}', x)
     if re.match(r'(?:[A-Za-z][A-Za-z0-9+.-]*:/)?/', x):
-        runs = [p for r in runs for p in ([r] if re.search('[+=]', r) else
-                                          re.findall(r'[A-Za-z0-9_-]{32,}', r) + re.findall(r'[A-Za-z0-9]{16,}', r))]
+        runs = [p for r in runs for p in ([r] if re.search('[+=]', r) or any(
+            re.search('[a-z]', q) and re.search('[A-Z]', q) for q in re.findall(r'[A-Za-z0-9]{16,}', r))
+                                          else re.findall(r'[A-Za-z0-9_-]{32,}', r))]
     return bool(SECRET.search(x) or any(all(re.search(c, r) for c in ('[a-z]', '[A-Z]', '[0-9]')) for r in runs))
 
 def seg(path, k):
