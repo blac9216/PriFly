@@ -174,7 +174,7 @@ func TestDecodeJSON(t *testing.T) {
 		"invalid-utf8":        {"[\"\xff\xfe\"]", false, ""},
 		"encoded-surrogate":   {"[\"\xed\xa0\x80\"]", false, ""},
 		"lone-high-surrogate": {`["a\ud800"]`, false, ""},
-		"lone-low-surrogate":  {`["\udc00\ud800"]`, false, ""},
+		"lone-low-surrogate":  {`["\udc00a"]`, false, ""},
 		"surrogate-pair":      {`["\ud83d\ude00"]`, true, `"\U0001f600"`},
 		"escaped-backslash-u": {`["\\ud800"]`, true, `"\\ud800"`},
 		"duplicate-key":       {`[{"a": 1, "a": 1}]`, false, ""},
