@@ -260,10 +260,14 @@ list/license/vulnerability dispositions and no mutable tools/containers"
 ([D3 verification](https://github.com/blac9216/PriFly/issues/38#issuecomment-5701521439)).
 The pins themselves live in `go.mod` and `.github/workflows/`; this section records how exactly
 those pins are dispositioned and is valid only for the identities it names. Facts were read on
-16 September 2026 against source commit `d94090a8991ec0570df9d5bc412a096cc4cbc7f5`. The Go
-toolchain row, the Actions row, S53, S57, S59 and the CI toolchain paragraph were re-read and
-S58 was marked historical on 17 September 2026 for
-[#170](https://github.com/blac9216/PriFly/issues/170), which replaced `actions/setup-go` in CI.
+16 September 2026 against source commit `d94090a8991ec0570df9d5bc412a096cc4cbc7f5`. On
+17 September 2026, for [#170](https://github.com/blac9216/PriFly/issues/170), which replaced
+`actions/setup-go` in CI, the Go toolchain row, the Actions row, S53, S57 and the CI toolchain
+paragraph were re-read, S59 was added, S58 was marked historical, and the "Outside this
+inventory" paragraph and update-policy rule 1 were changed. Later on 17 September 2026, for
+[#165](https://github.com/blac9216/PriFly/issues/165), S60 to S63 and the CI and host tool
+inventory were added against source commit `8a021e9644a1137eb1c30af8de15df124b3f8de6`, and the
+Actions row, the "Outside this inventory" paragraph and update-policy rule 1 were changed again.
 A license identifier is the cited official source's classification, not legal advice. A fact
 that was not verified is `UNKNOWN`.
 
@@ -288,24 +292,52 @@ that was not verified is `UNKNOWN`.
 ### source-s59
 **S59 — CI Go toolchain install step.** The `Install pinned Go toolchain (verify SHA-256, then extract)` step of the `go` job in `.github/workflows/go-checks.yml`, added by [#170](https://github.com/blac9216/PriFly/issues/170), and the `go` job log of [go-checks run 35165818590](https://github.com/blac9216/PriFly/actions/runs/35165818590), read 17 September 2026. The step fails unless the runner reports `Linux-x86_64` and `GO_ARCHIVE` matches the `go` directive in `go.mod`. It downloads `https://go.dev/dl/` plus `GO_ARCHIVE` over HTTPS only, including redirects, checks that file with `sha256sum -c` against `GO_ARCHIVE_SHA256`, and only then extracts the same file and puts its `go/bin` first on `PATH`. That run tested an earlier head of PR #171 whose install step, `run` block and `env` values included, is identical to the merged one. Its log reads "go1.27.1.linux-amd64.tar.gz: OK", and the next step's `go version` reads "go version go1.27.1 linux/amd64" from the extracted `go/bin`.
 
+### source-s60
+**S60 — CI runner image observed by the bootstrap checks.** The `Set up job` logs of the `design-docs` job of [docs-checks run 35168447818](https://github.com/blac9216/PriFly/actions/runs/35168447818/job/105034709829) and the `go` job of [go-checks run 35168447780](https://github.com/blac9216/PriFly/actions/runs/35168447780/job/105034709702), both for commit `8a021e9644a1137eb1c30af8de15df124b3f8de6` on `main`; the image's [software list at tag `ubuntu24/20260907.300`](https://github.com/actions/runner-images/blob/ubuntu24/20260907.300/images/ubuntu/Ubuntu2404-Readme.md), which both logs name as "Included Software"; its [toolset at that tag](https://github.com/actions/runner-images/blob/ubuntu24/20260907.300/images/ubuntu/toolsets/toolset-2404.json); and the `actions/runner-images` license, classified MIT by the GitHub license API. Read 17 September 2026. Both logs read "Image: ubuntu-24.04" and "Version: 20260907.300.1", and "Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)". Every `run` step logs "shell: /usr/bin/bash -e {0}". The software list reads "Bash 5.2.21(1)-release" and "Python 3.12.3", and its apt package table lists `coreutils` `9.4-3ubuntu6.3`, `curl` `8.5.0-2ubuntu10.13` and `tar` `1.35+dfsg-3ubuntu0.4`. Neither the software list nor the toolset names an `awk` package. The image a later run receives is whatever `ubuntu-latest` resolves to then.
+
+### source-s61
+**S61 — Ubuntu 24.04 package records for the runner-image tools.** The Launchpad API's published sources in the Ubuntu `noble` primary archive for `bash`, `coreutils`, `curl`, `mawk`, `python3.12` and `tar`; the Debian copyright files of [`bash` 5.2.21-2ubuntu4](https://changelogs.ubuntu.com/changelogs/pool/main/b/bash/bash_5.2.21-2ubuntu4/copyright), [`coreutils` 9.4-3ubuntu6.3](https://changelogs.ubuntu.com/changelogs/pool/main/c/coreutils/coreutils_9.4-3ubuntu6.3/copyright), [`curl` 8.5.0-2ubuntu10.13](https://changelogs.ubuntu.com/changelogs/pool/main/c/curl/curl_8.5.0-2ubuntu10.13/copyright), [`tar` 1.35+dfsg-3ubuntu0.4](https://changelogs.ubuntu.com/changelogs/pool/main/t/tar/tar_1.35+dfsg-3ubuntu0.4/copyright) and [`mawk` 1.3.4.20240123-1build1](https://changelogs.ubuntu.com/changelogs/pool/main/m/mawk/mawk_1.3.4.20240123-1build1/copyright); and the [Python 3.12 license page](https://docs.python.org/3.12/license.html). Read 17 September 2026. The `noble` Security pocket publishes `coreutils` 9.4-3ubuntu6.3 (31 August 2026), `curl` 8.5.0-2ubuntu10.13 (24 August 2026), `tar` 1.35+dfsg-3ubuntu0.4 (22 July 2026) and `python3.12` 3.12.3-1ubuntu0.17 (10 September 2026); `bash` 5.2.21-2ubuntu4 and `mawk` 1.3.4.20240123-1build1 are published only in the Release pocket. The copyright files' main `Files: *` licenses are GPL-3+ for `bash`, `coreutils` and `tar`, `curl` for `curl` and GPL-2.0-only for `mawk`; the Python page names the "Python Software Foundation License Version 2". A matching Security-pocket version means no newer Ubuntu security update was published for that package at the read date; it is not a CVE scan.
+
+### source-s62
+**S62 — gitleaks v8.30.1.** The [release tag `v8.30.1`](https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1), which resolves to commit `83d9cd684c87d95d656c1458ef04895a7f1cbd8e`; its [`go.mod`](https://github.com/gitleaks/gitleaks/blob/v8.30.1/go.mod), which names module `github.com/zricethezav/gitleaks/v8`; the repository license, classified MIT by the GitHub license API; the repository's published security advisories; and the [GitHub Advisory Database](https://github.com/advisories) queried for that module in the `go` ecosystem. Read 17 September 2026. Both advisory reads returned no entries. `gitleaks version` on the machine that produced this change's evidence printed `8.30.1`. gitleaks runs only as the local sanitize scan in [testing.md](../process/testing.md); no workflow runs it.
+
+### source-s63
+**S63 — Advisory reads for `actions/checkout`.** The tag [`v7.0.1`](https://github.com/actions/checkout/releases/tag/v7.0.1), which resolves to commit `3d3c42e5aac5ba805825da76410c181273ba90b1`, the commit `.github/workflows/` pins; the repository's published security advisories; and the [GitHub Advisory Database](https://github.com/advisories) queried for `actions/checkout` in the `actions` ecosystem. Read 17 September 2026. Both advisory reads returned no entries.
+
 ### Current dependency inventory
 
 | Component | Exact identity | Pinned by | License | Vulnerability disposition |
 |---|---|---|---|---|
-| Go toolchain and standard library — CI (`go-checks.yml`) and local Go suite | `go1.27.1`; `go1.27.1.linux-amd64.tar.gz` from go.dev, SHA-256 `63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445` ([S53](#source-s53)), checked locally with `sha256sum -c` on the read date. This row restates the digest as the identity it dispositions; the pin is `GO_ARCHIVE_SHA256` in `go-checks.yml`, and if the two differ the workflow is what runs and this row is stale. Other platform archives' digests: `UNKNOWN`, not recorded. | Version: `go` directive in `go.mod`; `GOTOOLCHAIN=local`. Archive: `GO_ARCHIVE` and `GO_ARCHIVE_SHA256` on the `go` job's install step. **Verified in CI**: that step checks the download with `sha256sum -c` before extracting it, and fails on a digest mismatch or on a `GO_ARCHIVE` that does not match `go.mod` ([S59](#source-s59)). The [testing.md](../process/testing.md) recipe reads both values from the workflow and checks its download the same way. | BSD-3-Clause ([S53](#source-s53)); BoringCrypto note below | No known vulnerability found; see below |
+| Go toolchain and standard library — CI (`go-checks.yml`) and local Go suite | `go1.27.1`; `go1.27.1.linux-amd64.tar.gz` from go.dev, SHA-256 `63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445` ([S53](#source-s53)), checked locally with `sha256sum -c` on the read date. This row restates the digest as the identity it dispositions; the pin is `GO_ARCHIVE_SHA256` in `go-checks.yml`, and if the two differ the workflow is what runs, this row is stale and `scripts/docs/check-go-digest.sh` fails the documentation suite. Other platform archives' digests: `UNKNOWN`, not recorded. | Version: `go` directive in `go.mod`; `GOTOOLCHAIN=local`. Archive: `GO_ARCHIVE` and `GO_ARCHIVE_SHA256` on the `go` job's install step. **Verified in CI**: that step checks the download with `sha256sum -c` before extracting it, and fails on a digest mismatch or on a `GO_ARCHIVE` that does not match `go.mod` ([S59](#source-s59)). The [testing.md](../process/testing.md) recipe reads both values from the workflow and checks its download the same way. | BSD-3-Clause ([S53](#source-s53)); BoringCrypto note below | No known vulnerability found; see below |
 | Third-party Go modules | None. `go list -m all` lists only `github.com/blac9216/PriFly`; `go.mod` has no `require` and no `go.sum` exists. | `go.mod`; `GOFLAGS=-mod=readonly` | Not applicable | Not applicable |
-| `actions/checkout` (CI only; not in the build output) | Full commit SHA on the `uses:` lines of `.github/workflows/` | Those `uses:` lines | MIT ([S57](#source-s57)) | `UNKNOWN`; govulncheck does not scan Actions and no other disposition is recorded |
+| `actions/checkout` (CI only; not in the build output) | Commit `3d3c42e5aac5ba805825da76410c181273ba90b1` (tag `v7.0.1`, [S63](#source-s63)) on the `uses:` lines of `.github/workflows/`; both CI jobs log downloading that SHA ([S60](#source-s60)) | Those `uses:` lines | MIT ([S57](#source-s57)) | No known vulnerability found: no advisory in the GitHub Advisory Database or the repository at the read date ([S63](#source-s63)). govulncheck does not scan Actions. Point-in-time; re-read on any pin change (rule 3) |
 
 BoringCrypto note: pkg.go.dev classifies `src/crypto/internal/boring/LICENSE` in go1.27.1 as
 BSD-3-Clause, ISC, OpenSSL. That file says "When building with GOEXPERIMENT=boringcrypto, the
 following applies." No committed build or workflow sets `GOEXPERIMENT`.
 
-Outside this inventory: host and CI tools that are not in the module's build closure — the
-mutable `ubuntu-latest` runner image (its disposition is the header comment of
-`.github/workflows/go-checks.yml`), which also supplies the `curl`, `sha256sum`, `tar` and
-`awk` that the CI toolchain install step runs, and `gitleaks`, Python 3 and Bash used by the
-documentation checks. Their inventory and dispositions are `UNKNOWN` here
-([#165](https://github.com/blac9216/PriFly/issues/165)). The govulncheck tool is identified below.
+Outside this inventory: host and CI tools that are not in the module's build closure. The
+bootstrap checks (the documentation suite, the sanitize scan and the `go` job) run them, and
+the next table records their identity, license and vulnerability disposition
+([#165](https://github.com/blac9216/PriFly/issues/165)). They are not the release subject:
+V13's "no mutable tools/containers" condition for the release build is owned by U04
+([#105](https://github.com/blac9216/PriFly/issues/105)), where CI emits the tool manifest and
+SBOM from the exact candidate. Nothing here claims V13 is met. The govulncheck tool is identified
+below.
+
+| Tool | Exact identity (observed) | Mutable? | License | Vulnerability disposition |
+|---|---|---|---|---|
+| `ubuntu-latest` runner image (`docs-checks.yml`, `go-checks.yml`) | Image `ubuntu-24.04`, version `20260907.300.1`, in both jobs' logs at `8a021e9` ([S60](#source-s60)) | Yes. The label is not pinned and a later run may report another version. The version is the one observed, not a pin. | MIT for the `actions/runner-images` definitions ([S60](#source-s60)); the tools it supplies carry their own licenses (rows below) | Not scanned by this repository. Residual risk accepted for bootstrap checks: the jobs have `contents: read`, keep no checkout credentials, reference no repository secrets and publish no artifact, and the one executable they download, the Go archive, is checked by digest first. **Owner of V13's no-mutable-tools condition for the release build: U04 ([#105](https://github.com/blac9216/PriFly/issues/105)).** V13 is not claimed met. |
+| Bash (every `run` step; the documentation scripts) | `Bash 5.2.21(1)-release` in the image's software list; steps log `/usr/bin/bash -e {0}` ([S60](#source-s60)). Ubuntu `bash` 5.2.21-2ubuntu4 is the only `noble` publication ([S61](#source-s61)) | Yes, with the image | GPL-3.0-or-later ([S61](#source-s61)) | No Ubuntu security update exists for `bash` in `noble` at the read date ([S61](#source-s61)); not a CVE scan. Residual risk accepted with the image row; release build: [#105](https://github.com/blac9216/PriFly/issues/105) |
+| Python 3 (`check-links.sh`, readiness tests) | `Python 3.12.3` in the image's software list ([S60](#source-s60)). The Ubuntu package revision is `UNKNOWN`: the list does not give it; owner for the release build [#105](https://github.com/blac9216/PriFly/issues/105) | Yes, with the image | PSF-2.0 ([S61](#source-s61)) | Not established. `python3.12` 3.12.3-1ubuntu0.17 was published to `noble` Security on 10 September 2026, after the image version's date, and whether the image carries it is not observed ([S61](#source-s61)). Residual risk accepted for bootstrap checks: the scripts read only repository files; release build: [#105](https://github.com/blac9216/PriFly/issues/105) |
+| `curl` (`go` job install step) | Ubuntu `curl` 8.5.0-2ubuntu10.13 in the image's package table ([S60](#source-s60)) | Yes, with the image | curl ([S61](#source-s61)) | Same version as the latest `noble` Security publication at the read date ([S61](#source-s61)); not a CVE scan. What it downloads is checked by `sha256sum -c` before use. Residual risk accepted with the image row |
+| `sha256sum` (`go` job install step) | Ubuntu `coreutils` 9.4-3ubuntu6.3 in the image's package table ([S60](#source-s60)) | Yes, with the image | GPL-3.0-or-later ([S61](#source-s61)) | Same version as the latest `noble` Security publication at the read date ([S61](#source-s61)); not a CVE scan. Residual risk accepted with the image row |
+| `tar` (`go` job install step) | Ubuntu `tar` 1.35+dfsg-3ubuntu0.4 in the image's package table ([S60](#source-s60)) | Yes, with the image | GPL-3.0-or-later ([S61](#source-s61)) | Same version as the latest `noble` Security publication at the read date ([S61](#source-s61)); not a CVE scan. It extracts only the digest-checked archive. Residual risk accepted with the image row |
+| `awk` (`go` job install step) | `UNKNOWN`: neither the image's software list nor its toolset names an `awk` package ([S60](#source-s60)). Ubuntu `noble` publishes `mawk` 1.3.4.20240123-1build1 ([S61](#source-s61)); that it is the image's `awk` is not observed. Owner for the release build: [#105](https://github.com/blac9216/PriFly/issues/105) | Yes, with the image | `UNKNOWN` with the identity; `mawk` 1.3.4.20240123-1build1 is GPL-2.0-only ([S61](#source-s61)) | Not established. Residual risk accepted for bootstrap checks: `awk` only reads the `go` directive for a comparison that fails the step on a mismatch |
+| `gitleaks` (local sanitize scan only) | `8.30.1` as printed by `gitleaks version` on the machine that produced this change's evidence; upstream tag `v8.30.1` is commit `83d9cd684c87d95d656c1458ef04895a7f1cbd8e` ([S62](#source-s62)). The installed binary's digest and origin are not recorded | Yes. Each contributor's machine supplies its own binary; no workflow runs gitleaks | MIT ([S62](#source-s62)) | No advisory for `github.com/zricethezav/gitleaks/v8` in the GitHub Advisory Database or the repository at the read date ([S62](#source-s62)). The Go dependencies and toolchain compiled into a binary are not scanned. Residual risk accepted: a read-only local scan, not in CI or the release build |
+
+Other standard tools the documentation scripts call, such as `grep` and `sed`, and the `git` the checkout runs (`git version
+2.55.0` in both logs), come from the same image and share the runner image row's disposition.
 
 CI toolchain: since [#170](https://github.com/blac9216/PriFly/issues/170), CI installs the
 go.dev archive the Go toolchain row names and checks its pinned digest before extracting it,
@@ -366,8 +398,10 @@ This policy restates the governing rules; it adds no threshold.
    "Rolling pages must not replace pinned release manifests automatically". `GOTOOLCHAIN=local`
    and `GOFLAGS=-mod=readonly` keep a build from switching toolchains or rewriting
    `go.mod`/`go.sum`. The CI toolchain archive is pinned by digest (the Go toolchain row above,
-   [#170](https://github.com/blac9216/PriFly/issues/170)); the `ubuntu-latest` runner image stays
-   outside this inventory (above).
+   [#170](https://github.com/blac9216/PriFly/issues/170)). The `ubuntu-latest` runner image and the
+   tools it supplies are not pinned; the CI and host tool table above records the identity each
+   run observed and its residual-risk disposition, and U04
+   ([#105](https://github.com/blac9216/PriFly/issues/105)) owns this rule for the release build.
 2. **No silent in-attempt update.** V13: "required maintenance gets a new manifest and smoke
    qualification rather than silent in-attempt update". The DP4
    [operating contract](https://github.com/blac9216/PriFly/issues/38#issuecomment-5702104540):

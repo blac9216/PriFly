@@ -21,11 +21,13 @@ the repository root, plus the Go suite that follows it:
 | Mechanical audit | `bash scripts/docs/audit.sh --root . --out <scratch-path>/gap.md` | Repository checkout; writes an ephemeral gap report outside the repository tree — never commit it. |
 | Markdown links/fragments | `bash scripts/docs/check-links.sh --root .` | Repository checkout; Python 3. |
 | Link-checker regression tests | `bash scripts/docs/test-check-links.sh` | Repository checkout; Python 3. |
+| Go archive digest agreement | `bash scripts/docs/check-go-digest.sh --root .` | Repository checkout; Bash, standard Unix tools. Fails unless the Go toolchain row of the dependency inventory restates exactly `GO_ARCHIVE_SHA256` from `go-checks.yml`; a missing, repeated or malformed value in either file fails. |
+| Go digest checker regression tests | `bash scripts/docs/test-check-go-digest.sh` | Repository checkout; Bash, standard Unix tools; mutates only scratch copies of the two files. |
 | Readiness-checker regression tests | `bash scripts/process/test-check-readiness.sh` | Repository checkout; Bash, Python 3. |
 | Sanitize scan | `gitleaks detect --source . --no-banner` | Repository checkout; `gitleaks` binary on `PATH`. Run before every push — this repository is **public**. |
 | Integration | No command exists until a runnable integration surface lands. | Not configured. |
 
-These are exactly the six `docs-checks.yml` steps plus the sanitize scan; a manifest's
+These are exactly the eight `docs-checks.yml` steps plus the sanitize scan; a manifest's
 **Command** field lists these (and the Go suite below, if Go changed) in the order the
 log actually ran them.
 
@@ -55,7 +57,8 @@ put `<scratch-path>/go/bin` first on `PATH` and export `GOTOOLCHAIN=local` and
 `GOFLAGS=-mod=readonly`. The recipe checks the pinned digest, not a live read of the
 go.dev index. No digest is pinned for any other OS or architecture. The Go toolchain row
 of the dependency inventory in [source-register.md](../reference/source-register.md)
-restates both values as the identity it dispositions; the workflow is the source of truth.
+restates both values as the identity it dispositions; the workflow is the source of truth,
+and `check-go-digest.sh` above fails the documentation suite if the row's digest differs.
 To bump Go, change `go.mod`, `GO_ARCHIVE`, `GO_ARCHIVE_SHA256` and that inventory row in
 one change, taking the new digest from `https://go.dev/dl/?mode=json&include=all`.
 
