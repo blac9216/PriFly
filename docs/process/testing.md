@@ -30,7 +30,7 @@ the repository root, plus the Go suite that follows it:
 | Go digest checker regression tests | `bash scripts/docs/test-check-go-digest.sh` | Repository checkout; Bash, standard Unix tools; mutates only scratch copies of the two files. |
 | Readiness-checker regression tests | `bash scripts/process/test-check-readiness.sh` | Repository checkout; Bash, Python 3. |
 | Early-probe preflight self-test | `bash scripts/qualification/early/test-preflight.sh` | Repository checkout; Bash, Python 3; no network. Cases plus a mutant pass over scratch copies of `preflight.sh` and its schema under `${TMPDIR:-/tmp}`. |
-| Workflow/documentation agreement | `bash scripts/docs/check-ci-agreement.sh --root .` | Repository checkout; Bash, Python 3. Fails unless every step of `docs-checks.yml` and `go-checks.yml` pairs, in order, with its Commands-table row here or appears on the checker's own written exemption list, unless each paired step runs unconditionally and blocks on failure, and unless `doc-manifest.md`'s `## CI` list and its spelled-out count match this job's steps. |
+| Workflow/documentation agreement | `bash scripts/docs/check-ci-agreement.sh --root .` | Repository checkout; Bash, Python 3. Fails unless every step of `docs-checks.yml` and `go-checks.yml` pairs, in order, with its Commands-table row here or appears on the checker's own written exemption list, unless no paired step carries an `if:`, `continue-on-error:` or `env:` key of its own, and unless `doc-manifest.md`'s `## CI` list and its spelled-out count match this job's steps. |
 | Agreement checker regression tests | `bash scripts/docs/test-check-ci-agreement.sh` | Repository checkout; Bash, Python 3; mutates only scratch copies of the four files it reads and of the checker itself. |
 | Sanitize scan | `gitleaks detect --source . --no-banner` | Repository checkout; `gitleaks` binary on `PATH`. Run before every push — this repository is **public**. |
 | Integration | No command exists until a runnable integration surface lands. | Not configured. |
@@ -165,12 +165,13 @@ each workflow step with its row in the Commands tables above, in order, and fail
 step or row that is neither paired nor on its written exemption list. The boundary
 between the two tables the `go` job pairs against is order-bearing too, so a row moved
 from the Go suite table into the qualification table fails even though the two tables
-read in sequence are unchanged. A paired step is more than its `run:` line: a step given
-a condition, made non-blocking, or given an `env:` block fails, because these tables
-assert that every paired step runs and blocks, and nothing else in the repository reads
-those keys. The checker's header records the exemption list, the rows allowed to
-document a `<placeholder>`, the steps whose condition the documents cover, the first
-step of each table, and the three classes of normalisation it applies between a table
-cell and a `run:` line; each of those lists is load-bearing in both directions, so none
-can decay into a way of waving a step through. It fails rather than skipping when it
+read in sequence are unchanged. A paired step is more than its `run:` line: a step that
+carries an `if:`, a `continue-on-error:` or an `env:` key of its own fails, because these
+tables assert that every paired step runs and blocks, and nothing else in the repository
+reads those keys. The checker reads a step's own keys, not its job's. The checker's
+header records the exemption list, the rows allowed to document a `<placeholder>`, the
+steps whose condition the documents cover, the first step of each table, and the three
+classes of normalisation it applies between a table cell and a `run:` line; each of
+those lists is load-bearing in both directions, so none can decay into a way of waving a
+step through. It fails rather than skipping when it
 meets a cell, a step or a step attribute it cannot normalise.
