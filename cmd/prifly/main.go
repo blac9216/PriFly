@@ -1,5 +1,5 @@
 // Command prifly is the PriFly owner/operator CLI. This initial cut supports
-// only "version"; any other input, including no arguments, fails clearly
+// "version" and "bundle inspect"; any other input, including no arguments, fails clearly
 // with a non-zero exit and usage text rather than a silent no-op.
 package main
 
@@ -14,7 +14,8 @@ import (
 const usage = `Usage: prifly <command>
 
 Commands:
-  version    Print the subject identity (version, commit, schema) for this build.
+  version                      Print the subject identity (version, commit, schema) for this build.
+  bundle inspect <bundle-dir>  Validate a local external planning bundle; stages or starts nothing.
 `
 
 func main() {
@@ -33,6 +34,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stdout, buildinfo.Current().String())
 		return 0
+	}
+
+	if len(args) >= 1 && args[0] == "bundle" {
+		return runBundle(args[1:], stdout, stderr)
 	}
 
 	cmd := "<none>"
