@@ -31,13 +31,16 @@ open(path, 'w', encoding='utf-8').write(text.replace(old, new))
 PY
 }
 
-# run_case NAME EXPECTED_EXIT EXPECTED_LINE ARGS...: stdin comes from $CASE_STDIN if set.
+# run_case NAME EXPECTED_EXIT EXPECTED_LINE ARGS...: stdin comes from $CASE_STDIN if set;
+# if $CASE_ABSENT is set, no output line may contain it (#168: no cascading MISSING lines).
 run_case() {
   local name="$1" expected="$2" line="$3"; shift 3
-  local observed=0
+  local observed=0 absent="${CASE_ABSENT:-}"
   bash "$SCRIPT_DIR/check-readiness.sh" "$@" <"${CASE_STDIN:-/dev/null}" \
     >"$fixture_root/output" 2>&1 || observed=$?
-  if [[ "$observed" != "$expected" ]] || ! grep -qF -- "$line" "$fixture_root/output"; then
+  if [[ "$observed" != "$expected" ]] || ! grep -qF -- "$line" "$fixture_root/output" \
+    || { [[ -n "$absent" ]] && grep -qF -- "$absent" "$fixture_root/output"; }; then
+    [[ -z "$absent" ]] || line="$line' and no line containing '$absent"
     echo "FAIL: $name (expected exit $expected and a line containing '$line'; observed exit $observed)" >&2
     cat "$fixture_root/output" >&2
     exit 1
@@ -146,7 +149,8 @@ for anchor in '## Readiness shape' \
   'a `Closes #<N>` line or the partial-delivery form below' \
   'the body carries a `Refs #<N>` line' 'body then carries no closing keyword anywhere' \
   'directly after it a `Remainder: <text>` line and then a `Closing issue: #<M>` line' \
-  'No closing keyword comes directly before an issue reference in those two lines'; do
+  'No closing keyword comes directly before an issue reference in those two lines' \
+  'Each of the two lines starts with its label exactly as written above'; do
   i=$((i + 1)); a_root="$fixture_root/anchor-$i-root"; mk_root "$a_root"
   replace "$a_root/docs/process/work-tracking.md" "$anchor" 'REWORDED RULE'
   sha256sum "$a_root/docs/process/work-tracking.md"
@@ -189,6 +193,11 @@ run_case '--mode pr without --repo is a usage error' 2 '--mode pr requires --rep
   --root "$root" --body "$body" --mode pr
 run_case '--labels with --mode pr is a usage error' 2 '--labels is not accepted with --mode pr' \
   --root "$root" --body "$body" --labels x --mode pr --repo blac9216/PriFly
+# #163: --repo is the mirror case, a usage error in issue mode in both flag forms.
+run_case '--repo with --mode issue is a usage error' 2 '--repo is not accepted with --mode issue' \
+  --root "$root" --body "$body" --labels "$labels" --repo blac9216/PriFly
+run_case '--repo=OWNER/NAME with the default issue mode is a usage error' 2 \
+  '--repo is not accepted with --mode issue' --root "$root" --body "$body" --labels "$labels" --repo=blac9216/PriFly
 
 # PR mode (#152). pr_body NAME PREAMBLE: PREAMBLE, then every PR template heading with prose.
 pr_body() {
@@ -226,6 +235,26 @@ form_case 'Remainder not directly after Refs' $'Refs #57\n\nRemainder: the retry
   "a 'Remainder: <text>' line directly after it"
 form_case 'Closing issue not directly after Remainder' $'Refs #57\nRemainder: the retry path\n\nClosing issue: #133\n' \
   "a 'Closing issue: #<M>' line directly after the Remainder line"
+# #168: labels match as written (colon, space, case); the Closing issue line ends at #M.
+form_case 'Remainder label with no space' $'Refs #57\nRemainder:the retry path\nClosing issue: #133\n' \
+  "a 'Remainder: <text>' line directly after it"
+form_case 'lowercase Remainder label' $'Refs #57\nremainder: the retry path\nClosing issue: #133\n' \
+  "a 'Remainder: <text>' line directly after it"
+form_case 'lowercase Closing issue label' $'Refs #57\nRemainder: the retry path\nclosing issue: #133\n' \
+  "a 'Closing issue: #<M>' line directly after the Remainder line"
+form_case 'trailing text after the Closing issue #M' $'Refs #57\nRemainder: the retry path\nClosing issue: #133 and more\n' \
+  "a 'Closing issue: #<M>' line directly after the Remainder line"
+# #168: a check that depends on a failed line is skipped, not reported as a second MISSING line.
+CASE_ABSENT='the Remainder text is non-empty' form_case 'missing Remainder line without a cascade' \
+  $'Refs #57\nClosing issue: #133\n' "a 'Remainder: <text>' line directly after it (next line is 'Closing issue: #133'; its text"
+CASE_ABSENT='the Closing issue is not #57 itself' form_case 'malformed Closing issue line without a cascade' \
+  $'Refs #57\nRemainder: the retry path\nClosing issue: other-org/other-repo#12\n' \
+  "a 'Closing issue: #<M>' line directly after the Remainder line (line after that is"
+# #168: every Refs line's form is checked, not only the first one's.
+pr_body second-refs "$pr_refs"$'Refs #58\nClosing issue: #133\n'
+run_case 'PR form: second Refs line with an incomplete form fails' 1 \
+  "MISSING: Refs #58: a 'Remainder: <text>' line directly after it" \
+  --root "$root" --body "$fixture_root/pr-second-refs.md" "${pr[@]}"
 for kw in 'fixes #99' 'resolves other-org/other-repo#99'; do
   form_case "'$kw' in the Remainder line" $'Refs #57\nRemainder: a follow-up that '"$kw"$'\nClosing issue: #133\n' \
     'no closing keyword before an issue reference in its Remainder and Closing issue lines'

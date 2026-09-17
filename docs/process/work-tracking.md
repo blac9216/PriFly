@@ -174,6 +174,10 @@ Closing issue: #34
 ```
 
 No closing keyword comes directly before an issue reference in those two lines.
+Each of the two lines starts with its label exactly as written above — `Remainder:` or
+`Closing issue:`, in that capitalisation, then a space — and the `Closing issue` line
+holds only `#<M>` after it, so `Remainder:x`, `remainder: x` and
+`Closing issue: #34 and more` are not the form.
 Nothing else about their wording or position is part of the form. The
 body then carries no closing keyword anywhere — not on its own line and not inside
 prose, since GitHub treats a phrase like "closes #N" in prose as a closing reference
@@ -199,10 +203,15 @@ or the `labels.md` rows it relies on have been reworded. Run
 `bash scripts/process/check-readiness.sh --root . --body <file|-> --labels a,b,c`, and
 `bash scripts/process/test-check-readiness.sh` to prove the checker still detects those
 regressions. With `--mode pr --repo blac9216/PriFly` instead of `--labels` (passing both
-is a usage error) it checks a **PR body**: every `## ` heading of
-`PULL_REQUEST_TEMPLATE.md`, a `Closes #<N>` or `Refs #<N>` line, for each `Refs #<N>` no
-closing keyword for #<N> in the raw body, and the `Remainder:` and `Closing issue:` lines
-of the form above, each part reported by name.
+is a usage error, and so is `--repo` without `--mode pr`) it checks a **PR body**: every
+`## ` heading of `PULL_REQUEST_TEMPLATE.md`, a `Closes #<N>` or `Refs #<N>` line, for
+each `Refs #<N>` no closing keyword for #<N> in the raw body, and the `Remainder:` and
+`Closing issue:` lines of the form above, each part reported by name. A part that
+depends on a failed line is skipped, and the failed line's message says so: the
+Remainder text and the Closing issue line after a missing `Remainder:` line, and
+M ≠ N after a missing `Closing issue:` line. It tests the lines' form only — labels,
+adjacency, non-empty text, M ≠ N and no keyword — not whether the Remainder text
+really names what the PR does not deliver, or whether `#<M>`'s PR really closes `#<N>`.
 The keywords, their colon and uppercase forms, and the `#<N>` and
 `<owner>/<repository>#<N>` references are the ones GitHub's
 [Linking a pull request to an issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue)
