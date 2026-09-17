@@ -69,6 +69,16 @@ var hostile = map[string]func(dir string) error{
 			replaceIn(dir, `"WorkItem/v1"`, `"\u001b[2K"`), replaceIn(dir, `"artifacts/baseline.json"`, `"\r\u202e"`), replaceIn(dir, `"`+bslSHA+`"`, `"\u001b[8m"`),
 			replaceIn(dir, `"wi_8887ffc`, `"wi_8887FFC`))
 	},
+	// Printable non-ASCII, which strconv.Quote would print raw and QuoteToASCII escapes:
+	// in a bundle ID, an artifact schema and an unknown key, and, needing its own bundle
+	// because inspect stops at it, in the manifest schema.
+	"printable-non-ascii": func(dir string) error {
+		return errors.Join(replaceIn(dir, `"`+bundleID+`"`, `"bnd_8d0e1c6f026fef7621a0c7b017f12c1\u0430"`),
+			replaceIn(dir, `"jobs": [`, `"caf\u00e9": 1, "jobs": [`), addArtifacts(dir, "bsl", `Baseline/v1\u00e9`, `{}`))
+	},
+	"non-ascii-bundle-schema": func(dir string) error {
+		return replaceIn(dir, `"ExternalPlanningBundle/v1"`, `"ExternalPlanningBundle/v2\u00e9"`)
+	},
 	"id-prefix":        func(dir string) error { return replaceIn(dir, `"bnd_`, `"wi_`) },
 	"id-length":        func(dir string) error { return replaceIn(dir, `12c12"`, `12c120"`) },
 	"id-type":          func(dir string) error { return replaceIn(dir, `"`+bundleID+`"`, `7`) },
@@ -88,9 +98,18 @@ var hostile = map[string]func(dir string) error{
 		return errors.Join(os.Remove(dir+"/artifacts/baseline.json"), os.Symlink("../../valid/artifacts/baseline.json", dir+"/artifacts/baseline.json"))
 	},
 	"over-size-cap-artifact": func(dir string) error { return os.Truncate(dir+"/artifacts/baseline.json", bundle.MaxFileBytes+1) },
-	"artifact-id-pattern":    func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, `"wi_8887FFC`) },
-	"digest-control-suffix":  func(dir string) error { return replaceIn(dir, wiSHA+`"`, wiSHA+`\u001b[2K\rresult: ok"`) },
-	"non-string-jobs":        func(dir string) error { return replaceIn(dir, `"jobs": [`, `"jobs": [7, null, {"x": 1}, `) },
+	"absolute-artifact": func(dir string) error { // an absolute name resolving to a real file outside the bundle copy
+		if info, err := os.Stat(absoluteFile); err != nil || !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is not an existing regular file, so this case would not exercise the confined read: %v", absoluteFile, err)
+		}
+		return replaceIn(dir, `"artifacts/baseline.json"`, `"`+absoluteFile+`"`)
+	},
+	"artifact-id-pattern":   func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, `"wi_8887FFC`) },
+	"digest-control-suffix": func(dir string) error { return replaceIn(dir, wiSHA+`"`, wiSHA+`\u001b[2K\rresult: ok"`) },
+	"empty-digest": func(dir string) error { // an artifact's own declared digest, then a reference's
+		return errors.Join(replaceIn(dir, `"`+wiSHA+`"`, `""`), replaceIn(dir, `"`+bslSHA+`"`, `""`))
+	},
+	"non-string-jobs": func(dir string) error { return replaceIn(dir, `"jobs": [`, `"jobs": [7, null, {"x": 1}, `) },
 	"invalid-artifact-revision": func(dir string) error { // referenced by the work item, which names revision 1
 		return replaceIn(dir, `a5a", "revision": 1, "schema"`, `a5a", "revision": 0, "schema"`)
 	},
@@ -213,7 +232,12 @@ const (
 	xen2ID   = "xen_e2fdb6cef203d6f22cd9815948d7665f"
 	xenSHA   = "926292edd0e04fef4e8208bec6d1bc8ef899e12183b8942de1e0fc12802f03e9"
 	own      = "xen_<own>" // replaced by ownXen of the content naming it
-	envelope = `{"bounds": {"attempts": 3, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 360}}`
+	// absoluteFile is the artifact-level absolute-path case's name: a real file
+	// outside the bundle copy. It is fixed, not a per-run temporary path, because
+	// this test compares exact output; its setup fails when it is not an existing
+	// regular file, so the case cannot pass vacuously.
+	absoluteFile = "/etc/hostname"
+	envelope     = `{"bounds": {"attempts": 3, "repairs_per_attempt": 2, "attempt_minutes": 90, "worker_minutes": 360}}`
 )
 
 // nested writes bundle.json as d objects, each nesting the next under a 10-byte
@@ -442,6 +466,16 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"fifo-artifact":           {baseline + "is not a regular file"},
 		"symlink-escape-artifact": {baseline + "does not resolve to a file inside the bundle directory"},
 		"over-size-cap-artifact":  {baseline + "exceeds the 16777216-byte size cap"},
+		"absolute-artifact":       {"unreadable-artifact " + bsl + `.path: "` + absoluteFile + `" does not resolve to a file inside the bundle directory`},
+		"empty-digest": {
+			"invalid-digest " + wi + `.refs[0].sha256: want 64 lowercase hex SHA-256, got ""`,
+			"invalid-digest " + wi + `.sha256: want 64 lowercase hex SHA-256, got ""`},
+		"printable-non-ascii": {
+			`unsupported-schema $.artifacts[5].schema: artifact schema "Baseline/v1\u00e9" is not supported`,
+			`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "bnd_8d0e1c6f026fef7621a0c7b017f12c1\u0430"`,
+			`unknown-field $["caf\u00e9"]` + notPartOf},
+		"non-ascii-bundle-schema": {`unsupported-schema $.schema: want "ExternalPlanningBundle/v1", got "ExternalPlanningBundle/v2\u00e9"`},
+		"all-schemas":             {"result: ok manifest_sha256=5d593a588706db9ee5a28e6c33238876c52fc3c998c0f362dbe82ecb1d999991 (nothing staged or started)"},
 		"top-level-array":         {notObject}, "top-level-null": {notObject}, "top-level-string": {notObject},
 		"enabler-consumer": {shared(at(0, ""), 2, ownXen(slice(2, 2))), shared(at(1, ""), 2, ownXen(slice(2, 2)))},
 		"dependency-cycle": {

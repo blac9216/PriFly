@@ -1,0 +1,23 @@
+{
+  "schema": "ExternalPlanningBundle/v1",
+  "bundle_id": "bnd_8785d9814039cbf7d76a86d84381ffad",
+  "revision": 1,
+  "jobs": [
+    "implementer.implementation/v1",
+    "implementer.current-correction/v1",
+    "reviewer.implementation/v1",
+    "rebaser.semantic-conflict-correction/v1",
+    "validator.target-execution/v1"
+  ],
+  "artifacts": [
+    {"id": "bsl_685f1af78c217ea1f77bae25f1755329", "revision": 1, "schema": "Baseline/v1", "path": "artifacts/bsl.json", "sha256": "6194881479128a2d5d0ef0d9d6d7916bb27dc3307a4f2a1bd243e0313a41be75", "refs": []},
+    {"id": "pgr_03dc63b0740d9f5113c7711a4a35cdcf", "revision": 1, "schema": "PlanningGraph/v1", "path": "artifacts/pgr.json", "sha256": "fa0e61496f743a071e59f6f16c904d340cdd4b6602c7f7910815f8ad079d09db", "refs": []},
+    {"id": "rpk_3464c674336f1df609e3a76187479fe8", "revision": 1, "schema": "ReviewPackage/v1", "path": "artifacts/rpk.json", "sha256": "19753e82e3684025bff060e681efaa1c8ef773336d675323fcc126a469049a10", "refs": []},
+    {"id": "wi_d02ee4d2de066812d7bd97a7afe74b9a", "revision": 1, "schema": "WorkItem/v1", "path": "artifacts/wi.json", "sha256": "2c8c00320cbe5e0a96d0a23641468ebe6f96b001e4e6709d0d517c44f6fde03c", "refs": [{"id": "bsl_685f1af78c217ea1f77bae25f1755329", "revision": 1, "sha256": "6194881479128a2d5d0ef0d9d6d7916bb27dc3307a4f2a1bd243e0313a41be75"}]},
+    {"id": "est_ca8e36acb47f8f40fd5011fc44b1588e", "revision": 1, "schema": "Estimate/v1", "path": "artifacts/est.json", "sha256": "d8e394db384201d69da089583163fb40e10db02c65f4af58c9101b9d3ee98de0", "refs": []},
+    {"id": "xen_413f816f82573d1c45906cf6865ed058", "revision": 1, "schema": "ExecutionEnvelope/v1", "path": "artifacts/xen.json", "sha256": "926292edd0e04fef4e8208bec6d1bc8ef899e12183b8942de1e0fc12802f03e9", "refs": []},
+    {"id": "vt_46bbdb8493428b77bb9c3a159e58e803", "revision": 1, "schema": "ValidationTarget/v1", "path": "artifacts/vt.json", "sha256": "b83feb4030df6d8f534041a0e1ba73046bfbbf1c6e6f667c9f004ca1df7abda4", "refs": []},
+    {"id": "qev_bbdc7ef0ac4aa073259f05d2f57220dc", "revision": 1, "schema": "QualityEvaluation/v1", "path": "artifacts/qev.json", "sha256": "47ac66d5a8390aea8482a4b822322a5b073ceabb5d826283ad14c67e930ebe60", "refs": []},
+    {"id": "rel_1540646eaaff0719fb8b55b85552cee8", "revision": 1, "schema": "PhaseRelease/v1", "path": "artifacts/rel.json", "sha256": "86783cbebc43668474f468d57b9128c5914633fa764231069538285317083ee9", "refs": []}
+  ]
+}
