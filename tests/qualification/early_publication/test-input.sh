@@ -48,7 +48,8 @@ edit() { feed "$1" 2 "fixture: malformed trace line $2" jq -c "$3 | .[]" -s "$go
 text() { feed "$1" 2 "fixture: malformed trace line $2" sed "$3" "$good"; }
 grants() { cat "$good" && awk -v n="$1" 'NR == 3 { for (i = 0; i < n; i++) print }' "$good"; }  # good plus n grant lines
 fill() { sed -n 1p "$good" && head -c "$1" /dev/zero | tr '\0' "$2"; }  # header plus a line of n copies of a byte
-input() { echo "VERDICT: trace rejected; no feasibility result"; }  # well formed, so exit 1 from the semantic checks
+input() {  # well formed, so exit 1 from the semantic checks; at 4,096 lines, a line only the last appended grant produces
+  if (($1 == 4096)); then echo "REJECT RENEWAL run 1 n 0: grant 4091: only a grant after the first is a renewal"; else echo "VERDICT: trace rejected; no feasibility result"; fi; }
 proc() {  # name, sed expression over publication.json
   made "$1" "$work/${1// /-}.json" sed "$2" "$EARLY/publication.json" || return 0
   verdict "$1" 2 "fixture: procedure is not the fixed P4/P12a/P12b/P13 procedure" "$work/${1// /-}.json" "$good"

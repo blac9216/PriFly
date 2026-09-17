@@ -70,11 +70,17 @@ edit "step clock 1 ms early" 1 "REJECT LANE run 1 n 30: step clock out of lane o
 edit "published step not reached" 1 "REJECT LANE run 1 n 30: step clock out of lane order; commands run one at a time" "$(at 1 30 '.casEnd = 0')"
 edit "failed entry clock after a step not reached" 1 "REJECT LANE run 2 n 150: step clock out of lane order; commands run one at a time" \
   "$(at 2 150 '.outcome = "failed" | .reason = "restore-exit1" | .restoreEnd = 0')"
+edit "ticket inside a failed predecessor step" 1 "REJECT LANE run 1 n 6: step clock out of lane order; commands run one at a time" \
+  "$(at 1 5 '.outcome = "failed" | .reason = "sync-exit1" | .syncStart = 1080000 | .syncEnd = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0')"
+edit "commands swapped across a renewal" 1 "REJECT OLD-FRONTIER run 1 n 40: command entered the lane after command 41; the frontier moved backwards" \
+  "($(cmd 1 41).ticket - $(cmd 1 40).ticket) as \$d | $(at 1 40 "$shift") | (-\$d) as \$d | $(at 1 41 "$shift")"
 edit "ack before CAS result" 1 "REJECT EARLY-ACK run 1 n 30: acknowledged before the frontier CAS result" "$(at 1 30 '.ack = .casEnd - 1')"
 edit "zero latency everywhere" 1 "REJECT EARLY-ACK run 1 n 1: acknowledged before the frontier CAS result" 'map(if .ev == "cmd" then .ack = .submit else . end)'
 edit "CAS pacing under 1.1 s" 1 "REJECT PACING run 1 n 83: CAS write under 1100ms after the previous one" \
   "$(at 1 83 '.ticket as $t | .commitStart = $t | .commitEnd = $t | .syncStart = $t | .syncEnd = $t | .restoreStart = $t | .restoreEnd = $t | .casStart = $t')"
 edit "CAS pacing 1099 ms" 1 "REJECT PACING run 1 n 83: CAS write under 1100ms after the previous one" "$(at 1 83 '.restoreEnd -= 1 | .casStart -= 1')"
+edit "renewal CAS paced after a command" 1 "REJECT PACING run 1 n 0: CAS write under 1100ms after the previous one" \
+  "(map(select(.ev == \"grant\" and .run == 1))[1].casStart) as \$c | $(at 1 40 '.casStart = $c - 1099 | .casEnd = $c - 1000 | .ack = $c - 900')"
 edit "published step over the step timeout" 1 "REJECT STEP-TIMEOUT run 3 n 150: a published step lasted over 120s" "$(at 3 150 '.syncEnd += 119701 | .restoreStart += 119701 | .restoreEnd += 119701 | .casStart += 119701 | .casEnd += 119701 | .ack += 119701')"
 edit "published step of exactly the step timeout" 3 "$MISS" "$(at 3 150 '.syncEnd += 119700 | .restoreStart += 119700 | .restoreEnd += 119700 | .casStart += 119700 | .casEnd += 119700 | .ack += 119700')"
 edit "timeout retained as failure" 3 "FAILURE run 2 n 150 kind attempt-result arrival 2085000 reason sync-exit124" \
@@ -100,9 +106,14 @@ edit "renewal reserved after expiry" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not
 edit "renewal reserved before the grant it renews" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.ticket = 999999 else . end)'
 edit "renewal failed" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.outcome = "failed" else . end)'
 edit "grant active before its renewal ack" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.t = .ack - 1 | .deadline -= 1 else . end)'
-for f in bytes:104857600 writes:1000 requests:8000; do
-  edit "grant maxima exceeded (${f%:*})" 1 "REJECT LEDGER run 1 n 0: grant 0 use exceeds the P12b grant maxima" "map(if .ev == \"cmd\" and .run == 1 then .${f%:*} = ${f#*:} else . end)"
+GRANT0="REJECT LEDGER run 1 n 0: grant 0 use exceeds the P12b grant maxima" failed='.outcome = "failed" | .reason = "cas-conflict"'
+grant() {  # field, maximum, excess: commands 1-40 of run 1 and the renewal charged to grant 0 sum to maximum + excess
+  echo "$renewal.$1 = $2 - 40 * (($2 - 1) / 40 | floor) + $3 else . end) | map(if .ev == \"cmd\" and .run == 1 and .n <= 40 then .$1 = (($2 - 1) / 40 | floor) else . end)"; }
+for f in bytes:1073741824 writes:4096 requests:10000; do
+  edit "grant ${f%:*} at the maximum" 0 "$PASS" "$(grant "${f%:*}" "${f#*:}" 0)"
+  edit "grant maxima exceeded (${f%:*})" 1 "$GRANT0" "$(grant "${f%:*}" "${f#*:}" 1)"
 done
+edit "failed entry use counts in grant maxima" 1 "$GRANT0" "$(grant writes 4096 1) | $(at 1 40 "$failed")"
 for f in bytes:268435457 writes:1025 requests:8193; do
   edit "ticket exceeded (${f%:*})" 1 "REJECT LEDGER run 1 n 3: remote use exceeds the pre-send ticket" "$(at 1 3 ".${f%:*} = ${f#*:}")"
 done
@@ -110,8 +121,12 @@ edit "renewal use counts in grant maxima" 1 "REJECT LEDGER run 1 n 0: grant 0 us
   "$renewal"'.writes = 17 else . end) | map(if .ev == "cmd" and .run == 1 and .n <= 40 then .writes = 102 else . end)'
 edit "renewal ticket exceeded" 1 "REJECT LEDGER run 1 n 0: remote use exceeds the pre-send ticket" "$renewal"'.bytes = 268435457 else . end)'
 P12A="REJECT LEDGER run 0 n 0: trace exceeds the P12a envelope (fixture steps, commands and renewals)"
-edit "envelope exceeded" 1 "$P12A" 'map(if .ev == "cmd" then .bytes = 268435456 else . end)'
-edit "envelope requests exceeded" 1 "$P12A" 'map(if .ev == "cmd" then .requests = 222 else . end)'
+envelope() { echo "(map(.$1 // 0) | add) as \$s | $(runfield 1 ".$1 += $2 - \$s + $3")"; }  # field, limit, excess over the whole trace
+for f in bytes:8589934592 requests:100000; do
+  edit "envelope ${f%:*} at the limit" 0 "$PASS" "$(envelope "${f%:*}" "${f#*:}" 0)"
+  edit "envelope ${f%:*} exceeded" 1 "$P12A" "$(envelope "${f%:*}" "${f#*:}" 1)"
+done
+edit "failed command use counts in P12a" 1 "$P12A" "$(envelope bytes 8589934592 1) | $(at 1 40 "$failed")"
 edit "renewal use counts in P12a" 1 "$P12A" 'map(if .ev == "cmd" then .bytes = 16777216 elif .ev == "grant" and .ticket then .bytes = 209715200 else . end)'
 edit "fixture bytes count in P12a" 1 "$P12A" 'map(if .ev == "run" then .bytes = 2900000000 else . end)'
 edit "fixture requests count in P12a" 1 "$P12A" 'map(if .ev == "run" then .requests = 34000 else . end)'
