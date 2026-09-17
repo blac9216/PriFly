@@ -1,7 +1,11 @@
+//go:build linux
+
 package bootstrap
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha1"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -287,5 +291,167 @@ func TestFetchSizeGuards(t *testing.T) {
 				t.Fatalf("err = %v, want %v; blob content read: %t", err, c.want, read)
 			}
 		})
+	}
+}
+
+// TestFetchBound: a git shim records each invocation's arguments and, after it, the size of every file under its working
+// directory, and traces git into a file. A fetched file over MaxFetchFileBytes stops with a file exactly at that bound;
+// many small blobs, each file under it, pass MaxFetchTotalBytes; both fail with ErrFetchBound, and no git invocation
+// follows the fetch. A history over the bounds fetches and verifies, as does a revision holding both guarded files at
+// their guards. No fetch starts git maintenance.
+func TestFetchBound(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	bin := t.TempDir()
+	sizes, trace := filepath.Join(bin, "sizes"), filepath.Join(bin, "trace")
+	shim := "#!/bin/sh\necho \"git $*\" >> '" + sizes + "'\nGIT_TRACE='" + trace + "' '" + realGit + "' \"$@\"; rc=$?\n" +
+		"find . -type f -exec wc -c {} \\; >> '" + sizes + "'\nexit $rc\n"
+	if err != nil || os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o700) != nil {
+		t.Fatal("writing git shim")
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	over, secrets := make([]byte, MaxFetchFileBytes+64<<10), make([]byte, MaxSecretsBytes)
+	rand.Read(over)
+	rand.Read(secrets)
+	half := len(over) / 2
+	guards := validEntries()
+	guards[0].data = strings.Replace(manifest, digestHex, fmt.Sprintf("%x", sha256.Sum256(secrets)), 1)
+	guards[0].data += strings.Repeat(" ", MaxManifestBytes-len(guards[0].data))
+	guards[1].data = string(secrets)
+	for name, c := range map[string]struct {
+		entries []entry
+		child   bool // select a valid child commit of the fixture commit instead
+		blobs   int  // add this many small blobs to the fixture tree
+		want    error
+	}{
+		"file over file bound":                    {append(validEntries(), entry{"100644", ReadmePath, string(over[:half])}, entry{"100644", "prifly-canary-tree", string(over[half:])}), false, 0, ErrFetchBound},
+		"small blobs over total bound":            {validEntries(), false, 105000, ErrFetchBound},
+		"history over bound fetches and verifies": {append(validEntries(), entry{"100644", "prifly-canary-history", string(over)}), true, 0, nil},
+		"files at guards":                         {guards, false, 0, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			url, rev := fixtureRepo(t, c.entries)
+			if dir := strings.TrimPrefix(url, "file://"); c.child {
+				gitFixture(t, dir, "", "update-index", "--force-remove", "prifly-canary-history")
+				rev = gitFixture(t, dir, "fixture child\n", "commit-tree", "-p", rev, gitFixture(t, dir, "", "write-tree"))
+			} else if c.blobs > 0 {
+				var stream, tree strings.Builder
+				tree.WriteString(gitFixture(t, dir, "", "ls-tree", rev) + "\n")
+				for i := range c.blobs {
+					data := fmt.Sprintf("%d\n", i)
+					fmt.Fprintf(&stream, "blob\ndata %d\n%s\n", len(data), data)
+					fmt.Fprintf(&tree, "100644 blob %x\tc%06d\n", sha1.Sum([]byte(fmt.Sprintf("blob %d\x00%s", len(data), data))), i)
+				}
+				gitFixture(t, dir, stream.String(), "fast-import", "--quiet")
+				rev = gitFixture(t, dir, "fixture\n", "commit-tree", gitFixture(t, dir, tree.String(), "mktree"))
+			}
+			os.Remove(sizes)
+			os.Remove(trace)
+			v, err := fetch(t, url, rev, factory)
+			data, _ := os.ReadFile(sizes)
+			traced, _ := os.ReadFile(trace)
+			largest, last := 0, ""
+			for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+				n := 0
+				fmt.Sscan(line, &n)
+				largest = max(largest, n)
+				if strings.HasPrefix(line, "git ") {
+					last = line
+				}
+			}
+			if c.want != nil && !strings.Contains(last, " fetch ") || strings.Contains(string(traced), "maintenance run") {
+				t.Fatalf("a git invocation follows the bounded fetch (last: %.40q), or a fetch started git maintenance", last)
+			}
+			if !errors.Is(err, c.want) || c.want == nil && (v == nil || v.Revision != rev) || (largest == MaxFetchFileBytes) != (c.want != nil && c.blobs == 0) || largest > MaxFetchFileBytes {
+				t.Fatalf("err = %v, want %v; largest file written %d bytes, bound %d", err, c.want, largest, MaxFetchFileBytes)
+			}
+		})
+	}
+}
+
+// entries returns a setup that adds n empty files.
+func entries(n int) func(string) error {
+	return func(dir string) error {
+		for i := range n {
+			if err := os.WriteFile(fmt.Sprintf("%s/e%d", dir, i), nil, 0o600); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+// TestCheckFetched walks a directory standing in for the fetched repository: regular files count up to exactly
+// MaxFetchTotalBytes, a symlink's target does not count, and a walk that passes maxFetchEntries or cannot read a
+// directory fails.
+func TestCheckFetched(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "outside")
+	if os.WriteFile(outside, []byte("x"), 0o600) != nil {
+		t.Fatal("writing symlink target")
+	}
+	for _, c := range []struct {
+		name  string
+		setup func(dir string) error
+		want  error
+	}{
+		{"at total bound", func(dir string) error { return os.Truncate(dir+"/pack", MaxFetchTotalBytes) }, nil},
+		{"one byte over total bound", func(dir string) error { return os.Truncate(dir+"/pack", MaxFetchTotalBytes+1) }, ErrFetchBound},
+		{"symlink target not counted", func(dir string) error {
+			return errors.Join(os.Truncate(dir+"/pack", MaxFetchTotalBytes), os.Symlink(outside, dir+"/link"))
+		}, nil},
+		{"entries at bound", entries(maxFetchEntries - 2), nil}, // the walk also visits dir and pack
+		{"entries over bound", entries(maxFetchEntries - 1), ErrFetchBound},
+		{"unreadable directory", func(dir string) error {
+			return errors.Join(os.Mkdir(dir+"/objects", 0o700), os.Chmod(dir+"/objects", 0))
+		}, ErrFetch},
+		{"listable but not searchable directory", func(dir string) error { // os.Lstat of its entry fails
+			return errors.Join(os.Mkdir(dir+"/objects", 0o700), os.WriteFile(dir+"/objects/pack", nil, 0o600),
+				os.Truncate(dir+"/objects/pack", 3<<20), os.Chmod(dir+"/objects", 0o600))
+		}, ErrFetch},
+	} {
+		if c.want == ErrFetch && os.Geteuid() == 0 {
+			continue // root reads a directory whatever its mode
+		}
+		dir := t.TempDir()
+		if os.WriteFile(dir+"/pack", nil, 0o600) != nil || c.setup(dir) != nil {
+			t.Fatalf("%s: setup", c.name)
+		}
+		if err := checkFetched(dir, nil); !errors.Is(err, c.want) || c.want == nil && err != nil {
+			t.Errorf("%s: err = %v, want %v", c.name, err, c.want)
+		}
+		os.Chmod(dir+"/objects", 0o700)
+	}
+}
+
+// TestFetchServerRefusesUnadvertisedCommit serves the fixture over ssh as a server that drops GIT_PROTOCOL, so git
+// falls back to protocol v0, which refuses a commit id no ref advertises unless the server allows it.
+func TestFetchServerRefusesUnadvertisedCommit(t *testing.T) {
+	url, tip := fixtureRepo(t, validEntries())
+	dir, bin := strings.TrimPrefix(url, "file://"), t.TempDir()
+	unadvertised := gitFixture(t, dir, "fixture child\n", "commit-tree", "-p", tip, tip+"^{tree}")
+	v0 := filepath.Join(bin, "v0")
+	ssh := "#!/bin/sh\n[ -e '" + v0 + "' ] && unset GIT_PROTOCOL\nfor a; do last=$a; done\neval \"exec git upload-pack ${last#git-upload-pack }\"\n"
+	if os.WriteFile(filepath.Join(bin, "ssh"), []byte(ssh), 0o700) != nil {
+		t.Fatal("writing ssh stand-in")
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, c := range []struct {
+		name, rev string
+		v0, allow bool
+		want      error
+	}{
+		{"v0 unadvertised", unadvertised, true, false, ErrFetch},
+		{"v0 advertised", tip, true, false, nil},
+		{"v0 unadvertised allowed", unadvertised, true, true, nil},
+		{"v2 unadvertised", unadvertised, false, false, nil},
+	} {
+		os.Remove(v0)
+		gitFixture(t, dir, "", "config", "uploadpack.allowAnySHA1InWant", fmt.Sprint(c.allow))
+		if c.v0 && os.WriteFile(v0, nil, 0o600) != nil {
+			t.Fatal("writing v0 marker")
+		}
+		v, err := fetch(t, "ssh://fixture-host"+dir, c.rev, factory)
+		if !errors.Is(err, c.want) || c.want != nil && !strings.Contains(err.Error(), "remote or revision unavailable") || c.want == nil && (v == nil || v.Revision != c.rev) {
+			t.Errorf("%s: err = %v, want %v", c.name, err, c.want)
+		}
 	}
 }
