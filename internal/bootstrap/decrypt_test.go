@@ -234,7 +234,7 @@ func TestClaimWorkDir(t *testing.T) {
 		again()
 	}
 	for name, plant := range map[string]func(path string){
-		"symlink to a 0700 directory": func(p string) { _ = os.Symlink(outside, p) },
+		"symlink to a 0700 directory": func(p string) { _ = os.Symlink(".", p) }, // the work directory itself
 		"0755 directory":              func(p string) { mkdir(p, 0o755) },
 		"0700 regular file":           func(p string) { write(p, 0o700) },
 		"another owner":               func(p string) { mkdir(p, 0o700); currentUID = func() int { return os.Getuid() + 1 } },
@@ -258,6 +258,34 @@ func TestClaimWorkDir(t *testing.T) {
 	for _, dir := range []string{filepath.Base(work), link, filepath.Join(work, "absent")} {
 		if _, err := ClaimWorkDir(dir); !errors.Is(err, ErrTransient) {
 			t.Errorf("work directory %q: err = %v, want ErrTransient", dir, err)
+		}
+	}
+}
+
+// TestClaimWorkDirPathSwap renames the work directory away and puts a symbolic link to another directory holding
+// a same-named leftover in its place, once right after the lock and once right before the sweep. The first must
+// block and the second must sweep the renamed, locked directory; neither may delete anything the link reaches.
+func TestClaimWorkDirPathSwap(t *testing.T) {
+	t.Cleanup(func() { claimHook = func(int) {} })
+	for stage, wantErr := range []bool{true, false} {
+		work, other := filepath.Join(t.TempDir(), "work"), t.TempDir()
+		if os.Mkdir(work, 0o700) != nil || os.Mkdir(filepath.Join(work, "prifly-secrets-1"), 0o700) != nil ||
+			os.Mkdir(filepath.Join(other, "prifly-secrets-1"), 0o700) != nil {
+			t.Fatal("directory fixture")
+		}
+		claimHook = func(s int) {
+			if s == stage && (os.Rename(work, work+".old") != nil || os.Symlink(other, work) != nil) {
+				t.Error("swap fixture")
+			}
+		}
+		release, err := ClaimWorkDir(work)
+		if err == nil {
+			release()
+		}
+		_, otherErr := os.Lstat(filepath.Join(other, "prifly-secrets-1"))
+		_, oldErr := os.Lstat(filepath.Join(work+".old", "prifly-secrets-1"))
+		if errors.Is(err, ErrTransient) != wantErr || otherErr != nil || wantErr == (oldErr != nil) {
+			t.Fatalf("swap at stage %d: err = %v; entry behind the link kept: %t; locked leftover removed: %t", stage, err, otherErr == nil, oldErr != nil)
 		}
 	}
 }

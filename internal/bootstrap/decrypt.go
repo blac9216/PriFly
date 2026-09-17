@@ -168,47 +168,66 @@ func checkSecrets(f io.ReaderAt, n int64, m Manifest) error {
 var (
 	// transientName matches exactly the names os.MkdirTemp gives the directories Fetch and Decrypt create.
 	transientName = regexp.MustCompile(`^prifly-(bootstrap|secrets)-[0-9]+$`)
-	currentUID    = os.Getuid // replaced only by tests
+	currentUID    = os.Getuid          // replaced only by tests
+	claimHook     = func(stage int) {} // replaced only by tests: 0 after locking, 1 before sweeping
 )
 
 // ClaimWorkDir locks workDir, an absolute path to a directory that is not a symbolic link, for one bootstrap
 // run, then removes the transient directories that a run killed before its own cleanup left there. It removes
-// only an entry named as Fetch or Decrypt names theirs that is a real 0700 directory owned by this user, never
-// follows a symbolic link and touches nothing else. Any other entry with such a name, or a lock another run
-// holds, returns ErrTransient. The claim lasts until release is called.
+// only an entry named as Fetch or Decrypt names theirs that is a real 0700 directory owned by this user. Every
+// inspection and removal resolves relative to the locked directory itself (an os.Root proven to be the same
+// directory), never through the workDir path again, so replacing that path afterwards, say by a symbolic
+// link, cannot redirect them; nothing outside the locked directory is touched. Any other entry with such a
+// name, a lock another run holds, or a path that no longer names the locked directory returns ErrTransient.
+// The claim lasts until release is called.
 func ClaimWorkDir(workDir string) (release func(), err error) {
 	d, err := os.OpenFile(workDir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
 	if err != nil || !filepath.IsAbs(workDir) {
 		d.Close() // a nil *os.File's Close only returns an error
 		return nil, fmt.Errorf("%w: work directory unusable", ErrTransient)
 	}
+	var root *os.Root
 	defer func() {
 		if err != nil {
 			d.Close()
+			if root != nil {
+				root.Close()
+			}
 		}
 	}()
 	if syscall.Flock(int(d.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
 		return nil, fmt.Errorf("%w: work directory in use by another run", ErrTransient)
 	}
+	claimHook(0)
+	if root, err = os.OpenRoot(workDir); err == nil {
+		locked, derr := d.Stat()
+		opened, rerr := root.Stat(".")
+		if derr != nil || rerr != nil || !os.SameFile(locked, opened) {
+			err = ErrTransient
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: work directory changed while claimed", ErrTransient)
+	}
 	entries, err := d.ReadDir(-1)
 	if err != nil {
 		return nil, fmt.Errorf("%w: work directory unreadable", ErrTransient)
 	}
+	claimHook(1)
 	for _, e := range entries {
 		if !transientName.MatchString(e.Name()) {
 			continue
 		}
-		path := filepath.Join(workDir, e.Name())
-		fi, lerr := os.Lstat(path)
+		fi, lerr := root.Lstat(e.Name())
 		if lerr != nil {
 			return nil, fmt.Errorf("%w: unexpected transient entry in work directory", ErrTransient)
 		}
 		if st, ok := fi.Sys().(*syscall.Stat_t); !ok || !fi.IsDir() || fi.Mode().Perm() != transientDirMode || int(st.Uid) != currentUID() {
 			return nil, fmt.Errorf("%w: unexpected transient entry in work directory", ErrTransient)
 		}
-		if os.RemoveAll(path) != nil {
+		if root.RemoveAll(e.Name()) != nil {
 			return nil, fmt.Errorf("%w: cannot remove leftover transient directory", ErrTransient)
 		}
 	}
-	return func() { d.Close() }, nil
+	return func() { root.Close(); d.Close() }, nil
 }

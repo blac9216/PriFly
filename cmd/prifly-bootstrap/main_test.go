@@ -6,11 +6,14 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -72,14 +75,17 @@ func fixture(t *testing.T) (url, rev, identityFile, envLog string) {
 
 // provider is the local fake discovery provider; it sees the plaintext only through the secrets path.
 type provider struct {
-	id       string
-	err      error
-	sawValue bool
+	id                    string
+	err                   error
+	sawValue, sawLeftover bool
+	leftover              string // a killed run's leftover, which the sweep must remove before decryption
 }
 
 func (p *provider) Discover(_ context.Context, _ bootstrap.Manifest, path string) (string, error) {
 	data, _ := os.ReadFile(path)
 	p.sawValue = strings.Contains(string(data), canary)
+	_, err := os.Lstat(p.leftover)
+	p.sawLeftover = p.leftover != "" && err == nil
 	return p.id, p.err
 }
 
@@ -135,6 +141,9 @@ func TestBootstrapCLI(t *testing.T) {
 				if os.Mkdir(leftover, 0o700) != nil || os.WriteFile(filepath.Join(leftover, "secrets.json"), []byte(canary), 0o600) != nil {
 					t.Fatal("leftover fixture")
 				}
+				if p, ok := c.d.(*provider); ok {
+					p.leftover = leftover
+				}
 			}
 			os.Remove(envLog)
 			args := append([]string{"-repository", url, "-revision", rev, "-factory-id", factory, "-fetch-ssh-auth-sock", sock,
@@ -155,8 +164,8 @@ func TestBootstrapCLI(t *testing.T) {
 					t.Fatalf("%s holds %d entries after the run", label, len(left))
 				}
 			}
-			if p, ok := c.d.(*provider); ok && p.sawValue != (len(c.extra) == 0) {
-				t.Fatalf("provider saw decrypted secrets: %t", p.sawValue)
+			if p, ok := c.d.(*provider); ok && (p.sawValue != (len(c.extra) == 0) || p.sawLeftover) {
+				t.Fatalf("provider saw decrypted secrets: %t; a killed run's leftover still present at discovery: %t", p.sawValue, p.sawLeftover)
 			}
 			recorded, err := os.ReadFile(envLog)
 			if blocked := c.code == 2 || strings.HasPrefix(strings.Join(c.extra, " "), "-fetch"); blocked != (err != nil) {
@@ -184,35 +193,86 @@ func TestBootstrapCLI(t *testing.T) {
 	}
 }
 
-// TestBootstrapCLIFetchDeadline puts in front of the serving ssh a stand-in that never answers. The CLI must
-// block within the deadline with a fixed diagnostic, leave the work directory empty and leave no ssh running.
-func TestBootstrapCLIFetchDeadline(t *testing.T) {
+// slowFetch returns CLI arguments whose fetch reaches, in front of the serving ssh, a stand-in that never answers;
+// the work directory; the file the stand-in writes its pid and process group to; and a function that waits up to
+// 5s for no process to run in that group or as the stand-in, returning how many still do.
+func slowFetch(t *testing.T) (args []string, work, pidFile string, survivors func() int) {
 	url, rev, identityFile, _ := fixture(t)
 	bin, refs, work := t.TempDir(), t.TempDir(), t.TempDir()
 	pidFile, sock, knownHosts := filepath.Join(bin, "ssh-pid"), filepath.Join(refs, "agent.sock"), filepath.Join(refs, "known_hosts")
 	listener, err := net.Listen("unix", sock)
-	if err != nil || os.WriteFile(knownHosts, nil, 0o600) != nil ||
-		os.WriteFile(filepath.Join(bin, "ssh"), []byte("#!/bin/sh\necho $$ > '"+pidFile+"'\nexec sleep 20\n"), 0o700) != nil {
+	if err != nil || os.WriteFile(knownHosts, nil, 0o600) != nil || os.WriteFile(filepath.Join(bin, "ssh"),
+		[]byte("#!/bin/sh\necho $$ $(cut -d' ' -f5 /proc/$$/stat) > '"+pidFile+"'\nexec sleep 20\n"), 0o700) != nil {
 		t.Fatal("fixture")
 	}
 	t.Cleanup(func() { listener.Close() })
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	survivors = func() int {
+		var pid, pgid int
+		data, _ := os.ReadFile(pidFile)
+		if _, err := fmt.Sscan(string(data), &pid, &pgid); err != nil {
+			t.Fatal("ssh stand-in never ran")
+		}
+		for end := time.Now().Add(5 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+			n := 0
+			stats, _ := filepath.Glob("/proc/[0-9]*/stat")
+			for _, stat := range stats {
+				data, _ := os.ReadFile(stat)
+				f := strings.Fields(string(data[bytes.LastIndexByte(data, ')')+1:])) // state, ppid, pgrp, ...
+				if len(f) > 2 && f[0] != "Z" && (f[2] == strconv.Itoa(pgid) || stat == fmt.Sprintf("/proc/%d/stat", pid)) {
+					n++
+				}
+			}
+			if n == 0 || time.Now().After(end) {
+				if syscall.Kill(pid, syscall.SIGKILL); n != 0 && pgid != syscall.Getpgrp() { // never this test's own group
+					syscall.Kill(-pgid, syscall.SIGKILL)
+				}
+				return n
+			}
+		}
+	}
+	return []string{"-repository", url, "-revision", rev, "-factory-id", factory, "-fetch-ssh-auth-sock", sock,
+		"-fetch-known-hosts", knownHosts, "-age-identity-file", identityFile, "-work-dir", work}, work, pidFile, survivors
+}
+
+// TestBootstrapCLIFetchDeadline: past the deadline the CLI must block with a fixed diagnostic, leave the work
+// directory empty and leave no git, shell or ssh of the fetch running.
+func TestBootstrapCLIFetchDeadline(t *testing.T) {
+	args, work, _, survivors := slowFetch(t)
 	var stdout, stderr bytes.Buffer
 	start := time.Now()
-	code := run(context.Background(), []string{"-repository", url, "-revision", rev, "-factory-id", factory, "-fetch-ssh-auth-sock", sock,
-		"-fetch-known-hosts", knownHosts, "-age-identity-file", identityFile, "-work-dir", work, "-fetch-timeout", "2s"}, &stdout, &stderr, &provider{id: factory})
+	code := run(context.Background(), append(args, "-fetch-timeout", "2s"), &stdout, &stderr, &provider{id: factory})
 	elapsed, output := time.Since(start), stdout.String()+stderr.String()
-	pid, _ := os.ReadFile(pidFile)
-	if left, _ := os.ReadDir(work); code != 1 || elapsed > 10*time.Second || len(pid) == 0 || len(left) != 0 ||
+	if left, _ := os.ReadDir(work); code != 1 || elapsed > 10*time.Second || len(left) != 0 ||
 		output != "prifly-bootstrap: blocked: "+bootstrap.ErrFetch.Error()+": deadline exceeded\n" {
-		t.Fatalf("exit %d after %v with %d work entries, output %q; ssh stand-in ran: %t", code, elapsed, len(left), output, len(pid) != 0)
+		t.Fatalf("exit %d after %v with %d work entries, output %q", code, elapsed, len(left), output)
 	}
-	for end := time.Now().Add(5 * time.Second); ; time.Sleep(50 * time.Millisecond) {
-		stat, err := os.ReadFile("/proc/" + strings.TrimSpace(string(pid)) + "/stat")
-		if fields := strings.Fields(string(stat)); err != nil || len(fields) > 2 && fields[2] == "Z" {
+	if n := survivors(); n != 0 {
+		t.Fatalf("%d fetch processes still running 5s after the CLI returned", n)
+	}
+}
+
+// TestBootstrapCLIGroupKill starts the CLI as its own process group, as a shell or supervisor does, and kills that
+// group with SIGKILL while the fetch waits on ssh. No git, shell or ssh of the fetch may outlive it.
+func TestBootstrapCLIGroupKill(t *testing.T) {
+	if args := os.Getenv("PRIFLY_TEST_CLI_ARGS"); args != "" {
+		os.Exit(run(context.Background(), strings.Split(args, "\x1f"), io.Discard, io.Discard, &provider{id: factory}))
+	}
+	args, _, pidFile, survivors := slowFetch(t)
+	cli := exec.Command(os.Args[0], "-test.run=^TestBootstrapCLIGroupKill$")
+	cli.Env = append(os.Environ(), "PRIFLY_TEST_CLI_ARGS="+strings.Join(args, "\x1f"))
+	cli.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if cli.Start() != nil {
+		t.Fatal("start CLI")
+	}
+	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
+		if data, _ := os.ReadFile(pidFile); strings.HasSuffix(string(data), "\n") {
 			break
-		} else if time.Now().After(end) {
-			t.Fatalf("ssh stand-in still running 5s after the CLI returned (state %v)", fields[2:3])
 		}
+	}
+	syscall.Kill(-cli.Process.Pid, syscall.SIGKILL)
+	cli.Wait()
+	if n := survivors(); n != 0 {
+		t.Fatalf("%d fetch processes still running 5s after the CLI's process group was killed", n)
 	}
 }

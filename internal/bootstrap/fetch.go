@@ -111,12 +111,20 @@ func validRef(path string, typ os.FileMode) bool {
 	return path == "" || refPath.MatchString(path) && err == nil && fi.Mode().Type() == typ
 }
 
+// gitGroup is the shell that leads each git invocation's own process group; git and the ssh it starts join that
+// group. The shell waits in the background of git so that it can act on a signal: SIGTERM, which the kernel sends
+// it as its parent-death signal the moment the process that started it dies, even by SIGKILL, makes it kill the
+// whole group. Cancellation kills the group directly.
+const gitGroup = `trap 'kill -KILL 0' TERM; "$@" & wait $!`
+
 func runGit(ctx context.Context, env []string, dir string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", append(append([]string{}, hardening...), args...)...)
+	cmd := exec.CommandContext(ctx, "/bin/sh", append(append([]string{"-c", gitGroup, "sh", "git"}, hardening...), args...)...)
 	cmd.Dir, cmd.Env, cmd.Stderr = dir, env, io.Discard
-	// Cancellation kills git's whole process group, so an ssh or upload-pack child cannot outlive it or hold
-	// the output pipe open; WaitDelay bounds the wait if a descendant left the group.
-	cmd.SysProcAttr, cmd.WaitDelay = &syscall.SysProcAttr{Setpgid: true}, time.Second
+	// Linux delivers Pdeathsig when the OS thread that started the shell exits; the Go runtime keeps its threads
+	// unless a goroutine locked to one ends, which this module never does. WaitDelay bounds the wait if a
+	// descendant left the group and holds the output pipe open.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGTERM}
+	cmd.WaitDelay = time.Second
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	return cmd.Output()
 }
