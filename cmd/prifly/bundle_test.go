@@ -89,11 +89,14 @@ var hostile = map[string]func(dir string) error{
 	},
 	"over-size-cap-artifact": func(dir string) error { return os.Truncate(dir+"/artifacts/baseline.json", bundle.MaxFileBytes+1) },
 	"artifact-id-pattern":    func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, `"wi_8887FFC`) },
+	"digest-control-suffix":  func(dir string) error { return replaceIn(dir, wiSHA+`"`, wiSHA+`\u001b[2K\rresult: ok"`) },
+	"non-string-jobs":        func(dir string) error { return replaceIn(dir, `"jobs": [`, `"jobs": [7, null, {"x": 1}, `) },
 }
 
 const (
 	bundleID = "bnd_8d0e1c6f026fef7621a0c7b017f12c12"
 	bslSHA   = "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34"
+	wiSHA    = "e7d95ce6f478a7f82dbca4bee40b67d11efe93cdb245a22a03a28703024fa143"
 )
 
 func replaceIn(dir, old, new string) error {
@@ -115,11 +118,10 @@ func TestBundleInspectFixtures(t *testing.T) {
 		unresolved = "unreadable-bundle $: bundle.json does not resolve to a file inside the bundle directory"
 		wi, bsl    = "$.artifacts[0]", "$.artifacts[1]"
 		baseline   = "unreadable-artifact " + bsl + `.path: "artifacts/baseline.json" `
-		wiSHA      = "e7d95ce6f478a7f82dbca4bee40b67d11efe93cdb245a22a03a28703024fa143"
 	)
 	for variant, want := range map[string][]string{
 		"valid":           {"result: ok manifest_sha256=fbc1794d24f6d94d47c2d62021734bf5efdea5d34093f27d6bd905000f546220 (nothing staged or started)"},
-		"tampered-digest": {"digest-mismatch " + wi + ".sha256: declared " + wiSHA + ", exact bytes hash to be9861302628ee7be1c9586b626e6d9ecf1403d9dec73e1f148e037140a1ade6"},
+		"tampered-digest": {"digest-mismatch " + wi + `.sha256: declared "` + wiSHA + `", exact bytes hash to be9861302628ee7be1c9586b626e6d9ecf1403d9dec73e1f148e037140a1ade6`},
 		"unsupported-version": {
 			"unsupported-schema " + bsl + `.schema: artifact schema "Baseline/v2" is not supported`,
 			`unsupported-job $.jobs[0]: job/version "implementer.implementation/v2" is not supported`},
@@ -142,6 +144,11 @@ func TestBundleInspectFixtures(t *testing.T) {
 			`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "id: ` + bundleID + `"`,
 			"invalid-type $.jobs: want array",
 			"invalid-revision $.revision: want integer >= 1, got 0"},
+		"digest-control-suffix": {`invalid-digest ` + wi + `.sha256: want 64 lowercase hex SHA-256, got "` + wiSHA + `\x1b[2K\rresult: ok"`},
+		"non-string-jobs": {
+			"unsupported-job $.jobs[0]: job/version 7 is not supported",
+			"unsupported-job $.jobs[1]: job/version null is not supported",
+			"unsupported-job $.jobs[2]: job/version object is not supported"},
 		"artifact-id-pattern": {`invalid-id ` + wi + `.id: want wi_<32 lowercase hex>, got "wi_8887FFC730f707abb82bb7cb7068e914"`},
 		"id-prefix":           {`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "wi_8d0e1c6f026fef7621a0c7b017f12c12"`},
 		"id-length":           {`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "` + bundleID + `0"`},

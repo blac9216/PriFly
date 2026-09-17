@@ -125,7 +125,7 @@ func (c *checker) artifact(root *os.Root, p string, a any) {
 	if content, reason := ReadRegular(root, name); reason != "" {
 		c.add(p+".path", "unreadable-artifact", "%s %s", Quote(name), reason)
 	} else if got := fmt.Sprintf("%x", sha256.Sum256(content)); wantOK && got != want {
-		c.add(p+".sha256", "digest-mismatch", "declared %s, exact bytes hash to %s", want, got)
+		c.add(p+".sha256", "digest-mismatch", "declared %s, exact bytes hash to %s", Quote(want), got)
 	}
 }
 
