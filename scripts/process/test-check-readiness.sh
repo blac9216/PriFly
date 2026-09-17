@@ -518,4 +518,78 @@ replace "$fixture_root/pr-item-heading.md" $'\n## Verified expectation\n' $'\n- 
 run_case 'PR: a "## " heading inside a list item is not counted (fail closed)' 1 \
   'MISSING: all template sections present (missing: Verified expectation)' \
   --root "$root" --body "$fixture_root/pr-item-heading.md" "${pr[@]}"
+# A less-indented line ends the item an HTML comment opened in, and GitHub then hides every line
+# up to a raw "-->" (not modelled: the rest of the body); a "-->" inside the item still closes it.
+checkbox_case comment-item-ends "$ac_h" $'- a\n  <!--\n<!-- c -->\n     - [ ] quoted\n' \
+  'checkbox in indented code after a comment that outlived its - item fails'
+checkbox_case comment-item-text "$ac_h" $'- a\n  <!--\ntext -->\n- [ ] Q1\n' \
+  'checkbox after a comment whose - item ended before its --> fails'
+checkbox_case comment-item-line "$ac_h" $'- <!--\n  - [ ] Q1\n' \
+  'checkbox inside a comment opened on a - item line fails'
+checkbox_case comment-item-closed "$ac_h" $'- a\n  <!--\n  -->\n- [ ] Q1\n' \
+  'checkbox after a comment closed inside its - item passes' 0
+checkbox_case comment-item-reclose "$ac_h" $'- a\n  <!--\nx\n  -->\n- [ ] Q1\n' \
+  'checkbox after a comment whose - item ended before an indented --> fails'
+checkbox_case comment-item-line-text "$ac_h" $'- <!--\nx -->\n- [ ] Q1\n' \
+  'checkbox after a comment opened on a - item line that ended before its --> fails'
+checkbox_case comment-item-blank "$ac_h" $'- a\n  <!--\n\n  -->\n- [ ] Q1\n' \
+  'checkbox after a comment holding a blank line and closed inside its - item passes' 0
+checkbox_case comment-item-deeper "$ac_h" $'- a\n   <!--\n  x -->\n- [ ] Q1\n' \
+  'checkbox after a comment indented past its - item and closed inside it passes' 0
+checkbox_case comment-item-one-less "$ac_h" $'- a\n  <!--\n x -->\n- [ ] Q1\n' \
+  'checkbox after a comment whose - item ended at a line one column short of it fails'
+checkbox_case comment-nested-item "$ac_h" $'- a\n  - b\n    <!--\n  x -->\n- [ ] Q1\n' \
+  'checkbox after a comment whose nested - item ended before its --> fails'
+checkbox_case comment-nested-item-line "$ac_h" $'- - <!--\n  x -->\n- [ ] Q1\n' \
+  'checkbox after a comment opened on a nested - item line that ended before its --> fails'
+checkbox_case comment-item-line-para "$ac_h" $'- <!--\n  -->\n2. ```text\n   - [ ] Q1\n' \
+  'checkbox inside a fence opened after a comment closed in its - item line fails'
+checkbox_case comment-item-line-closed "$ac_h" $'- <!-- x -->\n- [ ] Q1\n' \
+  'checkbox after a comment opened and closed on a - item line passes' 0
+# In PR mode only the checks for a line that must be present fail closed after such a comment:
+# a later Refs line is still checked for its form and for a closing keyword naming it.
+pr_body item-comment-refs $'Closes #154\nThis also fixes #57 in part.\n'
+replace "$fixture_root/pr-item-comment-refs.md" $'Body text for Verified expectation.\n' \
+  $'- n/a\n  <!--\n<!-- c -->\nRefs #57\nRemainder: the rest\nClosing issue: #133\n'
+run_case 'PR: a Refs line after a comment that outlived its list item is still checked' 1 \
+  'MISSING: no closing keyword for Refs #57 anywhere in the body' \
+  --root "$root" --body "$fixture_root/pr-item-comment-refs.md" "${pr[@]}"
+pr_body item-comment-hidden ''
+replace "$fixture_root/pr-item-comment-hidden.md" $'Body text for Verified expectation.\n' \
+  $'- n/a\n  <!--\nx\n'"$pr_refs"
+run_case 'PR: a Refs line hidden after a comment that outlived its list item is not counted as present' 1 \
+  "MISSING: a Closes #<N> line or a Refs #<N> line present" \
+  --root "$root" --body "$fixture_root/pr-item-comment-hidden.md" "${pr[@]}"
+pr_body refs-trailing-space $'Closes #154\nThis fixes #57 partly.\nRefs #57 \nRemainder: r\nClosing issue: #133\n'
+run_case 'PR: a Refs line with trailing spaces is still checked' 1 \
+  'MISSING: no closing keyword for Refs #57 anywhere in the body' \
+  --root "$root" --body "$fixture_root/pr-refs-trailing-space.md" "${pr[@]}"
+pr_body refs-text-after $'Refs #57 x\n'
+run_case 'PR: a Refs line with text after the number is not counted as present' 1 \
+  "MISSING: a Closes #<N> line or a Refs #<N> line present" \
+  --root "$root" --body "$fixture_root/pr-refs-text-after.md" "${pr[@]}"
+# A line indented 4 or more columns that continues a paragraph is text, not a checkbox, here after
+# a fence the checker reads as indented code in a quoted list item; 5 spaces after a quoted list
+# marker start indented code.
+checkbox_case para-indented "$ac_h" $'Then:\n    - [ ] Paragraph text, not a checkbox.\n' \
+  'checkbox-shaped line continuing a paragraph 4 columns in fails'
+checkbox_case quote-item-fence-code "$ac_h" $'> - \n>     ~~~\n>\t- - [ ] Q1\n       - [ ] Q2\n' \
+  'checkbox in indented code after a fence in an empty quoted list item fails'
+checkbox_case quote-item-code-5 "$ac_h" $'> -     code\n    - [ ] Q1\n' \
+  'checkbox in indented code after a quoted list item and 5 spaces of indented code fails'
+checkbox_case quote-item-code-5-text "$ac_h" $'> -     code\ntext\n2. ```text\n   - [ ] Q1\n' \
+  'checkbox after a paragraph and a 2. ```text line following 5 spaces of quoted item code passes' 0
+# The paragraph rule rejects the 4-column checkbox the cases above end on, so each ends here in a
+# paragraph, a 2. ```text line and a checkbox, which GitHub renders only if no paragraph was left
+# open before it.
+para_ends=(
+  quote-fence-code $'> ```text\n> x\n'  quote-item-fence $'> - ```\n>   x\n    y\n'  marker-5col $'-     code\n'
+  quote-close-4 $'> ````text\n> ~~~~\n> x\n'  quote-close-3 $'> ````text\n> ```\n> x\n'  quote-empty-code $'>\n'
+  quote-heading-code $'> # Note\n'  quote-close-indent $'> ```\n>     ```\n> x\n'  quote-code $'>     code\n'
+  quote-code-fence $'>     ```\n> ```\n> x\n'  quote-nested-reopen $'> > ```\n> ```\n> x\n'
+)
+for ((k = 0; k < ${#para_ends[@]}; k += 2)); do
+  checkbox_case "${para_ends[k]}-para" "$ac_h" "${para_ends[k + 1]}"$'text\n2. ```text\n   - [ ] Q1\n' \
+    "checkbox after the ${para_ends[k]} lines, a paragraph and a 2. \`\`\`text line passes" 0
+done
 echo "test-check-readiness: $passed cases passed"
