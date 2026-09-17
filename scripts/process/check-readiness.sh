@@ -155,22 +155,25 @@ if missing_anchors:
 # and a quoted fence running on over "> " lines of its quote depth until a closing run
 # indented at most 3 columns. After a marker followed by 5 or more columns, the content column
 # is marker width + 1 and the rest of the line is indented code. A line indented 4 or more
-# columns that continues a paragraph is text, never a checkbox. An HTML comment opened in a list
-# item, on its line or below it, ends with the item when a non-blank line indented less than the
-# item's content column comes before its "-->", but GitHub's HTML still hides every line after it
-# up to the next "-->" it emits as raw HTML, which is not modelled. Every check that looks for
-# something present reads such a comment as hiding the rest of the body (fail closed): the heading
-# check reports a later heading GitHub renders as missing, and the checkbox check and the "Closes
-# #<N> or Refs #<N> line present" check do not count a later checkbox, Closes or Refs line GitHub
-# renders (false FAILs). The Refs form checks read every Refs line with that comment ending at the
-# line that ends its item, a superset of the lines GitHub renders, so a Refs line GitHub hides after
-# it is still checked (a possible false FAIL); the closing-keyword search reads the raw body. Not
-# modelled: the columns of list items inside a quote (a fence opened in one reads as indented code,
-# so a line indented 4 or more columns after the quote can read as paragraph text, which is never a
-# checkbox), HTML blocks other than comments, an HTML comment opened in a quote (its later lines
-# stay visible, though GitHub hides them once the quote ends: a possible false PASS), setext
-# headings or headings inside list items counting as "## " headings, and a setext underline that
-# turns a checkbox item's content into a heading (a possible false PASS).
+# columns that continues a paragraph is text, never a checkbox, and so is a checkbox item line
+# whose paragraph a setext underline ("=" or "-" run) at the item's depth turns into a heading. An
+# HTML comment block opened in a list item or a quote, on its line or below it, ends at the line
+# holding its "-->", or before it where its container ends: at a non-blank line indented less than
+# the item's content column, or a line that is not a "> " line of the quote's depth. GitHub then
+# parses the HTML, where a comment ends at the first "-->" or "--!>" and a "<!--" after that on a
+# line of the block opens another. A comment still open when its block ends hides every later line
+# up to the next "-->" or "--!>" GitHub emits as raw HTML, which is not modelled. Every check that
+# looks for something present reads such a comment as hiding the rest of the body, and the raw text
+# after a "--!>" in a block as hidden (fail closed): the heading check reports a later heading
+# GitHub renders as missing, and the checkbox check and the "Closes #<N> or Refs #<N> line present"
+# check do not count a later checkbox, Closes or Refs line GitHub renders (false FAILs). The Refs
+# form checks read every Refs line with that comment ending where its block ends, and the lines
+# after a "--!>" in a block, a superset of the lines GitHub renders, so a Refs line GitHub hides
+# after it is still checked (a possible false FAIL); the closing-keyword search reads the raw body.
+# Not modelled: the columns of list items inside a quote, apart from the content column that ends a
+# comment opened in one (a fence opened in one reads as indented code, so a line indented 4 or more
+# columns after the quote can read as paragraph text, which is never a checkbox), HTML blocks other
+# than comments, and setext headings or headings inside list items counting as "## " headings.
 MARKER_RE = re.compile(r'(?:[-*+]|(\d{1,9})[.)])(?:[ \t]+|$)')
 FENCE_OPEN_RE = re.compile(r'(`{3,}|~{3,})(.*)$')
 FENCE_CLOSE_RE = re.compile(r'^(`{3,}|~{3,})\s*$')
@@ -179,6 +182,7 @@ SETEXT_RE = re.compile(r'(?:=+|-+)$')
 BREAK_RE = re.compile(r'(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$')
 QUOTE_RE = re.compile(r' {0,3}> ?')
 ITEM_PREFIX_RE = re.compile(r'(?:(?:[+*-]|\d{1,9}[.)])(?:\s+|$))+')
+COMMENT_END_RE = re.compile(r'--!?>')
 
 def clean_lines(text):
     return [line for _, line in clean_numbered(text)]
@@ -212,15 +216,55 @@ def quote_open(s):
     f = not code and fence_at(rest, 0)
     return ((f.group(1), depth, bool(m)) if f else None), not code and rest != '' and not starts_block(rest)
 
+def comment_open(s, inside=False):
+    # whether GitHub's HTML parser is inside a comment at the end of s, given whether it was at its
+    # start: "<!--" opens a comment unless ">" or "->" follows it, and "-->" or "--!>" ends one
+    pos = 0
+    while True:
+        if inside:
+            end = COMMENT_END_RE.search(s, pos)
+            if not end:
+                return True
+            inside, pos = False, end.end()
+        else:
+            pos = s.find('<!--', pos)
+            if pos < 0:
+                return False
+            pos += 4
+            inside = not s.startswith(('>', '->'), pos)
+
+def quote_comment(s):
+    # s starts with ">": (quote depth, content column of the list item in the quote or 0) when the
+    # quoted content opens an HTML comment block, else None; the second value is the comment's text
+    content, depth = unquote(s)
+    c0 = content.lstrip(' ')
+    m = ITEM_PREFIX_RE.match(c0)
+    start = len(content) - len(c0) + (m.end() if m else 0)
+    if len(content) - len(c0) > 3 or m and m.group(0)[-5:] == 5 * ' ' or not content.startswith('<!--', start):
+        return None, ''
+    return (depth, start if m else 0), content[start:]
+
+def quote_left(s, quote):
+    # whether s, from the content column of the list item the quote is in, is not a line of the
+    # comment's quote (depth, item column) or of the list item inside it
+    if quote is None:
+        return False
+    content, n = unquote(s, quote[0])
+    return n < quote[0] or bool(content.strip()) and len(content) - len(content.lstrip(' ')) < quote[1]
+
 def clean_numbered(text, para=None, fail_closed=True):
     # (index, line) for lines outside HTML comments and fenced or indented code, in document
     # order, where index is the line's position in text.splitlines(). A closing fence uses
     # the opening fence's character, so a ``` line inside an open ~~~ fence is content. If
     # given, the set `para` collects the index of each line indented 4 or more columns past
-    # its container that continues a paragraph (text, never a list item). With fail_closed False, a
-    # comment that outlives its list item ends at the line that ends the item, which is read as usual.
+    # its container that continues a paragraph (text, never a list item), and the first line of each
+    # paragraph a setext underline turns into a heading. With fail_closed False, a comment whose block
+    # ends while it is still open ends there, and the lines after it are read as usual; the lines after
+    # a "--!>" in a comment block are kept.
     out, in_comment = [], False
     comment_col, gone = 0, False  # the content column of the item a comment opened in, and whether it ended
+    hidden, comment_quote = False, None  # whether the HTML comment is open; the quote it opened in
+    para_first = 0  # the index of the open paragraph's first line
     fence_char, fence_len, fence_col = None, 0, 0
     items, in_para, para_depth = [], False, 0  # content columns of the open list items
     empty_item = False  # the previous line opened an item with no content
@@ -231,12 +275,19 @@ def clean_numbered(text, para=None, fail_closed=True):
         stripped = line.strip()
         indent = len(line) - len(line.lstrip())
         if in_comment:
-            # a non-blank line indented less than the item a comment opened in ends the item and the
-            # comment block, but GitHub still hides every line up to the next "-->" it emits as raw
-            # HTML; which one that is, is not modelled, so fail closed runs the comment to the end
-            gone = gone or bool(stripped) and indent < comment_col
-            if fail_closed or not gone:
-                in_comment = gone or '-->' not in line
+            # a line that ends the container a comment opened in ends the comment block; if the HTML
+            # comment is still open, GitHub hides every line up to the next "-->" or "--!>" it emits as
+            # raw HTML. Which one that is, is not modelled, so fail closed runs the comment to the end
+            left = bool(stripped) and indent < comment_col or quote_left(line[comment_col:], comment_quote)
+            gone = gone or left and hidden
+            if not (gone or left):
+                if not (fail_closed or hidden):  # raw HTML text after a "--!>"
+                    out.append((i, raw))
+                hidden = comment_open(line, hidden)
+                if '-->' in line:
+                    in_comment = gone = hidden
+                continue
+            if fail_closed and gone:
                 continue
             in_comment = False
         was_empty, empty_item = empty_item, False
@@ -270,6 +321,8 @@ def clean_numbered(text, para=None, fail_closed=True):
             if m and in_para and para_depth == depth and (not line[m.end():].strip()
                                                           or (m.group(1) and int(m.group(1)) != 1)):
                 m = None
+            if in_para and para_depth == depth and SETEXT_RE.match(stripped) and para is not None:
+                para.add(para_first)  # a setext underline: the paragraph is a heading, never a checkbox
             if in_para and not m and not starts_block(stripped):
                 # a paragraph continuation line (lazy if depth < len(items)), or its setext underline
                 in_para = not (para_depth == depth and SETEXT_RE.match(stripped))
@@ -278,8 +331,9 @@ def clean_numbered(text, para=None, fail_closed=True):
             del items[depth:]
             if stripped.startswith('<!--'):
                 in_para = False
-                if '-->' not in stripped:
-                    in_comment, comment_col, gone = True, (items[-1] if items else 0), False
+                if '-->' not in stripped or comment_open(stripped):
+                    in_comment, comment_col, gone = True, (items[-1] if items else 0), '-->' in stripped
+                    hidden, comment_quote = comment_open(stripped), None
                     continue
             elif stripped.startswith('>'):
                 content, depth_q = unquote(stripped, was_quoted[1]) if was_quoted else ('', 0)
@@ -290,6 +344,10 @@ def clean_numbered(text, para=None, fail_closed=True):
                     item_quote = was_quoted[2]  # the item's columns are not modelled
                 else:
                     (quote_fence, in_para), para_depth = quote_open(stripped), -1
+                    q, c = quote_comment(stripped)
+                    if q and ('-->' not in c or comment_open(c)):
+                        in_comment, comment_col, gone = True, (items[-1] if items else 0), '-->' in c
+                        hidden, comment_quote = comment_open(c), q
             else:
                 pos, code = indent, False
                 while m:
@@ -305,10 +363,15 @@ def clean_numbered(text, para=None, fail_closed=True):
                     continue
                 if line.startswith('>', pos):  # a quote opened on a list item line
                     (quote_fence, in_para), para_depth = quote_open(line[pos:]), -1
+                    q, c = quote_comment(line[pos:])
+                    if q and ('-->' not in c or comment_open(c)):
+                        in_comment, comment_col, gone = True, items[-1], '-->' in c
+                        hidden, comment_quote = comment_open(c), q
                     out.append((i, raw))
                     continue
-                if line.startswith('<!--', pos) and '-->' not in line:  # a comment opened on an item line
-                    in_comment, comment_col, gone, in_para = True, items[-1], False, False
+                if line.startswith('<!--', pos) and ('-->' not in line or comment_open(line)):  # on an item line
+                    in_comment, comment_col, gone, in_para = True, items[-1], '-->' in line, False
+                    hidden, comment_quote = comment_open(line), None
                     continue
                 f = fence_at(line, pos)
                 if f:
@@ -320,7 +383,7 @@ def clean_numbered(text, para=None, fail_closed=True):
                 elif HEADING_RE.match(line, pos) or BREAK_RE.match(stripped) or empty_item:
                     in_para = False
                 elif not in_para or pos > indent:  # it may continue a quoted item's paragraph
-                    in_para, para_depth = True, (-1 if after_item_quote else len(items))
+                    in_para, para_depth, para_first = True, (-1 if after_item_quote else len(items)), i
         out.append((i, raw))
     return out
 

@@ -592,4 +592,67 @@ for ((k = 0; k < ${#para_ends[@]}; k += 2)); do
   checkbox_case "${para_ends[k]}-para" "$ac_h" "${para_ends[k + 1]}"$'text\n2. ```text\n   - [ ] Q1\n' \
     "checkbox after the ${para_ends[k]} lines, a paragraph and a 2. \`\`\`text line passes" 0
 done
+# A comment opened in a quote ends with the quote, and GitHub hides what follows while the comment is
+# open in its HTML, where a comment also ends at "--!>" and a "<!--" after a "-->" opens another.
+checkbox_case quote-comment-ends "$ac_h" $'><!--\n  - [ ] Q1\n> 2. a\n' \
+  'checkbox after a comment whose quote ended before its --> fails'
+checkbox_case quote-comment-closed "$ac_h" $'> <!--\n> x\n> -->\n- [ ] Q1\n' \
+  'checkbox after a comment closed inside its quote passes' 0
+checkbox_case quote-comment-blank "$ac_h" $'> <!--\n\n> -->\n- [ ] Q1\n' \
+  'checkbox after a comment whose quote ended at a blank line fails'
+checkbox_case quote-comment-nested "$ac_h" $'> > <!--\n> -->\n- [ ] Q1\n' \
+  'checkbox after a comment whose nested quote ended before its --> fails'
+checkbox_case quote-comment-indented "$ac_h" $'>   <!--\n> -->\n- [ ] Q1\n' \
+  'checkbox after an indented comment closed less indented in its quote passes' 0
+checkbox_case quote-comment-code "$ac_h" $'>     <!--\n- [ ] Q1\n' \
+  'checkbox after a quote holding <!-- as indented code passes' 0
+checkbox_case quote-item-comment "$ac_h" $'> - <!--\n>\n>   -->\n- [ ] Q1\n' \
+  'checkbox after a comment closed inside its quoted - item passes' 0
+checkbox_case quote-item-comment-ends "$ac_h" $'> - <!--\n> -->\n- [ ] Q1\n' \
+  'checkbox after a comment whose quoted - item ended before its --> fails'
+checkbox_case quote-item-code-comment "$ac_h" $'> -     <!--\n- [ ] Q1\n' \
+  'checkbox after a quoted - item holding <!-- as indented code passes' 0
+checkbox_case item-quote-comment-ends "$ac_h" $'- > <!--\n> -->\n- [ ] Q1\n' \
+  'checkbox after a comment in a quote on a - item line that ended before its --> fails'
+checkbox_case quote-then-item-comment "$ac_h" $'> <!--\n> -->\n- a\n  <!--\n  -->\n- [ ] Q1\n' \
+  'checkbox after a closed quoted comment and a comment closed inside its - item passes' 0
+checkbox_case quote-comment-bang "$ac_h" $'> <!-- x --!>\n- [ ] Q1\n' \
+  'checkbox after a quoted comment ended by --!> passes' 0
+checkbox_case comment-reopen "$ac_h" $'<!-- a --> <!--\n\n- [ ] Q1\n' \
+  'checkbox after a comment reopened on the line that closed one fails'
+checkbox_case comment-reopen-text "$ac_h" $'<!-- a --> <!--\n-->\n- [ ] Q1\n' \
+  'checkbox after a reopened comment and a --> paragraph line fails'
+checkbox_case quote-comment-reopen "$ac_h" $'> <!-- a --> <!--\n> -->\n- [ ] Q1\n' \
+  'checkbox after a comment reopened in a quote and a quoted --> line fails'
+checkbox_case item-line-reopen "$ac_h" $'- <!-- a --> <!--\n  -->\n- [ ] Q1\n' \
+  'checkbox after a comment reopened on a - item line and a --> line in the item fails'
+checkbox_case comment-close-reopen "$ac_h" $'<!--\n--> <!--\n\n- [ ] Q1\n' \
+  'checkbox after a comment reopened on its closing line fails'
+checkbox_case comment-bang "$ac_h" $'<!--\n--!>\n- [ ] Q1\n-->\n' \
+  'checkbox-shaped raw text after --!> inside a comment block fails'
+checkbox_case comment-bang-item-ends "$ac_h" $'- a\n  <!--\n  --!>\nx\n- [ ] Q1\n' \
+  'checkbox after a comment ended by --!> before its - item ended passes' 0
+checkbox_case comment-bang-open "$ac_h" $'- a\n  <!-- x --!>\nx\n- [ ] Q1\n' \
+  'checkbox after a comment ended by --!> on its opening line before its - item ended passes' 0
+checkbox_case item-line-bang "$ac_h" $'- <!-- x --!>\nx\n- [ ] Q1\n' \
+  'checkbox after a comment ended by --!> on a - item line passes' 0
+checkbox_case comment-abrupt "$ac_h" $'<!-->\n- [ ] Q1\n' 'checkbox after an empty <!--> comment passes' 0
+checkbox_case comment-abrupt-dash "$ac_h" $'<!--->\n- [ ] Q1\n' 'checkbox after an empty <!---> comment passes' 0
+pr_body comment-bang-refs $'Closes #154\nThis fixes #57 partly.\n'
+replace "$fixture_root/pr-comment-bang-refs.md" $'Body text for Verified expectation.\n' \
+  $'<!--\n--!>\n\nRefs #57\nRemainder: r\nClosing issue: #133\n-->\n'
+run_case 'PR: a Refs line after a comment ended by --!> is still checked' 1 \
+  'MISSING: no closing keyword for Refs #57 anywhere in the body' \
+  --root "$root" --body "$fixture_root/pr-comment-bang-refs.md" "${pr[@]}"
+# A setext underline at a checkbox item's depth makes the item's paragraph a heading, not a checkbox.
+checkbox_case item-setext "$ac_h" $'- [ ] Q1\n  ===\n' 'checkbox item turned into a setext heading fails'
+checkbox_case item-setext-dash "$ac_h" $'- [ ] Q1\n  ---\n' 'checkbox item turned into a --- setext heading fails'
+checkbox_case item-setext-lazy "$ac_h" $'- [ ] Q1\nlazy\n  ===\n' \
+  'checkbox item and a lazy line turned into a setext heading fails'
+checkbox_case item-setext-lazy-underline "$ac_h" $'- [ ] Q1\n ===\n' \
+  'checkbox item followed by a lazy === text line passes' 0
+checkbox_case item-setext-outer "$ac_h" $'- a\n  - [ ] Q1\n  ===\n' \
+  'checkbox in a nested item followed by === at the outer item column passes' 0
+checkbox_case item-setext-blank "$ac_h" $'- [ ] Q1\n\n  ===\n' \
+  'checkbox item followed by a blank line and === passes' 0
 echo "test-check-readiness: $passed cases passed"
