@@ -13,20 +13,22 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/blac9216/PriFly/internal/bootstrap"
 )
 
 const usage = `usage: prifly-bootstrap -repository URL -revision COMMIT -factory-id ID
-    -fetch-ssh-auth-sock PATH -age-identity-file PATH -work-dir DIR
+    -fetch-ssh-auth-sock PATH -fetch-known-hosts PATH -age-identity-file PATH -work-dir DIR
 
--fetch-ssh-auth-sock is required: the absolute path of the SSH agent socket that
-holds the separately held fetch credential. Git inherits no environment. It gets
-exactly PATH, HOME set to a private work directory, fixed LC_ALL,
-GIT_CONFIG_NOSYSTEM, GIT_CONFIG_GLOBAL and GIT_TERMINAL_PROMPT, and SSH_AUTH_SOCK
-from this flag. Every input is a reference; never pass a credential or key value.
+-fetch-ssh-auth-sock (SSH agent socket holding the separately held fetch
+credential) and -fetch-known-hosts (regular file of trusted host keys) are
+required absolute paths of letters, digits and ._+- only. Git inherits no
+environment: it gets PATH, HOME set to a private work directory, fixed LC_ALL,
+GIT_CONFIG_NOSYSTEM, GIT_CONFIG_GLOBAL, GIT_TERMINAL_PROMPT and GIT_SSH_COMMAND,
+under which ssh reads no ssh config, default key or other agent and trusts only
+-fetch-known-hosts. Every input is a reference; never pass a credential or key
+value. Exit status: 0 existing Factory state discovered, 1 blocked, 2 usage.
 `
 
 // discoverer is the admitted remote-discovery provider. None is admitted yet (the
@@ -50,6 +52,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, d bootstr
 	fs.StringVar(&req.Revision, "revision", "", "")
 	fs.StringVar(&req.FactoryID, "factory-id", "", "")
 	fs.StringVar(&req.SSHAuthSock, "fetch-ssh-auth-sock", "", "")
+	fs.StringVar(&req.KnownHostsFile, "fetch-known-hosts", "", "")
 	fs.StringVar(&identity, "age-identity-file", "", "")
 	fs.StringVar(&work, "work-dir", "", "")
 	if fs.Parse(args) != nil || fs.NArg() != 0 || req.Repository == "" || req.Revision == "" ||
@@ -57,8 +60,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, d bootstr
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
-	if !filepath.IsAbs(req.SSHAuthSock) {
-		fmt.Fprintln(stderr, "prifly-bootstrap: blocked: an explicit fetch credential reference (-fetch-ssh-auth-sock, absolute path) is required")
+	if req.SSHAuthSock == "" || req.KnownHostsFile == "" {
+		fmt.Fprintln(stderr, "prifly-bootstrap: blocked: explicit fetch credential and known-hosts references (-fetch-ssh-auth-sock, -fetch-known-hosts) are required")
 		return 1
 	}
 	v, err := bootstrap.Fetch(ctx, req, work)

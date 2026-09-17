@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,9 +25,6 @@ const (
 	inherits = "PRIFLY_INHERITED_CANARY"
 )
 
-// gitEnvAllowed is Fetch's documented allowlist plus the names git and sh add themselves.
-var gitEnvAllowed = "PATH HOME LC_ALL GIT_CONFIG_NOSYSTEM GIT_CONFIG_GLOBAL GIT_TERMINAL_PROMPT SSH_AUTH_SOCK GIT_EXEC_PATH GIT_PROTOCOL PWD"
-
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid"}, args...)...)
@@ -43,10 +41,13 @@ func git(t *testing.T, dir string, args ...string) string {
 func fixture(t *testing.T) (url, rev, identityFile, envLog string) {
 	t.Helper()
 	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal("identity fixture")
+	}
 	identityFile, repo, bin := filepath.Join(t.TempDir(), "identity"), t.TempDir(), t.TempDir()
 	var sealed bytes.Buffer
-	w, err2 := age.Encrypt(&sealed, id.Recipient())
-	if err != nil || err2 != nil || os.WriteFile(identityFile, []byte(id.String()+"\n"), 0o600) != nil {
+	w, err := age.Encrypt(&sealed, id.Recipient())
+	if err != nil || os.WriteFile(identityFile, []byte(id.String()+"\n"), 0o600) != nil {
 		t.Fatal("identity fixture")
 	}
 	fmt.Fprintf(w, `{"schema":%q,"factory_id":%q,"secrets":[{"id":"r2","purpose":"replication","generation":1,"value":%q}]}`, bootstrap.SecretSchema, factory, canary)
@@ -84,37 +85,45 @@ func (p *provider) Discover(_ context.Context, _ bootstrap.Manifest, path string
 
 func TestBootstrapCLI(t *testing.T) {
 	url, rev, identityFile, envLog := fixture(t)
-	sock := filepath.Join(t.TempDir(), "explicit-agent.sock")
+	refs, fd2, stderrFile := t.TempDir(), os.Stderr, filepath.Join(t.TempDir(), "fd2")
+	sock, knownHosts := filepath.Join(refs, "agent.sock"), filepath.Join(refs, "known_hosts")
+	listener, err := net.Listen("unix", sock)
+	os.Stderr, _ = os.Create(stderrFile) // the flag package's default output
+	if err != nil || os.WriteFile(knownHosts, nil, 0o600) != nil {
+		t.Fatal("reference fixture")
+	}
+	t.Cleanup(func() { listener.Close(); os.Stderr = fd2 })
+	t.Chdir(refs) // so the relative reference names an existing socket
 	t.Setenv(inherits, canary)
 	t.Setenv("SSH_AUTH_SOCK", "/inherited-agent.sock")
 	outage := errors.New("bucket prifly-canary-bucket unreachable: " + canary)
+	unusable := "ssh agent socket or known-hosts reference unusable"
 	for name, c := range map[string]struct {
-		d        *provider
-		drop     string // flag omitted from the full argument list
-		identity string
-		code     int
-		output   string
+		d      *provider
+		extra  []string // appended to the full argument list; a repeated flag overrides the earlier value
+		code   int
+		output string
 	}{
-		"existing factory":   {&provider{id: factory}, "", identityFile, 0, "existing Factory state discovered at revision " + rev},
-		"provider outage":    {&provider{err: outage}, "", identityFile, 1, bootstrap.ErrDiscovery.Error()},
-		"missing config":     {nil, "", identityFile, 1, bootstrap.ErrDiscoveryConfig.Error()},
-		"absent state":       {&provider{}, "", identityFile, 1, bootstrap.ErrNoFactory.Error()},
-		"missing key":        {&provider{id: factory}, "", identityFile + "-absent", 1, bootstrap.ErrIdentity.Error()},
-		"missing credential": {&provider{id: factory}, "-fetch-ssh-auth-sock", identityFile, 1, "explicit fetch credential reference"},
-		"missing input":      {&provider{id: factory}, "-factory-id", identityFile, 2, "usage: prifly-bootstrap"},
+		"existing factory":      {&provider{id: factory}, nil, 0, "existing Factory state discovered at revision " + rev},
+		"provider outage":       {&provider{err: outage}, nil, 1, bootstrap.ErrDiscovery.Error()},
+		"missing config":        {nil, nil, 1, bootstrap.ErrDiscoveryConfig.Error()},
+		"absent state":          {&provider{}, nil, 1, bootstrap.ErrNoFactory.Error()},
+		"missing key":           {&provider{id: factory}, []string{"-age-identity-file", identityFile + "-absent"}, 1, bootstrap.ErrIdentity.Error()},
+		"missing credential":    {&provider{id: factory}, []string{"-fetch-ssh-auth-sock", ""}, 1, "explicit fetch credential and known-hosts references"},
+		"missing known hosts":   {&provider{id: factory}, []string{"-fetch-known-hosts", ""}, 1, "explicit fetch credential and known-hosts references"},
+		"non-socket credential": {&provider{id: factory}, []string{"-fetch-ssh-auth-sock", knownHosts}, 1, unusable},
+		"relative credential":   {&provider{id: factory}, []string{"-fetch-ssh-auth-sock", "agent.sock"}, 1, unusable},
+		"absent known hosts":    {&provider{id: factory}, []string{"-fetch-known-hosts", knownHosts + "-absent"}, 1, unusable},
+		"missing input":         {&provider{id: factory}, []string{"-factory-id", ""}, 2, usage},
+		"positional argument":   {&provider{id: factory}, []string{"extra"}, 2, usage},
+		"unknown flag":          {&provider{id: factory}, []string{"-verbose"}, 2, usage},
 	} {
 		t.Run(name, func(t *testing.T) {
 			work, tmp := t.TempDir(), t.TempDir()
 			t.Setenv("TMPDIR", tmp)
 			os.Remove(envLog)
-			args := []string{"-repository", url, "-revision", rev, "-factory-id", factory, "-fetch-ssh-auth-sock", sock,
-				"-age-identity-file", c.identity, "-work-dir", work}
-			for i := range args {
-				if args[i] == c.drop {
-					args = append(args[:i], args[i+2:]...)
-					break
-				}
-			}
+			args := append([]string{"-repository", url, "-revision", rev, "-factory-id", factory, "-fetch-ssh-auth-sock", sock,
+				"-fetch-known-hosts", knownHosts, "-age-identity-file", identityFile, "-work-dir", work}, c.extra...)
 			var stdout, stderr bytes.Buffer
 			d := bootstrap.Discoverer(nil)
 			if c.d != nil {
@@ -122,10 +131,10 @@ func TestBootstrapCLI(t *testing.T) {
 			}
 			code := run(context.Background(), args, &stdout, &stderr, d)
 			output := stdout.String() + stderr.String()
-			if code != c.code || !strings.Contains(output, c.output) {
+			if written, _ := os.ReadFile(stderrFile); code != c.code || !strings.Contains(output, c.output) || c.code == 2 && output != usage || len(written) != 0 {
 				t.Fatalf("exit %d, output %q; want exit %d with %q", code, output, c.code, c.output)
 			}
-			for _, secret := range []string{"prifly-canary", url, sock, identityFile, work} {
+			for _, secret := range []string{"prifly-canary", url, refs, identityFile, work} {
 				if strings.Contains(output, secret) {
 					t.Fatalf("output exposes %q: %q", secret, output)
 				}
@@ -136,22 +145,30 @@ func TestBootstrapCLI(t *testing.T) {
 			if left, _ := os.ReadDir(tmp); len(left) != 0 {
 				t.Fatalf("TMPDIR holds %d entries after the run", len(left))
 			}
-			if c.d != nil && c.d.sawValue != (c.identity == identityFile && c.code != 2 && c.drop == "") {
+			if c.d != nil && c.d.sawValue != (len(c.extra) == 0) {
 				t.Fatalf("provider saw decrypted secrets: %t", c.d.sawValue)
 			}
 			recorded, err := os.ReadFile(envLog)
-			if c.code == 2 || c.drop != "" {
+			if c.code == 2 || strings.HasPrefix(strings.Join(c.extra, " "), "-fetch") {
 				if err == nil {
-					t.Fatal("git ran although the inputs were incomplete")
+					t.Fatal("git ran although the inputs were incomplete or unusable")
 				}
 				return
 			}
-			if !strings.Contains(string(recorded), "\nSSH_AUTH_SOCK="+sock+"\n") && !strings.HasPrefix(string(recorded), "SSH_AUTH_SOCK="+sock+"\n") {
-				t.Fatalf("git's ssh did not receive the explicit credential reference:\n%s", recorded)
+			// Fetch's documented allowlist with its values, plus the variables git and sh set themselves.
+			want := map[string]string{"LC_ALL": "C", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_TERMINAL_PROMPT": "0",
+				"GIT_SSH_COMMAND": "ssh -F /dev/null -o IdentityFile=none -o IdentityAgent=" + sock + " -o UserKnownHostsFile=" + knownHosts +
+					" -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes -o BatchMode=yes", "GIT_EXEC_PATH": "*", "GIT_PROTOCOL": "*", "PWD": "*"}
+			if !strings.Contains("\n"+string(recorded), "\nGIT_SSH_COMMAND="+want["GIT_SSH_COMMAND"]+"\n") {
+				t.Fatalf("git's ssh did not receive the fixed command with the explicit references:\n%s", recorded)
 			}
 			for _, line := range strings.Split(strings.TrimSpace(string(recorded)), "\n") {
-				if name, _, _ := strings.Cut(line, "="); !strings.Contains(" "+gitEnvAllowed+" ", " "+name+" ") {
-					t.Fatalf("inherited variable %q reached git", name)
+				name, value, _ := strings.Cut(line, "=")
+				switch w, ok := want[name]; {
+				case name == "HOME" && strings.HasPrefix(value, work+string(os.PathSeparator)), name == "PATH" && strings.HasSuffix(value, os.Getenv("PATH")):
+				case ok && (w == "*" || w == value):
+				default:
+					t.Fatalf("variable %q=%q reached git", name, value)
 				}
 			}
 		})

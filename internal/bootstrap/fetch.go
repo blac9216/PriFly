@@ -5,6 +5,7 @@ package bootstrap
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -42,10 +43,10 @@ type Request struct {
 	Repository string // Git locator of the private bootstrap repository
 	Revision   string // exact commit id selected by the owner
 	FactoryID  string // expected Factory identity
-	// SSHAuthSock is the operator-supplied path of the SSH agent socket holding the separately
-	// held fetch credential. It is a reference, never a credential value, and is the only
-	// credential input passed to Git; empty passes none.
-	SSHAuthSock string
+	// SSHAuthSock (agent socket holding the separately held fetch credential) and KnownHostsFile
+	// are references, never credential values, and ssh's only agent and host-key inputs; empty
+	// selects no agent or no known host, so an ssh fetch fails closed.
+	SSHAuthSock, KnownHostsFile string
 }
 
 // Manifest is the non-secret bootstrap.json.
@@ -67,6 +68,8 @@ type Verified struct {
 var (
 	commitID = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	digest   = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	// refPath is an absolute path with no character the shell or ssh token expansion interprets.
+	refPath = regexp.MustCompile(`^(/[A-Za-z0-9._+-]+)+$`)
 )
 
 // hardening applies to every Git invocation: no hooks, and only the file,
@@ -78,14 +81,22 @@ var hardening = []string{"-c", "core.hooksPath=/dev/null", "-c", "protocol.allow
 // configuration, template, GIT_* or credential variable reaches the fetch. The
 // allowlist is exactly: inherited PATH; HOME set to the private work directory;
 // LC_ALL, GIT_CONFIG_NOSYSTEM, GIT_CONFIG_GLOBAL and GIT_TERMINAL_PROMPT fixed;
-// and SSH_AUTH_SOCK only from an explicit non-empty sshAuthSock.
-func isolatedEnv(home, sshAuthSock string) []string {
-	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "LC_ALL=C",
-		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0"}
-	if sshAuthSock != "" {
-		env = append(env, "SSH_AUTH_SOCK="+sshAuthSock)
-	}
-	return env
+// and GIT_SSH_COMMAND fixed. OpenSSH finds ~ through the password database, not
+// HOME, so that command reads no ssh configuration file (not even
+// /etc/ssh/ssh_config), no default identity, and no agent or known-hosts file
+// but the explicit references; it never prompts or accepts an unknown host key.
+func isolatedEnv(home, sshAuthSock, knownHosts string) []string {
+	return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "LC_ALL=C",
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0",
+		"GIT_SSH_COMMAND=ssh -F /dev/null -o IdentityFile=none -o IdentityAgent=" + cmp.Or(sshAuthSock, "none") +
+			" -o UserKnownHostsFile=" + cmp.Or(knownHosts, "/dev/null") +
+			" -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes -o BatchMode=yes"}
+}
+
+// validRef accepts "" or a refPath naming an existing non-symlink entry of type typ (0: regular file).
+func validRef(path string, typ os.FileMode) bool {
+	fi, err := os.Lstat(path)
+	return path == "" || refPath.MatchString(path) && err == nil && fi.Mode().Type() == typ
 }
 
 func runGit(ctx context.Context, env []string, dir string, args ...string) ([]byte, error) {
@@ -101,12 +112,15 @@ func Fetch(ctx context.Context, req Request, workDir string) (*Verified, error) 
 	if !commitID.MatchString(req.Revision) {
 		return nil, ErrMutableRef
 	}
+	if !validRef(req.SSHAuthSock, os.ModeSocket) || !validRef(req.KnownHostsFile, 0) {
+		return nil, fmt.Errorf("%w: ssh agent socket or known-hosts reference unusable", ErrFetch)
+	}
 	tmp, err := os.MkdirTemp(workDir, "prifly-bootstrap-")
 	if err != nil {
 		return nil, fmt.Errorf("%w: work directory unavailable", ErrFetch)
 	}
 	defer os.RemoveAll(tmp)
-	env, repo := isolatedEnv(tmp, req.SSHAuthSock), filepath.Join(tmp, "repo.git")
+	env, repo := isolatedEnv(tmp, req.SSHAuthSock, req.KnownHostsFile), filepath.Join(tmp, "repo.git")
 	git := func(args ...string) ([]byte, error) { return runGit(ctx, env, repo, args...) }
 
 	if _, err := runGit(ctx, env, tmp, "init", "--bare", "--quiet", "--template=", repo); err != nil {
