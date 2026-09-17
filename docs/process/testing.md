@@ -41,14 +41,16 @@ on `PATH`. CI does not use `actions/setup-go`. Locally, on Linux x86-64, from th
 repository root:
 
 ```sh
-GO_ARCHIVE=$(sed -n 's/^ *GO_ARCHIVE: //p' .github/workflows/go-checks.yml)
-GO_ARCHIVE_SHA256=$(sed -n 's/^ *GO_ARCHIVE_SHA256: //p' .github/workflows/go-checks.yml)
-curl -fsSL --proto '=https' --proto-redir '=https' -o "<scratch-path>/$GO_ARCHIVE" "https://go.dev/dl/$GO_ARCHIVE"
-(cd <scratch-path> && echo "$GO_ARCHIVE_SHA256  $GO_ARCHIVE" | sha256sum -c -)
+GO_ARCHIVE=$(sed -n 's/^ *GO_ARCHIVE: //p' .github/workflows/go-checks.yml) &&
+GO_ARCHIVE_SHA256=$(sed -n 's/^ *GO_ARCHIVE_SHA256: //p' .github/workflows/go-checks.yml) &&
+curl -fsSL --proto '=https' --proto-redir '=https' -o "<scratch-path>/$GO_ARCHIVE" "https://go.dev/dl/$GO_ARCHIVE" &&
+(cd <scratch-path> && echo "$GO_ARCHIVE_SHA256  $GO_ARCHIVE" | sha256sum -c -) &&
 tar -C <scratch-path> -xzf "<scratch-path>/$GO_ARCHIVE"
 ```
 
-A digest that is not the pinned one makes `sha256sum -c` exit 1; stop there. Otherwise
+The commands are one `&&` chain, so the block fails closed whether it is pasted or run as a
+script: a digest that is not the pinned one makes `sha256sum -c` exit 1, the chain stops
+before `tar`, nothing is extracted and the block exits 1. Otherwise
 put `<scratch-path>/go/bin` first on `PATH` and export `GOTOOLCHAIN=local` and
 `GOFLAGS=-mod=readonly`. The recipe checks the pinned digest, not a live read of the
 go.dev index. No digest is pinned for any other OS or architecture. The Go toolchain row
