@@ -36,9 +36,9 @@
 # 0..999999 or with a leading zero, --step-deadline-ms missing, outside 1..99999999 or with a
 # leading zero, preflight non-zero, --work outside the root); 21 aborted with no verdict
 # after launch began: a step failed or passed its deadline (exit 124, or 137 once killed),
-# an attempt wrote an unparseable sentinel line, or INT/TERM/HUP arrived. On 21 an open run gets stop and inventory first;
-# the cleanup ignores further INT/TERM/HUP, so a repeated Ctrl-C cannot cut it short. Both
-# numbers' digits are ASCII only, whatever the locale.
+# an attempt wrote an unparseable sentinel line, or INT/TERM/HUP arrived. On 21 an open run
+# gets stop and inventory first; the cleanup ignores further INT/TERM/HUP, so a repeated
+# Ctrl-C cannot cut it short. Both numbers' digits are ASCII only, whatever the locale.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
