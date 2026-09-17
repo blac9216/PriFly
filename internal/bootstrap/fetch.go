@@ -51,7 +51,7 @@ const (
 // kernel stops a write at the bound. MaxFetchTotalBytes bounds the sum of the regular files the fetch leaves, checked
 // before anything reads them; files git writes and removes again while it runs are not in that sum. No planning
 // document fixes a value: these are implementation guards. The file bound, a multiple of 512, holds both guarded files
-// with room for README.md and object overhead; the total holds a pack at that bound and its index files.
+// with room for README.md and object overhead; the total also holds that pack's index files when it has few objects.
 const (
 	MaxFetchFileBytes  = 4 << 20
 	MaxFetchTotalBytes = 6 << 20

@@ -294,15 +294,17 @@ func TestFetchSizeGuards(t *testing.T) {
 	}
 }
 
-// TestFetchBound: a git shim records, after each invocation, the size of every file under its working directory. A
-// fetched file over MaxFetchFileBytes stops with a file exactly at that bound; many small blobs, each file under it,
-// pass MaxFetchTotalBytes; both fail with ErrFetchBound. A history over the bounds fetches and verifies, as does a
-// revision holding both guarded files at their guards.
+// TestFetchBound: a git shim records each invocation's arguments and, after it, the size of every file under its working
+// directory, and traces git into a file. A fetched file over MaxFetchFileBytes stops with a file exactly at that bound;
+// many small blobs, each file under it, pass MaxFetchTotalBytes; both fail with ErrFetchBound, and no git invocation
+// follows the fetch. A history over the bounds fetches and verifies, as does a revision holding both guarded files at
+// their guards. No fetch starts git maintenance.
 func TestFetchBound(t *testing.T) {
 	realGit, err := exec.LookPath("git")
 	bin := t.TempDir()
-	sizes := filepath.Join(bin, "sizes")
-	shim := "#!/bin/sh\n'" + realGit + "' \"$@\"; rc=$?\nfind . -type f -exec wc -c {} \\; >> '" + sizes + "'\nexit $rc\n"
+	sizes, trace := filepath.Join(bin, "sizes"), filepath.Join(bin, "trace")
+	shim := "#!/bin/sh\necho \"git $*\" >> '" + sizes + "'\nGIT_TRACE='" + trace + "' '" + realGit + "' \"$@\"; rc=$?\n" +
+		"find . -type f -exec wc -c {} \\; >> '" + sizes + "'\nexit $rc\n"
 	if err != nil || os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o700) != nil {
 		t.Fatal("writing git shim")
 	}
@@ -343,18 +345,38 @@ func TestFetchBound(t *testing.T) {
 				rev = gitFixture(t, dir, "fixture\n", "commit-tree", gitFixture(t, dir, tree.String(), "mktree"))
 			}
 			os.Remove(sizes)
+			os.Remove(trace)
 			v, err := fetch(t, url, rev, factory)
 			data, _ := os.ReadFile(sizes)
-			largest := 0
+			traced, _ := os.ReadFile(trace)
+			largest, last := 0, ""
 			for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 				n := 0
 				fmt.Sscan(line, &n)
 				largest = max(largest, n)
+				if strings.HasPrefix(line, "git ") {
+					last = line
+				}
+			}
+			if c.want != nil && !strings.Contains(last, " fetch ") || strings.Contains(string(traced), "maintenance run") {
+				t.Fatalf("a git invocation follows the bounded fetch (last: %.40q), or a fetch started git maintenance", last)
 			}
 			if !errors.Is(err, c.want) || c.want == nil && (v == nil || v.Revision != rev) || (largest == MaxFetchFileBytes) != (c.want != nil && c.blobs == 0) || largest > MaxFetchFileBytes {
 				t.Fatalf("err = %v, want %v; largest file written %d bytes, bound %d", err, c.want, largest, MaxFetchFileBytes)
 			}
 		})
+	}
+}
+
+// entries returns a setup that adds n empty files.
+func entries(n int) func(string) error {
+	return func(dir string) error {
+		for i := range n {
+			if err := os.WriteFile(fmt.Sprintf("%s/e%d", dir, i), nil, 0o600); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 }
 
@@ -376,16 +398,14 @@ func TestCheckFetched(t *testing.T) {
 		{"symlink target not counted", func(dir string) error {
 			return errors.Join(os.Truncate(dir+"/pack", MaxFetchTotalBytes), os.Symlink(outside, dir+"/link"))
 		}, nil},
-		{"entries over bound", func(dir string) error {
-			for i := range maxFetchEntries {
-				if err := os.WriteFile(fmt.Sprintf("%s/e%d", dir, i), nil, 0o600); err != nil {
-					return err
-				}
-			}
-			return nil
-		}, ErrFetchBound},
+		{"entries at bound", entries(maxFetchEntries - 2), nil}, // the walk also visits dir and pack
+		{"entries over bound", entries(maxFetchEntries - 1), ErrFetchBound},
 		{"unreadable directory", func(dir string) error {
 			return errors.Join(os.Mkdir(dir+"/objects", 0o700), os.Chmod(dir+"/objects", 0))
+		}, ErrFetch},
+		{"listable but not searchable directory", func(dir string) error { // os.Lstat of its entry fails
+			return errors.Join(os.Mkdir(dir+"/objects", 0o700), os.WriteFile(dir+"/objects/pack", nil, 0o600),
+				os.Truncate(dir+"/objects/pack", 3<<20), os.Chmod(dir+"/objects", 0o600))
 		}, ErrFetch},
 	} {
 		if c.want == ErrFetch && os.Geteuid() == 0 {
