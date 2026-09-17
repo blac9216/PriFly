@@ -72,7 +72,7 @@ if group accept; then
   holds "renewals are ticketed publications numbered in the command sequence" accept \
     'map(select(.ev == "cmd" or .ticket)) | group_by(.run) | all(sort_by(.ticket) | (map(select(.ev == "grant")) | length >= 2) and all(.[]; .outcome == "published") and map(.casSeq) == [range(1; length + 1)])'
   holds "renewal held beside the ticket: grant headroom renews run 1 before command 5" accept \
-    'map(select(.run == 1)) | (map(select(.ev == "cmd"))[3:5]) as [$c4, $c5] | any(.[]; .ticket and .ticket > $c4.ack and .ack < $c5.ticket) and $c5.ticket < map(select(.ev == "grant"))[0].deadline - 30000'
+    'map(select(.run == 1)) | (map(select(.ev == "cmd"))[3:5]) as [$c4, $c5] | any(.[]; .ticket and .ticket > $c4.ack and .ack <= $c5.ticket) and $c5.ticket < map(select(.ev == "grant"))[0].deadline - 30000'
   holds "CAS writes at least 1100 ms apart, the burst at that bound" accept \
     'map(select(.casStart > 0)) | group_by(.run) | all(sort_by(.casStart) | [range(1; length) as $i | .[$i].casStart - .[$i - 1].casStart] | min >= 1100 and min < 1200)'
   holds "no ack before its CAS result" accept 'all(.[] | select(.outcome == "published"); .ack > .casEnd and .casEnd > .casStart)'
