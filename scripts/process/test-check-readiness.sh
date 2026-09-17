@@ -539,4 +539,16 @@ checkbox_case quote-item-code-5 "$ac_h" $'> -     code\n    - [ ] Q1\n' \
   'checkbox in indented code after a quoted list item and 5 spaces of indented code fails'
 checkbox_case quote-item-code-5-text "$ac_h" $'> -     code\ntext\n2. ```text\n   - [ ] Q1\n' \
   'checkbox after a paragraph and a 2. ```text line following 5 spaces of quoted item code passes' 0
+# #262 rejects the 4-column checkbox the cases above end on, so each ends here in a paragraph, a
+# 2. ```text line and a checkbox, which GitHub renders only if no paragraph was left open before it.
+para_ends=(
+  quote-fence-code $'> ```text\n> x\n'  quote-item-fence $'> - ```\n>   x\n    y\n'  marker-5col $'-     code\n'
+  quote-close-4 $'> ````text\n> ~~~~\n> x\n'  quote-close-3 $'> ````text\n> ```\n> x\n'  quote-empty-code $'>\n'
+  quote-heading-code $'> # Note\n'  quote-close-indent $'> ```\n>     ```\n> x\n'  quote-code $'>     code\n'
+  quote-code-fence $'>     ```\n> ```\n> x\n'  quote-nested-reopen $'> > ```\n> ```\n> x\n'
+)
+for ((k = 0; k < ${#para_ends[@]}; k += 2)); do
+  checkbox_case "${para_ends[k]}-para" "$ac_h" "${para_ends[k + 1]}"$'text\n2. ```text\n   - [ ] Q1\n' \
+    "checkbox after the ${para_ends[k]} lines, a paragraph and a 2. \`\`\`text line passes" 0
+done
 echo "test-check-readiness: $passed cases passed"
