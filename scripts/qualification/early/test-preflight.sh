@@ -91,6 +91,12 @@ ref outside defs|3|form: $ref outside #/$defs/|open(W + '/s.json', 'w').write(js
 additionalProperties schema|3|form: additionalProperties other than false|open(W + '/s.json', 'w').write(json.dumps({'type': 'object', 'additionalProperties': {'type': 'string'}})); args = ['--schema', W + '/s.json']
 unsupported type|3|form: unsupported type|open(W + '/s.json', 'w').write(json.dumps({'type': 'integer'})); args = ['--schema', W + '/s.json']
 malformed schema form|3|form: AttributeError|open(W + '/s.json', 'w').write(json.dumps({'properties': []})); args = ['--schema', W + '/s.json']
+unsupported form in unused defs|3|form: unsupported type|open(W + '/s.json', 'w').write(json.dumps({'$defs': {'a': {'type': 'integer'}}})); args = ['--schema', W + '/s.json']
+unsupported form in allOf|3|form: additionalProperties other than false|open(W + '/s.json', 'w').write(json.dumps({'allOf': [{'additionalProperties': {}}]})); args = ['--schema', W + '/s.json']
+unsupported form in unreached items|3|form: additionalProperties other than false|open(W + '/s.json', 'w').write(json.dumps({'properties': {'x': {'items': {'additionalProperties': {}}}}})); args = ['--schema', W + '/s.json']
+unsupported form in unreached contains|3|form: additionalProperties other than false|open(W + '/s.json', 'w').write(json.dumps({'properties': {'x': {'contains': {'additionalProperties': {}}}}})); args = ['--schema', W + '/s.json']
+schema checked before manifest|3|form: unsupported type|open(W + '/s.json', 'w').write(json.dumps({'type': 'integer'})); args = ['--schema', W + '/s.json', '--manifest', W + '/absent.json']
+secret-shaped duplicate key|4|INVALID: <redacted-key>: duplicate key|leak = ''.join('0123456789abcdef'[i * 7 % 16] for i in range(64)).upper(); raw = '{"' + leak + '": 1, ' + json.dumps(m)[1:-1] + ', "' + leak + '": 2}'
 EOF
 )
 
@@ -205,6 +211,11 @@ preflight|if '$ref' in s and s['$ref'] not in|if False and s['$ref'] not in|ref 
 preflight|if s.get('additionalProperties', False) is not False:|if False:|additionalProperties schema
 preflight|if s.get('type', 'object') not in TYPES:|if False:|unsupported type
 preflight|except (AttributeError, TypeError, RecursionError) as e:|except () as e:|malformed schema form
+preflight|*s.get('$defs', {}).values(), ||unsupported form in unused defs
+preflight|*s.get('allOf', []), ||unsupported form in allOf
+preflight|, *(s[k] for k in ('items', 'contains') if k in s)||unsupported form in unreached items,unsupported form in unreached contains
+preflight|try:\n    lint(schema)\nexcept (AttributeError, TypeError, RecursionError) as e:\n    unsupported(f"form: {type(e).__name__}")\ntry:\n    doc = json.load(open(sys.argv[2], encoding='utf-8'), object_pairs_hook=unique)\nexcept (OSError, ValueError, RecursionError) as e:\n    print(f"preflight: cannot read manifest: {e}", file=sys.stderr); sys.exit(2)\nif depth(doc) > 32:\n    print("preflight: cannot read manifest: nested more than 32 levels deep", file=sys.stderr); sys.exit(2)\n|try:\n    doc = json.load(open(sys.argv[2], encoding='utf-8'), object_pairs_hook=unique)\nexcept (OSError, ValueError, RecursionError) as e:\n    print(f"preflight: cannot read manifest: {e}", file=sys.stderr); sys.exit(2)\nif depth(doc) > 32:\n    print("preflight: cannot read manifest: nested more than 32 levels deep", file=sys.stderr); sys.exit(2)\ntry:\n    lint(schema)\nexcept (AttributeError, TypeError, RecursionError) as e:\n    unsupported(f"form: {type(e).__name__}")\n|schema checked before manifest
+preflight|(seg('', k), 'duplicate key')|(k, 'duplicate key')|secret-shaped duplicate key
 EOF
 )
 survived=0
@@ -213,7 +224,7 @@ while IFS='|' read -r file old new target; do
   [[ "$file" == schema ]] && path="$work/mutant/schema.json" || path="$work/mutant/preflight.sh"
   python3 - "$path" "$old" "$new" <<'PY'
 import sys
-path, old, new = sys.argv[1], sys.argv[2].replace('\\n', '\n'), sys.argv[3]
+path, old, new = sys.argv[1], sys.argv[2].replace('\\n', '\n'), sys.argv[3].replace('\\n', '\n')
 text = open(path, encoding='utf-8').read()
 assert text.count(old) == 1, f"mutant setup assumption broken: {old!r} not unique in {path}"
 open(path, 'w', encoding='utf-8').write(text.replace(old, new))
