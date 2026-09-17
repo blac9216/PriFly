@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"syscall"
 
 	"filippo.io/age"
 )
@@ -114,8 +116,10 @@ func readIdentities(identityFile string) ([]age.Identity, error) {
 // case-insensitively and keeps the last duplicate, so a consumer of the file could read another value.
 var secretKeys = map[string]bool{"schema": true, "factory_id": true, "secrets": true, "id": true, "purpose": true, "generation": true, "value": true}
 
-// strictMembers rejects a duplicate or inexactly spelled member name at any depth of one JSON value.
-func strictMembers(dec *json.Decoder) error {
+var errMember = errors.New("duplicate or inexactly spelled member name")
+
+// strictMembers rejects a duplicate member name, or one not spelled exactly as in keys, at any depth of one JSON value.
+func strictMembers(dec *json.Decoder, keys map[string]bool) error {
 	tok, err := dec.Token()
 	if err != nil || (tok != json.Delim('{') && tok != json.Delim('[')) {
 		return err
@@ -123,12 +127,12 @@ func strictMembers(dec *json.Decoder) error {
 	for seen := map[string]bool{}; dec.More(); {
 		if tok == json.Delim('{') {
 			name, err := dec.Token()
-			if key, _ := name.(string); err != nil || seen[key] || !secretKeys[key] {
-				return ErrSecrets
+			if key, _ := name.(string); err != nil || seen[key] || !keys[key] {
+				return errMember
 			}
 			seen[name.(string)] = true
 		}
-		if err := strictMembers(dec); err != nil {
+		if err := strictMembers(dec, keys); err != nil {
 			return err
 		}
 	}
@@ -140,7 +144,7 @@ func checkSecrets(f io.ReaderAt, n int64, m Manifest) error {
 	var s secretsFile
 	dec := json.NewDecoder(io.NewSectionReader(f, 0, n))
 	dec.DisallowUnknownFields()
-	if strictMembers(json.NewDecoder(io.NewSectionReader(f, 0, n))) != nil || dec.Decode(&s) != nil || dec.Decode(&struct{}{}) != io.EOF {
+	if strictMembers(json.NewDecoder(io.NewSectionReader(f, 0, n)), secretKeys) != nil || dec.Decode(&s) != nil || dec.Decode(&struct{}{}) != io.EOF {
 		return fmt.Errorf("%w: not exactly one object of known, unique, exactly spelled fields", ErrSecrets)
 	}
 	switch {
@@ -159,4 +163,71 @@ func checkSecrets(f io.ReaderAt, n int64, m Manifest) error {
 		seen[e.ID] = true
 	}
 	return nil
+}
+
+var (
+	// transientName matches exactly the names os.MkdirTemp gives the directories Fetch and Decrypt create.
+	transientName = regexp.MustCompile(`^prifly-(bootstrap|secrets)-[0-9]+$`)
+	currentUID    = os.Getuid          // replaced only by tests
+	claimHook     = func(stage int) {} // replaced only by tests: 0 after locking, 1 before sweeping
+)
+
+// ClaimWorkDir locks workDir, an absolute path to a directory that is not a symbolic link, for one bootstrap
+// run, then removes the transient directories that a run killed before its own cleanup left there. It removes
+// only an entry named as Fetch or Decrypt names theirs that is a real 0700 directory owned by this user. Every
+// inspection and removal resolves relative to the locked directory itself (an os.Root proven to be the same
+// directory), never through the workDir path again, so replacing that path afterwards, say by a symbolic
+// link, cannot redirect them; nothing outside the locked directory is touched. Any other entry with such a
+// name, a lock another run holds, or a path that no longer names the locked directory returns ErrTransient.
+// The claim lasts until release is called.
+func ClaimWorkDir(workDir string) (release func(), err error) {
+	d, err := os.OpenFile(workDir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
+	if err != nil || !filepath.IsAbs(workDir) {
+		d.Close() // a nil *os.File's Close only returns an error
+		return nil, fmt.Errorf("%w: work directory unusable", ErrTransient)
+	}
+	var root *os.Root
+	defer func() {
+		if err != nil {
+			d.Close()
+			if root != nil {
+				root.Close()
+			}
+		}
+	}()
+	if syscall.Flock(int(d.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		return nil, fmt.Errorf("%w: work directory in use by another run", ErrTransient)
+	}
+	claimHook(0)
+	if root, err = os.OpenRoot(workDir); err == nil {
+		locked, derr := d.Stat()
+		opened, rerr := root.Stat(".")
+		if derr != nil || rerr != nil || !os.SameFile(locked, opened) {
+			err = ErrTransient
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: work directory changed while claimed", ErrTransient)
+	}
+	entries, err := d.ReadDir(-1)
+	if err != nil {
+		return nil, fmt.Errorf("%w: work directory unreadable", ErrTransient)
+	}
+	claimHook(1)
+	for _, e := range entries {
+		if !transientName.MatchString(e.Name()) {
+			continue
+		}
+		fi, lerr := root.Lstat(e.Name())
+		if lerr != nil {
+			return nil, fmt.Errorf("%w: unexpected transient entry in work directory", ErrTransient)
+		}
+		if st, ok := fi.Sys().(*syscall.Stat_t); !ok || !fi.IsDir() || fi.Mode().Perm() != transientDirMode || int(st.Uid) != currentUID() {
+			return nil, fmt.Errorf("%w: unexpected transient entry in work directory", ErrTransient)
+		}
+		if root.RemoveAll(e.Name()) != nil {
+			return nil, fmt.Errorf("%w: cannot remove leftover transient directory", ErrTransient)
+		}
+	}
+	return func() { root.Close(); d.Close() }, nil
 }
