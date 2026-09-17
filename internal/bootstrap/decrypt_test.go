@@ -61,7 +61,7 @@ func seal(t *testing.T, id *age.X25519Identity, plaintext string, damage ...int)
 // capture runs f with file descriptors 1 and 2 redirected to files and returns what each received.
 func capture(t *testing.T, f func()) (stdout, stderr string) {
 	t.Helper()
-	for i, fd := range []int{1, 2} {
+	for _, fd := range []int{1, 2} {
 		file, err := os.Create(filepath.Join(t.TempDir(), "fd"))
 		saved, dupErr := unix.Dup(fd)
 		if err != nil || dupErr != nil || unix.Dup2(int(file.Fd()), fd) != nil {
@@ -70,7 +70,11 @@ func capture(t *testing.T, f func()) (stdout, stderr string) {
 		defer func() {
 			_, _ = unix.Dup2(saved, fd), unix.Close(saved)
 			data, _ := os.ReadFile(file.Name())
-			*[]*string{&stdout, &stderr}[i] = string(data)
+			if fd == 1 {
+				stdout = string(data)
+			} else {
+				stderr = string(data)
+			}
 			file.Close()
 		}()
 	}
@@ -83,19 +87,32 @@ var errPanic, inWork = errors.New("provision panicked"), "<work>"
 
 // decrypt runs Decrypt in dir with TMPDIR empty, asserts on the filesystem that provision's file is in a directory created in
 // work while TMPDIR is empty and that both are empty afterwards, and that no canary, age identity, work path or 8
-// consecutive ciphertext bytes, raw or hex-encoded, are output.
-func decrypt(t *testing.T, v *Verified, identityFile, dir string, provision func(string) error) (stdout, stderr string, err error, panicked bool) {
+// consecutive ciphertext bytes, raw or hex-encoded, are output. A non-zero fileSizeLimit is the RLIMIT_FSIZE soft limit
+// for the Decrypt call only: the limit is process-wide, so no diagnostic of the test is written while it holds.
+func decrypt(t *testing.T, v *Verified, identityFile, dir string, provision func(string) error, fileSizeLimit uint64) (stdout, stderr string, err error, panicked bool) {
 	t.Helper()
 	work, tmpdir, at := t.TempDir(), t.TempDir(), ""
 	count := func(dir string) int { entries, _ := os.ReadDir(dir); return len(entries) }
 	t.Setenv("TMPDIR", tmpdir)
+	var limit unix.Rlimit
+	if fileSizeLimit != 0 && unix.Getrlimit(unix.RLIMIT_FSIZE, &limit) != nil {
+		t.Fatal("reading RLIMIT_FSIZE")
+	}
+	var limitErr error
 	stdout, stderr = capture(t, func() {
 		defer func() { p := recover(); r, _ := p.(error); err, panicked = cmp.Or(r, err), p != nil }()
+		if fileSizeLimit != 0 {
+			defer unix.Setrlimit(unix.RLIMIT_FSIZE, &limit) // runs before the recover above, also when provision panics
+			limitErr = unix.Setrlimit(unix.RLIMIT_FSIZE, &unix.Rlimit{Cur: fileSizeLimit, Max: limit.Max})
+		}
 		err = Decrypt(v, identityFile, strings.Replace(dir, inWork, work, 1), func(path string) error {
 			at = filepath.Dir(filepath.Dir(path)) + strings.Repeat(" and TMPDIR", count(tmpdir))
 			return provision(path)
 		})
 	})
+	if limitErr != nil {
+		t.Fatalf("lowering RLIMIT_FSIZE: %v", limitErr)
+	}
 	if count(work)+count(tmpdir) != 0 || (at != "" && at != work) {
 		t.Fatalf("plaintext outside work or not removed: %d entries left in work, %d in TMPDIR; provisioned in %q", count(work), count(tmpdir), at)
 	}
@@ -137,7 +154,10 @@ func TestDecrypt(t *testing.T) {
 		fmt.Fprint(os.Stdout, "prifly-capture-stdout")
 		fmt.Fprint(os.Stderr, "prifly-capture-stderr")
 		ok := err == nil && fmt.Sprint(dir.Mode(), file.Mode()) == "drwx------ -rw-------" && strings.Contains(string(data), canary)
-		return map[bool]error{false: errors.New("transient plaintext unprotected")}[ok]
+		if !ok {
+			return errors.New("transient plaintext unprotected")
+		}
+		return nil
 	}
 	calls := 0
 	refuse := func(string) error { calls++; return nil }
@@ -178,12 +198,12 @@ func TestDecrypt(t *testing.T) {
 		"provision panic":      {valid, identityFile, inWork, "|", func(string) error { panic(errPanic) }, errPanic},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if lim := (unix.Rlimit{}); name == "write failure" && unix.Getrlimit(unix.RLIMIT_FSIZE, &lim) == nil {
-				defer unix.Setrlimit(unix.RLIMIT_FSIZE, &lim) // the limit is process-wide, so it is lifted when the row ends
-				_ = unix.Setrlimit(unix.RLIMIT_FSIZE, &unix.Rlimit{Cur: 16, Max: lim.Max})
+			var fileSizeLimit uint64
+			if name == "write failure" {
+				fileSizeLimit = 16
 			}
 			before := calls
-			stdout, stderr, err, panicked := decrypt(t, c.v, c.identity, c.dir, c.provision)
+			stdout, stderr, err, panicked := decrypt(t, c.v, c.identity, c.dir, c.provision, fileSizeLimit)
 			if !errors.Is(err, c.want) || (c.want == nil) != (err == nil) || calls != before || stdout+"|"+stderr != c.output || panicked != (name == "provision panic") {
 				t.Fatalf("err = %v, want %v; refused provision called %t; output %q|%q; panicked %t", err, c.want, calls != before, stdout, stderr, panicked)
 			}
@@ -221,12 +241,12 @@ func TestDecryptRequiredSecrets(t *testing.T) {
 			v := seal(t, id, fmt.Sprintf(`{"schema":%q,"factory_id":%q,"secrets":[%s]}`, SecretSchema, factory, strings.Join(c.secrets, ",")))
 			v.Manifest.RequiredSecrets = c.required
 			provisioned := 0
-			stdout, stderr, err, _ := decrypt(t, v, identityFile, inWork, func(string) error { provisioned++; return nil })
-			want, got := ErrSecrets.Error()+": "+c.want, fmt.Sprint(err)
+			stdout, stderr, err, _ := decrypt(t, v, identityFile, inWork, func(string) error { provisioned++; return nil }, 0)
+			want, got, wantProvisioned := ErrSecrets.Error()+": "+c.want, fmt.Sprint(err), 0
 			if c.want == "" {
-				want = "<nil>"
+				want, wantProvisioned = "<nil>", 1
 			}
-			if got != want || provisioned != map[bool]int{true: 1}[c.want == ""] || (err != nil) != errors.Is(err, ErrSecrets) || stdout+stderr != "" {
+			if got != want || provisioned != wantProvisioned || (err != nil) != errors.Is(err, ErrSecrets) || stdout+stderr != "" {
 				t.Fatalf("err = %q, want %q; provisioned %d times; output %q", got, want, provisioned, stdout+stderr)
 			}
 		})
