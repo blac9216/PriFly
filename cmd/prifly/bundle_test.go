@@ -110,8 +110,8 @@ var hostile = map[string]func(dir string) error{
 	},
 	"unresolved-work-item": func(dir string) error {
 		// the last two contents share bytes, so their unresolved reference is reported once, at the first
-		err := addItems(dir, `{"kind": "ENABLER", "consumers": ["`+wiN(99)+`", "bsl_6e73c229223db574a3c8fa28dd5a1a5a", 7, "`+wiN(1)+`"], "dependencies": [{"work_item": "`+wiN(98)+`", "condition": "x"}, "`+wiN(0)+`", {"condition": "x"}, {"work_item": "wi_\u001b[2K", "condition": "x"}], `+traced+`}`, "{}", slice(97), slice(97))
-		return errors.Join(err, os.Remove(dir+"/artifacts/wi1.json")) // an unreadable Work Item is still one a consumer can name
+		err := addItems(dir, `{"kind": "ENABLER", "consumers": ["`+wiN(99)+`", "bsl_6e73c229223db574a3c8fa28dd5a1a5a", 7, "`+wiN(1)+`"], "dependencies": [{"work_item": "`+wiN(98)+`", "condition": "x"}, "`+wiN(0)+`", {"condition": "x"}, {"work_item": "wi_\u001b[2K", "condition": "x"}], `+traced+`}`, slice(), slice(97), slice(97))
+		return errors.Join(err, os.Remove(dir+"/artifacts/wi1.json")) // an unreadable Work Item is still one a consumer can name, and may name its own envelope
 	},
 	"invalid-content": func(dir string) error { // wi1's own envelope is named only by content that cannot be read, so it is not reported
 		return addItems(dir, `[]`, `{"kind": "SLICE", "kind": "SLICE", "dependencies": [], `+traced+`}`, `{"dependencies": [], `+traced+`}`, // the last has item0's bytes: reported once
