@@ -151,8 +151,9 @@ if missing_anchors:
 # nothing after it, indented at most 3 columns past that content column. No check reads a
 # "> " line, so of a quote only this is modelled: whether it leaves a paragraph open, and a
 # quoted fence running on over "> " lines. Not modelled: a marker followed by 5 or more
-# columns, nesting inside a quote, HTML blocks other than comments, and setext headings or
-# headings inside list items counting as "## " headings.
+# columns, nesting inside a quote, HTML blocks other than comments, an HTML comment ending
+# with the list item or quote it opened in, and setext headings or headings inside list
+# items counting as "## " headings.
 MARKER_RE = re.compile(r'(?:[-*+]|(\d{1,9})[.)])(?:[ \t]+|$)')
 FENCE_OPEN_RE = re.compile(r'(`{3,}|~{3,})(.*)$')
 FENCE_CLOSE_RE = re.compile(r'^(`{3,}|~{3,})\s*$')
