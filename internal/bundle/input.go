@@ -9,8 +9,10 @@ package bundle
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"regexp"
 	"strconv"
@@ -53,7 +55,14 @@ func ReadRegular(root *os.Root, name string) ([]byte, string) {
 // returns any bytes it consumed.
 func readRegular(root *os.Root, name string, limit int) ([]byte, string) {
 	info, err := root.Stat(name)
-	if err != nil {
+	// A permission error names a file that is present but out of reach, through
+	// a directory component that may not be traversed: reporting it as a name
+	// that does not resolve would tell the operator the file is missing or
+	// outside the bundle. A mode-000 file is reported the same way, by the open
+	// below, since stat succeeds on it.
+	if errors.Is(err, fs.ErrPermission) {
+		return nil, "cannot be read"
+	} else if err != nil {
 		return nil, "does not resolve to a file inside the bundle directory"
 	} else if !info.Mode().IsRegular() {
 		return nil, "is not a regular file"
