@@ -418,6 +418,12 @@ replace "$fixture_root/pr-tab-marker.md" $'\n## Verified expectation\n' $'\n1.\t
 run_case 'PR fence: a 1.<TAB>```sh step with 3-space lines hides the next heading' 1 \
   'MISSING: all template sections present (missing: Verified expectation)' \
   --root "$root" --body "$fixture_root/pr-tab-marker.md" "${pr[@]}"
+# #218: after a marker followed by 5 or more columns, the content column is marker width + 1 and
+# the rest of the line is indented code; 4 columns leave the content column after them.
+checkbox_case marker-5col "$ac_h" $'-     code\n      - [ ] Quoted as indented code.\n' \
+  'checkbox in indented code after a - marker and 5 spaces fails'
+checkbox_case marker-4col "$ac_h" $'-    ```text\n     - [ ] quoted\n     ```\n' \
+  'checkbox inside a fence opened 4 spaces after a - marker fails'
 # #192: a line indented 4 columns is indented code, never a fence; a heading may be indented 3.
 pr_body code-fence 'Closes #154'
 replace "$fixture_root/pr-code-fence.md" $'\n## Verified expectation\n' $'\n    ```\nx\n```\n## Verified expectation\n'

@@ -150,8 +150,9 @@ if missing_anchors:
 # up to 3 columns; a closing fence is the opening character, at least as long, with
 # nothing after it, indented at most 3 columns past that content column. No check reads a
 # "> " line, so of a quote only this is modelled: whether it leaves a paragraph open, and a
-# quoted fence running on over "> " lines. Not modelled: a marker followed by 5 or more
-# columns, nesting inside a quote, HTML blocks other than comments, an HTML comment ending
+# quoted fence running on over "> " lines. After a marker followed by 5 or more columns,
+# the content column is marker width + 1 and the rest of the line is indented code. Not
+# modelled: nesting inside a quote, HTML blocks other than comments, an HTML comment ending
 # with the list item or quote it opened in, and setext headings or headings inside list
 # items counting as "## " headings.
 MARKER_RE = re.compile(r'(?:[-*+]|(\d{1,9})[.)])(?:[ \t]+|$)')
@@ -240,13 +241,18 @@ def clean_numbered(text):
                     quote_fence = f.group(1)[0] if f else None
                     in_para, para_depth = bool(rest) and not starts_block(rest), -1
             else:
-                pos = indent
+                pos, code = indent, False
                 while m:
                     pos = m.end()
                     if not line[pos:].strip():  # an empty item's content column is marker width + 1
                         pos, empty_item = m.start() + len(m.group(0).rstrip()) + 1, True
+                    elif len(m.group(0)) - len(m.group(0).rstrip()) > 4:  # so is one whose content is code
+                        code, pos = True, m.start() + len(m.group(0).rstrip()) + 1
                     items.append(pos)
                     m = MARKER_RE.match(line, pos)
+                if code:
+                    in_para = False
+                    continue
                 f = fence_at(line, pos)
                 if f:
                     fence_char, fence_len = f.group(1)[0], len(f.group(1))
