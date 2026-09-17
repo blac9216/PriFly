@@ -179,9 +179,11 @@ func Fetch(ctx context.Context, req Request, workDir string) (*Verified, error) 
 	if _, err := runGit(ctx, env, tmp, "init", "--bare", "--quiet", "--template=", repo); err != nil {
 		return nil, fmt.Errorf("%w: init", ErrFetch)
 	}
-	// fetch.unpackLimit=1 stores even a few objects as one pack rather than as loose files.
-	_, err = git("-c", "fetch.unpackLimit=1", "fetch", "--quiet", "--no-tags", "--depth=1", "--end-of-options",
-		req.Repository, req.Revision+":refs/prifly/selected")
+	// fetch.unpackLimit=1 stores even a few objects as one pack rather than as loose files. maintenance.auto=false
+	// keeps fetch from starting a detached git maintenance, which leaves the process group and could change the
+	// repository while checkFetched walks it.
+	_, err = git("-c", "fetch.unpackLimit=1", "-c", "maintenance.auto=false", "fetch", "--quiet", "--no-tags", "--depth=1",
+		"--end-of-options", req.Repository, req.Revision+":refs/prifly/selected")
 	if err := checkFetched(repo, err); err != nil {
 		return nil, err
 	}
