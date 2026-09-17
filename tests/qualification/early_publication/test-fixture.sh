@@ -113,6 +113,28 @@ for f in bytes writes requests; do
   edit "fixture step without $f" 1 "REJECT LEDGER run 2 n 0: fixture step records no remote use" "$(runfield 2 ".$f = 0")"
 done
 edit "renewal without use" 1 "REJECT LEDGER run 1 n 0: publication records no remote use" "$renewal"'.writes = 0 else . end)'
+# A ticket is charged in full before the first step and a failure keeps that charge (P12b L75), so a failed
+# entry that took a ticket never records zero use, whether or not its clocks show it reached the remote.
+# Command 5 is a warm-up command, so its failure alone leaves the run meeting the thresholds: with the use
+# rule removed each case below is the trace of #297, which passes. chain5 re-chains command 6 over it, the
+# one check a failure does drop, so the recorded use is the only rule these cases rest on.
+FAILUSE="failed ticketed entry records no remote use; its reservation is charged in full"
+chain5="$(at 1 6 '.before = "s4"')"
+reached='.outcome = "failed" | .reason = "sync-exit1" | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0'
+ticketed='.outcome = "failed" | .reason = "artifact-exit1" | .commitStart = 0 | .commitEnd = 0 | .syncStart = 0 | .syncEnd = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0'
+zero='.bytes = 0 | .writes = 0 | .requests = 0'
+edit "failed entry charged its reservation" 0 "$PASS" "$(at 1 5 "$reached") | $chain5"
+for f in bytes writes requests; do
+  edit "failed entry reached the remote without $f" 1 "REJECT LEDGER run 1 n 5: $FAILUSE" "$(at 1 5 "$reached | .$f = 0") | $chain5"
+done
+edit "failed entry reached the remote without use" 1 "REJECT LEDGER run 1 n 5: $FAILUSE" "$(at 1 5 "$reached | $zero") | $chain5"
+edit "failed entry only reserved its ticket" 1 "REJECT LEDGER run 1 n 5: $FAILUSE" "$(at 1 5 "$ticketed | $zero") | $chain5"
+edit "failed renewal without use" 1 "REJECT LEDGER run 1 n 0: $FAILUSE" \
+  "$renewal"'.outcome = "failed" | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0 | '"$zero"' else . end)'
+# An entry that never took a ticket records none, so the rule above must not reach it: command 6 fails
+# before its ticket, its plan call goes with it, and command 7 chains over it.
+edit "unticketed failure records no use" 0 "$PASS" \
+  "$(cmd 1 6).ticket as \$t | map(select(.ev != \"plan\" or .run != 1 or .t != \$t)) | $(at 1 6 "$unticketed") | $(at 1 7 '.before = "s5"')"
 edit "first grant is a renewal" 1 "REJECT RENEWAL run 2 n 0: grant 0: only a grant after the first is a renewal" \
   '(map(select(.ev == "grant" and .run == 2))[0]) as $g0 | (map(select(.ev == "grant" and .run == 2))[1]) as $g1 | map(select(. != $g0) | if . == $g1 then .t = 1000000 | .deadline = 1600000 else . end)'
 edit "renewal not a ticketed publication" 1 "REJECT RENEWAL run 1 n 0: grant 1: only a grant after the first is a renewal" "$renewal"'{ev, run, t, deadline} else . end)'
