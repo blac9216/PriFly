@@ -46,15 +46,16 @@ func (c *checker) add(path, code, format string, args ...any) {
 	*c = append(*c, Diagnostic{path, code, fmt.Sprintf(format, args...)})
 }
 
-// object returns v as a closed object, reporting unknown and missing fields.
-func (c *checker) object(v any, path string, keys ...string) map[string]any {
+// object returns v as a closed object of schema, reporting unknown and missing
+// fields.
+func (c *checker) object(v any, path, schema string, keys ...string) map[string]any {
 	m, ok := v.(map[string]any)
 	if !ok {
 		c.add(path, "invalid-type", "want object")
 	}
 	for k := range m {
 		if !slices.Contains(keys, k) {
-			c.add(Member(path, k), "unknown-field", "field is not part of %s", Schema)
+			c.add(Member(path, k), "unknown-field", "field is not part of %s", schema)
 		}
 	}
 	for _, k := range keys {
@@ -141,11 +142,11 @@ func (c *checker) ident(m map[string]any, p, prefix string) identity {
 // artifact checks one artifacts[] entry at path p, compares the SHA-256 of its
 // file's exact bytes, read through ReadRegular, with the declared digest, and
 // returns the artifact's identity and its references' identities; a WorkItem/v1
-// entry is added to w with the body read from its bytes, a Baseline/v1 entry's
-// ID is added to w, and ExecutionEnvelope/v1 and QualityEvaluation/v1 content
-// is checked.
+// entry is added to w with the body read from its bytes, every entry's schema
+// and ID are added to w, and ExecutionEnvelope/v1 and QualityEvaluation/v1
+// content is checked.
 func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self identity, refs []identity) {
-	m := c.object(a, p, "id", "revision", "schema", "path", "sha256", "refs")
+	m := c.object(a, p, Schema, "id", "revision", "schema", "path", "sha256", "refs")
 	schema, isString := c.str(m, p, "schema")
 	prefix, supported := artifactSchemas[schema]
 	if isString && !supported {
@@ -154,11 +155,11 @@ func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self i
 	self = c.ident(m, p, prefix)
 	for i, r := range c.list(m, p, "refs") {
 		rp := fmt.Sprintf("%s.refs[%d]", p, i)
-		refs = append(refs, c.ident(c.object(r, rp, "id", "revision", "sha256"), rp, ""))
+		refs = append(refs, c.ident(c.object(r, rp, Schema, "id", "revision", "sha256"), rp, ""))
 	}
 	isItem, b := schema == "WorkItem/v1", -1
-	if schema == "Baseline/v1" && self.id != "" {
-		w.baselines[self.id] = true
+	if self.id != "" {
+		w.schemaIDs[schema+" "+self.id] = true
 	}
 	defer func() { // an unreadable Work Item is still an entry, with no body
 		if isItem {
@@ -241,7 +242,7 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 		c.add("$.schema", "unsupported-schema", "want %q, got %s", Schema, Quote(m["schema"]))
 		return
 	}
-	top := c.object(doc, "$", "schema", "bundle_id", "revision", "jobs", "artifacts")
+	top := c.object(doc, "$", Schema, "schema", "bundle_id", "revision", "jobs", "artifacts")
 	c.id(top, "$", "bundle_id", "bnd")
 	c.revision(top, "$", "revision")
 	for i, j := range c.list(top, "$", "jobs") {
@@ -250,7 +251,7 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 		}
 	}
 	var artifacts, refs []identity
-	w := workItems{digest: map[string]int{}, baselines: map[string]bool{}}
+	w := workItems{digest: map[string]int{}, schemaIDs: map[string]bool{}}
 	for i, a := range c.list(top, "$", "artifacts") {
 		self, r := c.artifact(root, fmt.Sprintf("$.artifacts[%d]", i), a, &w)
 		artifacts, refs = append(artifacts, self), append(refs, r...)

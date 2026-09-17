@@ -1,1 +1,1 @@
-{"kind": "SLICE",   "dependencies": [], "outcomes": [{"baseline": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "obligation": "fixture obligation"}], "note": "hashed exactly as stored"}
+{"kind": "SLICE",   "dependencies": [], "outcomes": [{"baseline": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "obligation": "fixture obligation"}], "execution_envelope": "xen_dd00d1cf54fb4ef059011c2dc206e701", "note": "hashed exactly as stored"}

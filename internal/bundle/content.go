@@ -1,7 +1,8 @@
 // Execution Envelope and Quality Evaluation content checks: finite envelope
-// bounds and the absence of blocking FAIL/UNKNOWN results (C1 "finite
-// envelopes, and absence of blocking FAIL/UNKNOWN"). Only these fields are read;
-// structural validation of the rest is #181.
+// bounds, and results that are present and neither blocking FAIL/UNKNOWN nor
+// NOT_APPLICABLE without an applicability path (C1 "finite envelopes, and
+// absence of blocking FAIL/UNKNOWN"; ADR-0021 item 5). Only these fields are
+// read; structural validation of the rest is #181.
 
 package bundle
 
@@ -44,7 +45,7 @@ func (c *checker) envelope(p string, content []byte) {
 	if _, present := m["bounds"]; m != nil && !present {
 		c.add(bp, "missing-field", "required field is absent")
 	} else if m != nil {
-		bounds := c.object(m["bounds"], bp, boundNames...)
+		bounds := c.object(m["bounds"], bp, "ExecutionEnvelope/v1", boundNames...)
 		for _, k := range boundNames {
 			if v, present := bounds[k]; present && !revisionRE.MatchString(numberText(v)) {
 				c.add(bp+"."+k, "invalid-bound", "want integer >= 1, got %s", Quote(v))
@@ -61,13 +62,19 @@ func numberText(v any) string {
 
 // evaluation rejects every FAIL or UNKNOWN result in a QualityEvaluation/v1
 // content at p: no reviewed descriptor mapping makes an imported criterion
-// non-blocking yet (P14; ADR-0021 item 5; B02 split ruling, conflict 2).
+// non-blocking yet (P14; ADR-0021 item 5; B02 split ruling, conflict 2). An
+// empty results array (#281 ruling) and a NOT_APPLICABLE result without a
+// non-empty applicability string (#288 ruling) are unresolved and rejected too.
 func (c *checker) evaluation(p string, content []byte) {
 	m, cp := c.content(p, content), p+".content"
 	if _, present := m["results"]; m != nil && !present {
 		c.add(cp+".results", "missing-field", "required field is absent")
 	}
-	for k, r := range c.list(m, cp, "results") {
+	results := c.list(m, cp, "results")
+	if results != nil && len(results) == 0 {
+		c.add(cp+".results", "empty-evaluation", "evaluation reports no result; absence of evidence rejects admission")
+	}
+	for k, r := range results {
 		rp := fmt.Sprintf("%s.results[%d]", cp, k)
 		o, isObject := r.(map[string]any)
 		switch v, present := o["result"]; {
@@ -77,7 +84,9 @@ func (c *checker) evaluation(p string, content []byte) {
 			c.add(rp+".result", "missing-field", "required field is absent")
 		case v == "FAIL" || v == "UNKNOWN":
 			c.add(rp+".result", "blocking-result", "imported %s result rejects admission", Quote(v))
-		case v != "PASS" && v != "NOT_APPLICABLE":
+		case v == "NOT_APPLICABLE":
+			c.text(o, rp, "applicability", "missing-applicability", "NOT_APPLICABLE result states no applicability path")
+		case v != "PASS":
 			c.add(rp+".result", "invalid-result", `want "PASS", "FAIL", "NOT_APPLICABLE" or "UNKNOWN", got %s`, Quote(v))
 		}
 	}

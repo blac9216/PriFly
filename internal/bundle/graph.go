@@ -1,8 +1,9 @@
 // Work Item content checks: the kind, consumers, dependencies and outcomes read
 // from each WorkItem/v1 artifact's bytes, and the dependency graph over them (C1
 // "acyclic dependencies"; "SLICE or justified ENABLER with named consumers";
-// "explicit dependency conditions"; "coverage of all outcomes"). Only these
-// fields are read; structural validation of the rest is #181.
+// "explicit dependency conditions"; "coverage of all outcomes"; "finite
+// envelopes"). Only these fields are read; structural validation of the rest is
+// #181.
 
 package bundle
 
@@ -13,10 +14,11 @@ import (
 )
 
 // edge is a reference from a Work Item's content to a Work Item ID or, in
-// outcomes, a Baseline ID; list and k locate it, and its path is built only
-// when it is reported.
+// outcomes or execution_envelope, the ID of an artifact of the schema named in
+// resolves; list and k locate it, and its path is built only when it is
+// reported.
 type edge struct {
-	list string // "dependencies", "consumers" or "outcomes"
+	list string // "dependencies", "consumers", "outcomes" or "execution_envelope"
 	k    int
 	id   string // "" when absent or invalid
 }
@@ -27,9 +29,16 @@ func (e edge) path(p string) string {
 		return fmt.Sprintf("%s.content.consumers[%d]", p, e.k)
 	case "outcomes":
 		return fmt.Sprintf("%s.content.outcomes[%d].baseline", p, e.k)
+	case "execution_envelope":
+		return p + ".content.execution_envelope"
 	}
 	return fmt.Sprintf("%s.content.dependencies[%d].work_item", p, e.k)
 }
+
+// resolves maps an edge list naming a non-Work-Item artifact to that artifact's
+// schema and the code reported when no entry of that schema has the ID.
+var resolves = map[string][2]string{"outcomes": {"Baseline/v1", "unresolved-baseline"},
+	"execution_envelope": {"ExecutionEnvelope/v1", "unresolved-envelope"}}
 
 // body is the references read from one distinct content, reported at path, the
 // first Work Item entry naming those bytes; slice is whether its kind is SLICE;
@@ -37,7 +46,7 @@ func (e edge) path(p string) string {
 // found once for every walk.
 type body struct {
 	path                   string
-	deps, users, baselines []edge
+	deps, users, artifacts []edge
 	slice                  bool
 	next                   int
 }
@@ -49,15 +58,15 @@ type workItem struct {
 	body     int
 }
 
-// workItems holds the Work Item entries and the bodies they name, and the IDs
-// of the Baseline/v1 entries. Content is parsed once per schema and SHA-256 of
-// exact bytes: entries sharing bytes share their references and diagnostics,
-// so memory is linear in the bundle's bytes, not entries × bytes.
+// workItems holds the Work Item entries and the bodies they name, and the
+// schema and ID of every artifact entry. Content is parsed once per schema and
+// SHA-256 of exact bytes: entries sharing bytes share their references and
+// diagnostics, so memory is linear in the bundle's bytes, not entries × bytes.
 type workItems struct {
 	items     []workItem
 	bodies    []body
 	digest    map[string]int
-	baselines map[string]bool
+	schemaIDs map[string]bool // schema + " " + ID
 }
 
 // read checks content of schema, whose SHA-256 is digest, at the entry path p
@@ -80,8 +89,10 @@ func (w *workItems) read(c *checker, p, schema, digest string, content []byte) i
 	return b
 }
 
-// body reads kind, dependencies, outcomes and, for an ENABLER, consumers from
-// the artifact content at path p (reported as p.content).
+// body reads kind, dependencies, outcomes, execution_envelope and, for an
+// ENABLER, consumers from the artifact content at path p (reported as
+// p.content). A Work Item names exactly one ExecutionEnvelope/v1 artifact by ID
+// (#280 ruling).
 func (c *checker) body(p string, content []byte) body {
 	b, cp, m := body{path: p}, p+".content", c.content(p, content)
 	if m == nil {
@@ -121,8 +132,13 @@ func (c *checker) body(p string, content []byte) body {
 			c.add(op+".baseline", "orphan-outcome", "outcome names no baseline obligation")
 			continue
 		}
-		b.baselines = append(b.baselines, edge{"outcomes", k, c.idValue(om["baseline"], op+".baseline", "bsl")})
+		b.artifacts = append(b.artifacts, edge{"outcomes", k, c.idValue(om["baseline"], op+".baseline", "bsl")})
 		c.text(om, op, "obligation", "orphan-outcome", "outcome names no baseline obligation")
+	}
+	if _, present := m["execution_envelope"]; !present {
+		c.add(cp+".execution_envelope", "unbound-work-item", "Work Item names no ExecutionEnvelope/v1 artifact")
+	} else {
+		b.artifacts = append(b.artifacts, edge{"execution_envelope", 0, c.idValue(m["execution_envelope"], cp+".execution_envelope", "xen")})
 	}
 	b.slice = m["kind"] == "SLICE"
 	switch kind, present := m["kind"]; {
@@ -142,7 +158,7 @@ func (c *checker) body(p string, content []byte) body {
 
 // graph rejects a dependency or consumer naming no Work Item in the bundle, a
 // consumer naming a Work Item whose content is read but is not a SLICE, and an
-// outcome naming no Baseline/v1 entry, and it
+// outcome or execution_envelope naming no entry of its schema, and it
 // names one cycle per disjoint walk of the dependencies left after removing,
 // iteratively, every Work Item whose dependencies are all removed (Kahn). A
 // body is a node every entry naming it depends on, so shared bytes' edges are
@@ -174,9 +190,9 @@ func (c *checker) graph(w workItems) {
 				c.add(e.path(body.path), "non-slice-consumer", "consumer %s is not a SLICE Work Item", Quote(e.id))
 			}
 		}
-		for _, e := range body.baselines {
-			if e.id != "" && !w.baselines[e.id] {
-				c.add(e.path(body.path), "unresolved-baseline", "no Baseline/v1 artifact in this bundle has ID %s", Quote(e.id))
+		for _, e := range body.artifacts {
+			if r := resolves[e.list]; e.id != "" && !w.schemaIDs[r[0]+" "+e.id] {
+				c.add(e.path(body.path), r[1], "no %s artifact in this bundle has ID %s", r[0], Quote(e.id))
 			}
 		}
 	}
