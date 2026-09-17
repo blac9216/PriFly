@@ -518,4 +518,23 @@ replace "$fixture_root/pr-item-heading.md" $'\n## Verified expectation\n' $'\n- 
 run_case 'PR: a "## " heading inside a list item is not counted (fail closed)' 1 \
   'MISSING: all template sections present (missing: Verified expectation)' \
   --root "$root" --body "$fixture_root/pr-item-heading.md" "${pr[@]}"
+# #261: a less-indented line ends the item an HTML comment opened in, and GitHub then hides every
+# line up to a raw "-->" (not modelled: the rest of the body); a "-->" inside the item still closes it.
+checkbox_case comment-item-ends "$ac_h" $'- a\n  <!--\n<!-- c -->\n     - [ ] quoted\n' \
+  'checkbox in indented code after a comment that outlived its - item fails'
+checkbox_case comment-item-text "$ac_h" $'- a\n  <!--\ntext -->\n- [ ] Q1\n' \
+  'checkbox after a comment whose - item ended before its --> fails'
+checkbox_case comment-item-line "$ac_h" $'- <!--\n  - [ ] Q1\n' \
+  'checkbox inside a comment opened on a - item line fails'
+checkbox_case comment-item-closed "$ac_h" $'- a\n  <!--\n  -->\n- [ ] Q1\n' \
+  'checkbox after a comment closed inside its - item passes' 0
+# #262 and #277: a line indented 4 or more columns that continues a paragraph is text, not a
+# checkbox, here after a fence the checker reads as indented code in a quoted list item; #276: 5
+# spaces after a quoted list marker start indented code.
+checkbox_case para-indented "$ac_h" $'Then:\n    - [ ] Paragraph text, not a checkbox.\n' \
+  'checkbox-shaped line continuing a paragraph 4 columns in fails'
+checkbox_case quote-item-fence-code "$ac_h" $'> - \n>     ~~~\n>\t- - [ ] Q1\n       - [ ] Q2\n' \
+  'checkbox in indented code after a fence in an empty quoted list item fails'
+checkbox_case quote-item-code-5 "$ac_h" $'> -     code\n    - [ ] Q1\n' \
+  'checkbox in indented code after a quoted list item and 5 spaces of indented code fails'
 echo "test-check-readiness: $passed cases passed"
