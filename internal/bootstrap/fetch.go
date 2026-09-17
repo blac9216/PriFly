@@ -42,6 +42,10 @@ type Request struct {
 	Repository string // Git locator of the private bootstrap repository
 	Revision   string // exact commit id selected by the owner
 	FactoryID  string // expected Factory identity
+	// SSHAuthSock is the operator-supplied path of the SSH agent socket holding the separately
+	// held fetch credential. It is a reference, never a credential value, and is the only
+	// credential input passed to Git; empty passes none.
+	SSHAuthSock string
 }
 
 // Manifest is the non-secret bootstrap.json.
@@ -71,10 +75,17 @@ var hardening = []string{"-c", "core.hooksPath=/dev/null", "-c", "protocol.allow
 	"-c", "protocol.file.allow=always", "-c", "protocol.https.allow=always", "-c", "protocol.ssh.allow=always"}
 
 // isolatedEnv drops the inherited environment, so no system or global Git
-// configuration, template or GIT_* variable reaches the fetch.
-func isolatedEnv(home string) []string {
-	return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "LC_ALL=C",
+// configuration, template, GIT_* or credential variable reaches the fetch. The
+// allowlist is exactly: inherited PATH; HOME set to the private work directory;
+// LC_ALL, GIT_CONFIG_NOSYSTEM, GIT_CONFIG_GLOBAL and GIT_TERMINAL_PROMPT fixed;
+// and SSH_AUTH_SOCK only from an explicit non-empty sshAuthSock.
+func isolatedEnv(home, sshAuthSock string) []string {
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "LC_ALL=C",
 		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0"}
+	if sshAuthSock != "" {
+		env = append(env, "SSH_AUTH_SOCK="+sshAuthSock)
+	}
+	return env
 }
 
 func runGit(ctx context.Context, env []string, dir string, args ...string) ([]byte, error) {
@@ -95,7 +106,7 @@ func Fetch(ctx context.Context, req Request, workDir string) (*Verified, error) 
 		return nil, fmt.Errorf("%w: work directory unavailable", ErrFetch)
 	}
 	defer os.RemoveAll(tmp)
-	env, repo := isolatedEnv(tmp), filepath.Join(tmp, "repo.git")
+	env, repo := isolatedEnv(tmp, req.SSHAuthSock), filepath.Join(tmp, "repo.git")
 	git := func(args ...string) ([]byte, error) { return runGit(ctx, env, repo, args...) }
 
 	if _, err := runGit(ctx, env, tmp, "init", "--bare", "--quiet", "--template=", repo); err != nil {

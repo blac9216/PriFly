@@ -45,7 +45,7 @@ func testCtx(t *testing.T) context.Context {
 func gitFixture(t *testing.T, dir, stdin string, args ...string) string {
 	t.Helper()
 	cmd := exec.CommandContext(testCtx(t), "git", append([]string{"-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid"}, args...)...)
-	cmd.Dir, cmd.Env, cmd.Stdin = dir, isolatedEnv(t.TempDir()), strings.NewReader(stdin)
+	cmd.Dir, cmd.Env, cmd.Stdin = dir, isolatedEnv(t.TempDir(), ""), strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("fixture git %v: %v\n%s", args, err, out)

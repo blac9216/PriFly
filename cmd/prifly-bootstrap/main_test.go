@@ -1,0 +1,159 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"filippo.io/age"
+
+	"github.com/blac9216/PriFly/internal/bootstrap"
+)
+
+// Test-time canaries; no real secret, key or credential is committed.
+const (
+	canary   = "prifly-canary-cli-secret"
+	factory  = "prifly-fixture-factory"
+	inherits = "PRIFLY_INHERITED_CANARY"
+)
+
+// gitEnvAllowed is Fetch's documented allowlist plus the names git and sh add themselves.
+var gitEnvAllowed = "PATH HOME LC_ALL GIT_CONFIG_NOSYSTEM GIT_CONFIG_GLOBAL GIT_TERMINAL_PROMPT SSH_AUTH_SOCK GIT_EXEC_PATH GIT_PROTOCOL PWD"
+
+func git(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid"}, args...)...)
+	cmd.Dir, cmd.Env = dir, []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fixture git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// fixture commits an age-encrypted canary secrets file and its manifest, and puts on PATH a
+// fake ssh that records its environment in envLog and serves the repository locally.
+func fixture(t *testing.T) (url, rev, identityFile, envLog string) {
+	t.Helper()
+	id, err := age.GenerateX25519Identity()
+	identityFile, repo, bin := filepath.Join(t.TempDir(), "identity"), t.TempDir(), t.TempDir()
+	var sealed bytes.Buffer
+	w, err2 := age.Encrypt(&sealed, id.Recipient())
+	if err != nil || err2 != nil || os.WriteFile(identityFile, []byte(id.String()+"\n"), 0o600) != nil {
+		t.Fatal("identity fixture")
+	}
+	fmt.Fprintf(w, `{"schema":%q,"factory_id":%q,"secrets":[{"id":"r2","purpose":"replication","generation":1,"value":%q}]}`, bootstrap.SecretSchema, factory, canary)
+	if w.Close() != nil {
+		t.Fatal("encrypting fixture")
+	}
+	manifest := fmt.Sprintf(`{"schema":%q,"factory_id":%q,"secrets_path":%q,"secrets_sha256":"%x","secret_schema":%q}`,
+		bootstrap.ManifestSchema, factory, bootstrap.SecretsPath, sha256.Sum256(sealed.Bytes()), bootstrap.SecretSchema)
+	envLog = filepath.Join(bin, "ssh-env")
+	ssh := "#!/bin/sh\nenv > '" + envLog + "'\nfor a; do last=$a; done\neval \"exec git upload-pack ${last#git-upload-pack }\"\n"
+	if os.WriteFile(filepath.Join(repo, bootstrap.ManifestPath), []byte(manifest), 0o644) != nil ||
+		os.WriteFile(filepath.Join(repo, bootstrap.SecretsPath), sealed.Bytes(), 0o644) != nil ||
+		os.WriteFile(filepath.Join(bin, "ssh"), []byte(ssh), 0o700) != nil {
+		t.Fatal("repository fixture")
+	}
+	git(t, repo, "init", "--quiet", "--template=")
+	git(t, repo, "add", ".")
+	git(t, repo, "commit", "--quiet", "-m", "fixture")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return "ssh://fixture-host" + repo, git(t, repo, "rev-parse", "HEAD"), identityFile, envLog
+}
+
+// provider is the local fake discovery provider; it sees the plaintext only through the secrets path.
+type provider struct {
+	id       string
+	err      error
+	sawValue bool
+}
+
+func (p *provider) Discover(_ context.Context, _ bootstrap.Manifest, path string) (string, error) {
+	data, _ := os.ReadFile(path)
+	p.sawValue = strings.Contains(string(data), canary)
+	return p.id, p.err
+}
+
+func TestBootstrapCLI(t *testing.T) {
+	url, rev, identityFile, envLog := fixture(t)
+	sock := filepath.Join(t.TempDir(), "explicit-agent.sock")
+	t.Setenv(inherits, canary)
+	t.Setenv("SSH_AUTH_SOCK", "/inherited-agent.sock")
+	outage := errors.New("bucket prifly-canary-bucket unreachable: " + canary)
+	for name, c := range map[string]struct {
+		d        *provider
+		drop     string // flag omitted from the full argument list
+		identity string
+		code     int
+		output   string
+	}{
+		"existing factory":   {&provider{id: factory}, "", identityFile, 0, "existing Factory state discovered at revision " + rev},
+		"provider outage":    {&provider{err: outage}, "", identityFile, 1, bootstrap.ErrDiscovery.Error()},
+		"missing config":     {nil, "", identityFile, 1, bootstrap.ErrDiscoveryConfig.Error()},
+		"absent state":       {&provider{}, "", identityFile, 1, bootstrap.ErrNoFactory.Error()},
+		"missing key":        {&provider{id: factory}, "", identityFile + "-absent", 1, bootstrap.ErrIdentity.Error()},
+		"missing credential": {&provider{id: factory}, "-fetch-ssh-auth-sock", identityFile, 1, "explicit fetch credential reference"},
+		"missing input":      {&provider{id: factory}, "-factory-id", identityFile, 2, "usage: prifly-bootstrap"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			work, tmp := t.TempDir(), t.TempDir()
+			t.Setenv("TMPDIR", tmp)
+			os.Remove(envLog)
+			args := []string{"-repository", url, "-revision", rev, "-factory-id", factory, "-fetch-ssh-auth-sock", sock,
+				"-age-identity-file", c.identity, "-work-dir", work}
+			for i := range args {
+				if args[i] == c.drop {
+					args = append(args[:i], args[i+2:]...)
+					break
+				}
+			}
+			var stdout, stderr bytes.Buffer
+			d := bootstrap.Discoverer(nil)
+			if c.d != nil {
+				d = c.d
+			}
+			code := run(context.Background(), args, &stdout, &stderr, d)
+			output := stdout.String() + stderr.String()
+			if code != c.code || !strings.Contains(output, c.output) {
+				t.Fatalf("exit %d, output %q; want exit %d with %q", code, output, c.code, c.output)
+			}
+			for _, secret := range []string{"prifly-canary", url, sock, identityFile, work} {
+				if strings.Contains(output, secret) {
+					t.Fatalf("output exposes %q: %q", secret, output)
+				}
+			}
+			if left, _ := os.ReadDir(work); len(left) != 0 {
+				t.Fatalf("work directory holds %d entries after the run", len(left))
+			}
+			if left, _ := os.ReadDir(tmp); len(left) != 0 {
+				t.Fatalf("TMPDIR holds %d entries after the run", len(left))
+			}
+			if c.d != nil && c.d.sawValue != (c.identity == identityFile && c.code != 2 && c.drop == "") {
+				t.Fatalf("provider saw decrypted secrets: %t", c.d.sawValue)
+			}
+			recorded, err := os.ReadFile(envLog)
+			if c.code == 2 || c.drop != "" {
+				if err == nil {
+					t.Fatal("git ran although the inputs were incomplete")
+				}
+				return
+			}
+			if !strings.Contains(string(recorded), "\nSSH_AUTH_SOCK="+sock+"\n") && !strings.HasPrefix(string(recorded), "SSH_AUTH_SOCK="+sock+"\n") {
+				t.Fatalf("git's ssh did not receive the explicit credential reference:\n%s", recorded)
+			}
+			for _, line := range strings.Split(strings.TrimSpace(string(recorded)), "\n") {
+				if name, _, _ := strings.Cut(line, "="); !strings.Contains(" "+gitEnvAllowed+" ", " "+name+" ") {
+					t.Fatalf("inherited variable %q reached git", name)
+				}
+			}
+		})
+	}
+}
