@@ -187,6 +187,14 @@ var hostile = map[string]func(dir string) error{
 	"diagnostic-cap": func(dir string) error { // $.zz is added first, the unreadable artifact last
 		return errors.Join(replaceIn(dir, `"jobs": [`, `"zz": 1, "jobs": [`+strings.Repeat("7, ", 2000)), replaceIn(dir, `"artifacts/baseline.json"`, `"artifacts/missing.json"`))
 	},
+	"duplicate-id-partial": func(dir string) error { // the Baseline's ID again, once without a digest and once without a revision
+		return replaceIn(dir, "}\n  ", `}, {"id": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "revision": 1, "schema": "Baseline/v1", "path": "artifacts/baseline.json", "refs": []}`+
+			`, {"id": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "schema": "Baseline/v1", "path": "artifacts/baseline.json", "sha256": "`+bslSHA+`", "refs": []}`+"\n  ")
+	},
+	"unresolved-reference-partial": func(dir string) error { // an entry with no ID referring once without a digest and once without a revision
+		return replaceIn(dir, "}\n  ", `}, {"revision": 1, "schema": "Baseline/v1", "path": "artifacts/baseline.json", "sha256": "`+bslSHA+`", "refs": [`+
+			fmt.Sprintf(`{"id": "bsl_%032x", "revision": 1}, {"id": "bsl_%032x", "sha256": "%s"}]}`, 99, 98, bslSHA)+"\n  ")
+	},
 	"invalid-utf8": func(dir string) error { return replaceIn(dir, `"wi_8887ffc`, "\"wi_\xff\xfe8887ffc") },
 	"lone-surrogate": func(dir string) error { // a high, a low before a pair, and a pair beside an escaped backslash
 		return errors.Join(replaceIn(dir, `"bnd_`, `"bnd_\ud800`), replaceIn(dir, `"reviewer.implementation/v1"`, `"\udc00\ud83d\ude00"`),
@@ -383,6 +391,17 @@ func TestBundleInspectFixtures(t *testing.T) {
 			"duplicate-key " + bsl + ".refs" + repeated,
 			"duplicate-key $.schema" + repeated,
 			`duplicate-key $["x\x1b[2K"]` + repeated},
+		"duplicate-id-partial": {
+			`duplicate-id $.artifacts[5].id: artifact ID "bsl_6e73c229223db574a3c8fa28dd5a1a5a" is already declared at ` + bsl + ".id",
+			"missing-field $.artifacts[5].sha256" + missing,
+			`duplicate-id $.artifacts[6].id: artifact ID "bsl_6e73c229223db574a3c8fa28dd5a1a5a" is already declared at ` + bsl + ".id",
+			"missing-field $.artifacts[6].revision" + missing},
+		"unresolved-reference-partial": {
+			"missing-field $.artifacts[5].id" + missing,
+			`unresolved-reference $.artifacts[5].refs[0].id: no artifact in this bundle has ID "bsl_00000000000000000000000000000063"`,
+			"missing-field $.artifacts[5].refs[0].sha256" + missing,
+			`unresolved-reference $.artifacts[5].refs[1].id: no artifact in this bundle has ID "bsl_00000000000000000000000000000062"`,
+			"missing-field $.artifacts[5].refs[1].revision" + missing},
 		"invalid-utf8":        {"invalid-string " + wi + ".id: string is not valid UTF-8"},
 		"diagnostic-cap":      capped(),
 		"fault-budget":        append(dups(7, 10), incomplete),
