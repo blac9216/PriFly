@@ -91,12 +91,26 @@ func (p *provider) Discover(_ context.Context, _ bootstrap.Manifest, path string
 	return p.id, p.err
 }
 
+// listenAgent binds the agent socket fixture dir/agent.sock and returns its absolute path. It binds the relative name
+// from dir, so the kernel's 108-byte socket path limit applies to "agent.sock", not to dir, whose length TMPDIR
+// decides. The working directory stays dir until the test ends.
+func listenAgent(t *testing.T, dir string) string {
+	t.Helper()
+	t.Chdir(dir)
+	listener, err := net.Listen("unix", "agent.sock")
+	if err != nil {
+		t.Fatalf("agent socket fixture: %v", err)
+	}
+	listener.(*net.UnixListener).SetUnlinkOnClose(false) // never unlink a relative name; the directory is removed
+	t.Cleanup(func() { listener.Close() })
+	return filepath.Join(dir, "agent.sock")
+}
+
 func TestBootstrapCLI(t *testing.T) {
 	url, rev, identityFile, envLog := fixture(t)
 	refs, fd2, stderrFile := t.TempDir(), os.Stderr, filepath.Join(t.TempDir(), "fd2")
-	sock, knownHosts := filepath.Join(refs, "agent.sock"), filepath.Join(refs, "known_hosts")
-	t.Chdir(refs) // so relative references name existing entries
-	listener, err := net.Listen("unix", sock)
+	sock, knownHosts := listenAgent(t, refs), filepath.Join(refs, "known_hosts") // refs is the working directory from here on
+	var err error
 	os.Stderr, _ = os.Create(stderrFile) // the flag package's default output
 	for _, name := range []string{"known_hosts", "known hosts", "known$hosts", "known%hosts", "known~hosts"} {
 		err = errors.Join(err, os.WriteFile(name, nil, 0o600)) // existing files only refPath can refuse
@@ -104,7 +118,7 @@ func TestBootstrapCLI(t *testing.T) {
 	if err != nil || os.Symlink(sock, "link.sock") != nil || os.Symlink(knownHosts, "link_hosts") != nil {
 		t.Fatal("reference fixture")
 	}
-	t.Cleanup(func() { listener.Close(); os.Stderr = fd2 })
+	t.Cleanup(func() { os.Stderr = fd2 })
 	t.Setenv(inherits, canary)
 	t.Setenv("SSH_AUTH_SOCK", "/inherited-agent.sock")
 	unusable := "ssh agent socket or known-hosts reference unusable"
@@ -201,13 +215,11 @@ func TestBootstrapCLI(t *testing.T) {
 func slowFetch(t *testing.T) (args []string, work, pidFile string, survivors func() int) {
 	url, rev, identityFile, _ := fixture(t)
 	bin, refs, work := t.TempDir(), t.TempDir(), t.TempDir()
-	pidFile, sock, knownHosts := filepath.Join(bin, "ssh-pid"), filepath.Join(refs, "agent.sock"), filepath.Join(refs, "known_hosts")
-	listener, err := net.Listen("unix", sock)
-	if err != nil || os.WriteFile(knownHosts, nil, 0o600) != nil || os.WriteFile(filepath.Join(bin, "ssh"),
+	pidFile, sock, knownHosts := filepath.Join(bin, "ssh-pid"), listenAgent(t, refs), filepath.Join(refs, "known_hosts")
+	if os.WriteFile(knownHosts, nil, 0o600) != nil || os.WriteFile(filepath.Join(bin, "ssh"),
 		[]byte("#!/bin/sh\necho $$ $(cut -d' ' -f5 /proc/$$/stat) > '"+pidFile+"'\nexec sleep 20\n"), 0o700) != nil {
 		t.Fatal("fixture")
 	}
-	t.Cleanup(func() { listener.Close() })
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	survivors = func() int {
 		var pid, pgid int
