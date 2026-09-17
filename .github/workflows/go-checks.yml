@@ -23,6 +23,19 @@
 #   is CI infrastructure, not the product runtime profile; no product
 #   deployment parameter pins a CI runner image, so no pin is applied here.
 #   Revisit only if a documented deployment parameter targets CI runners.
+# - Qualification local proofs run after go build, in this job, because they
+#   build their //go:build ignore evaluators with the pinned Go above; a second
+#   job would repeat GO_ARCHIVE_SHA256, which check-go-digest.sh refuses. Add a
+#   later proof as one more step at the end, with its testing.md row. The early
+#   harness proof needs unprivileged user+mount namespaces (unshare -rm).
+#   ubuntu-latest denies them through AppArmor (unshare: write failed
+#   /proc/self/uid_map: Operation not permitted), so one step sets
+#   kernel.apparmor_restrict_unprivileged_userns=0 on this disposable VM. The
+#   job already has passwordless sudo, so this grants PR code nothing new; token
+#   permissions are unchanged. The step fails if the sysctl is gone, and the
+#   probe step then fails the job if namespaces are still denied; nothing is
+#   skipped. TMPDIR stays unset (/tmp): the harness proof exits 1 on an
+#   upper-case TMPDIR.
 name: go-checks
 on:
   pull_request:
@@ -72,3 +85,13 @@ jobs:
         run: go test -count=1 -race -v ./...
       - name: go build
         run: go build ./...
+      - name: Allow unprivileged user namespaces (hosted runner AppArmor)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Early harness namespace probe (unshare -rm; denied fails, no skip)
+        run: unshare -rm mount -t tmpfs none /tmp
+      - name: go vet early evaluator (build-ignored result.go)
+        run: go vet scripts/qualification/early/result.go
+      - name: Early evaluator local proof (crafted traces)
+        run: bash tests/qualification/early_harness/test-result.sh
+      - name: Early harness local proof (fake launcher)
+        run: bash tests/qualification/early_harness/test-harness.sh

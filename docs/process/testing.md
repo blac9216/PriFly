@@ -33,7 +33,8 @@ These are exactly the nine `docs-checks.yml` steps plus the sanitize scan; a man
 log actually ran them.
 
 Go suite (`cmd/`, `internal/`): exactly the steps of the always-reporting, not-yet-required
-`go` job in `.github/workflows/go-checks.yml`, same order and flags.
+`go` job in `.github/workflows/go-checks.yml`, same order and flags, followed in that job by
+the qualification local proofs below.
 
 Toolchain: CI and the local recipe install the same go.dev archive and check it against
 the same digest. Both values are pinned once, as `GO_ARCHIVE` and `GO_ARCHIVE_SHA256` on
@@ -65,12 +66,24 @@ one change, taking the new digest from `https://go.dev/dl/?mode=json&include=all
 
 | Suite | Command | Environment |
 |---|---|---|
-| Identity | `git rev-parse HEAD`, then `command -v go`, `go version`, `go env GOROOT` | Checkout; pinned `go` first on `PATH`. |
+| Identity | `git rev-parse HEAD`, then `command -v go`, `go version`, `go env GOROOT` | Checkout; pinned `go` first on `PATH`; `git` and an OpenSSH client (`ssh`) on `PATH`, which the `internal/bootstrap` tests run and fail without. Their versions are UNKNOWN pins owned by Q01 (#109). |
 | Modules | `go mod verify` | Same; checks downloaded modules, including CI's restored module cache, against `go.sum`. |
 | Format | `test -z "$(gofmt -l .)"` | Same; exits 1 if any file is unformatted. |
 | Vet | `go vet ./...` | Same. |
 | Unit tests | `go test -count=1 -race -v ./...` | Same; uncached; `-race` needs cgo. |
 | Build | `go build ./...` | Same; keeps no binaries (add `-o <dir>/` to keep them). |
+
+Qualification local proofs, the last steps of the same `go` job, in this order. They use
+fakes and crafted traces only: no harness, provider, credential, network or engine, and
+none is a live PASS.
+
+| Suite | Command | Environment |
+|---|---|---|
+| Runner namespace setting | `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` | CI only, on the disposable GitHub-hosted runner, whose AppArmor setting otherwise makes `unshare -r` fail (`write failed /proc/self/uid_map: Operation not permitted`). Do not run it on a shared or development host; there, the probe below shows whether the host already allows namespaces. |
+| Namespace probe | `unshare -rm mount -t tmpfs none /tmp` | Linux with unprivileged user and mount namespaces; the mount exists only inside the namespace. Exits non-zero where the host denies them (for example an AppArmor user-namespace restriction), and the job fails rather than skipping the harness proof. |
+| Evaluator vet | `go vet scripts/qualification/early/result.go` | Pinned `go` first on `PATH`; `result.go` is `//go:build ignore`, so `go vet ./...` skips it. |
+| Evaluator proof | `bash tests/qualification/early_harness/test-result.sh` | Same; `jq`. Builds `result.go` under `${TMPDIR:-/tmp}`; prints one `ok` line per case and `failures: 0`. |
+| Harness proof | `bash tests/qualification/early_harness/test-harness.sh` | Same; `python3`, `setsid`, `pgrep`, the `en_US.UTF-8` locale, and the namespaces above; `TMPDIR` with no upper case (#240). Prints one `ok` line per check and `failures: 0`. |
 
 ## Lint state
 
