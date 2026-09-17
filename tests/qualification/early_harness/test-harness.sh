@@ -10,8 +10,9 @@
 # the work directory (writers are still killed). Paths: preflight's secret heuristic
 # rejects a 32+ character run mixing case and digits in manifest paths (#240), so the work
 # directory is lowercase hex under TMPDIR and TMPDIR itself must hold no upper case. The
-# --observe-ms cases run under en_US.UTF-8, where a bracket range matches non-ASCII digits;
-# a control check fails the suite if that locale is missing, so they cannot pass vacuously.
+# --observe-ms and --step-deadline-ms refusals run under en_US.UTF-8, where a bracket range
+# matches non-ASCII digits; a control check fails the suite if that locale is missing, so
+# they cannot pass vacuously.
 # Runs get --step-deadline-ms 10000 (PROBE_DL overrides; "missing" drops the flag). A hung
 # VERB case (probe, result, writers, stop, inventory) gets D = 1000 and a fake call whose
 # child ignores TERM and would outlive 2D by 18s, plus a sleep outside the call's group
