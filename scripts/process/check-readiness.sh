@@ -159,11 +159,12 @@ if missing_anchors:
 # item, on its line or below it, that meets a non-blank line indented less than the item's content
 # column before its "-->" hides the rest of the body: GitHub hides every line after it up to the
 # next "-->" it emits as raw HTML, which is not modelled (fail closed). Not modelled: the columns
-# of list items inside a quote (a fence opened in one reads as indented code; the lines it hides
-# are quoted, and the paragraph left open can expose only a line indented 4 or more columns),
+# of list items inside a quote (a fence opened in one reads as indented code, so a line indented
+# 4 or more columns after the quote can read as paragraph text, which is never a checkbox),
 # HTML blocks other than comments, an HTML comment opened in a quote (its later lines stay
-# visible, though GitHub hides them once the quote ends: a possible false PASS), and setext
-# headings or headings inside list items counting as "## " headings.
+# visible, though GitHub hides them once the quote ends: a possible false PASS, #284), setext
+# headings or headings inside list items counting as "## " headings, and a setext underline that
+# turns a checkbox item's content into a heading (a possible false PASS, #285).
 MARKER_RE = re.compile(r'(?:[-*+]|(\d{1,9})[.)])(?:[ \t]+|$)')
 FENCE_OPEN_RE = re.compile(r'(`{3,}|~{3,})(.*)$')
 FENCE_CLOSE_RE = re.compile(r'^(`{3,}|~{3,})\s*$')
