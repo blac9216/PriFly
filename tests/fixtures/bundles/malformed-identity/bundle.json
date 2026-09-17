@@ -1,6 +1,5 @@
 {
   "schema": "ExternalPlanningBundle/v1",
   "bundle_id": "id: bnd_8d0e1c6f026fef7621a0c7b017f12c12",
-  "revision": 0,
-  "jobs": "implementer.implementation/v1"
+  "revision": 0
 }

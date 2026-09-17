@@ -63,13 +63,16 @@ var hostile = map[string]func(dir string) error{
 	"trailing-arrays":  func(dir string) error { return appendFile(dir+"/bundle.json", "]]]") },
 	"trailing-garbage": func(dir string) error { return appendFile(dir+"/bundle.json", "}garbage") },
 	"control-chars": func(dir string) error {
-		return replaceIn(dir, `"jobs": [`, `"x\nresult: ok\u001b[2K": 1, "jobs": ["a\u001b[1A\rresult: ok\u202e", `)
+		return replaceIn(dir, `"`+bundleID+`"`, `"a\u001b[1A\rresult: ok\u202e", "x\nresult: ok\u001b[2K": 1`)
 	},
-	"id-prefix":        func(dir string) error { return replaceIn(dir, `"bnd_`, `"wi_`) },
-	"id-length":        func(dir string) error { return replaceIn(dir, `12c12"`, `12c120"`) },
-	"id-type":          func(dir string) error { return replaceIn(dir, `"`+bundleID+`"`, `7`) },
-	"missing-revision": func(dir string) error { return replaceIn(dir, `"revision": 1,`, ``) },
-	"no-bundle-json":   func(dir string) error { return os.Remove(dir + "/bundle.json") },
+	"id-prefix": func(dir string) error { return replaceIn(dir, `"bnd_`, `"wi_`) },
+	"id-length": func(dir string) error { return replaceIn(dir, `12c12"`, `12c120"`) },
+	"id-type":   func(dir string) error { return replaceIn(dir, `"`+bundleID+`"`, `7`) },
+	"missing-revision": func(dir string) error {
+		return replaceIn(dir, `,
+  "revision": 1`, ``)
+	},
+	"no-bundle-json": func(dir string) error { return os.Remove(dir + "/bundle.json") },
 	"fifo-bundle": func(dir string) error {
 		return errors.Join(os.Remove(dir+"/bundle.json"), syscall.Mkfifo(dir+"/bundle.json", 0o644))
 	},
@@ -108,17 +111,16 @@ func TestBundleInspectFixtures(t *testing.T) {
 		unresolved = "unreadable-bundle $: bundle.json does not resolve to a file inside the bundle directory"
 	)
 	for variant, want := range map[string][]string{
-		"valid":                     {"result: ok manifest_sha256=8278ede343d8ab4b4b7ba8e41fcc210ae30adbd18ec5d8427f5314412c95ffa7 (nothing staged or started)"},
-		"unsupported-version":       {`unsupported-job $.jobs[0]: job/version "implementer.implementation/v2" is not supported`},
+		"valid":                     {"result: ok manifest_sha256=436aeea0a5192bec621f003eefea7247a378af8f0176416b5041ac62c24534db (nothing staged or started)"},
 		"unsupported-bundle-schema": {`unsupported-schema $.schema: want "ExternalPlanningBundle/v1", got "ExternalPlanningBundle/v2"`},
 		"unsupported-authority-field": {
 			"unknown-field $.artifacts" + notPartOf,
 			"unknown-field $.dispatch_eligible" + notPartOf,
+			"unknown-field $.jobs" + notPartOf,
 			"unknown-field $.owner_release_confirmed" + notPartOf,
 			"unknown-field $.refs" + notPartOf},
 		"malformed-identity": {
 			`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "id: ` + bundleID + `"`,
-			"invalid-type $.jobs: want array",
 			"invalid-revision $.revision: want integer >= 1, got 0"},
 		"id-prefix":        {`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "wi_8d0e1c6f026fef7621a0c7b017f12c12"`},
 		"id-length":        {`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "` + bundleID + `0"`},
@@ -129,7 +131,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"trailing-arrays":  {notJSON},
 		"trailing-garbage": {notJSON},
 		"control-chars": {
-			`unsupported-job $.jobs[0]: job/version "a\x1b[1A\rresult: ok\u202e" is not supported`,
+			`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "a\x1b[1A\rresult: ok\u202e"`,
 			`unknown-field $["x\nresult: ok\x1b[2K"]` + notPartOf},
 		"no-bundle-json": {unresolved},
 		"symlink-escape": {unresolved},

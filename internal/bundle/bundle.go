@@ -24,10 +24,6 @@ const MaxFileBytes = 16 << 20
 // Schema is the only supported manifest schema.
 const Schema = "ExternalPlanningBundle/v1"
 
-// jobs is the supported job/version set: the admitted initial Worker jobs.
-var jobs = []string{"implementer.implementation/v1", "implementer.correction/v1",
-	"reviewer.implementation/v1", "rebaser.semantic-conflict-correction/v1", "validator.target-execution/v1"}
-
 var (
 	idRE       = regexp.MustCompile(`^([a-z]+)_[0-9a-f]{32}$`)
 	revisionRE = regexp.MustCompile(`^[1-9][0-9]*$`)
@@ -138,14 +134,6 @@ func (c *checker) revision(m map[string]any, path, key string) {
 	}
 }
 
-func (c *checker) list(m map[string]any, path, key string) []any {
-	l, ok := m[key].([]any)
-	if _, present := m[key]; present && !ok {
-		c.add(path+"."+key, "invalid-type", "want array")
-	}
-	return l
-}
-
 // Inspect reads and validates the bundle in dir without writing. It returns
 // diagnostics sorted by path then code, and the manifest's SHA-256.
 func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
@@ -178,13 +166,8 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 		c.add("$.schema", "unsupported-schema", "want %q, got %s", Schema, lit(m["schema"]))
 		return
 	}
-	top := c.object(doc, "$", "schema", "bundle_id", "revision", "jobs")
+	top := c.object(doc, "$", "schema", "bundle_id", "revision")
 	c.id(top, "$", "bundle_id", "bnd")
 	c.revision(top, "$", "revision")
-	for i, j := range c.list(top, "$", "jobs") {
-		if s, _ := j.(string); !slices.Contains(jobs, s) {
-			c.add(fmt.Sprintf("$.jobs[%d]", i), "unsupported-job", "job/version %s is not supported", lit(j))
-		}
-	}
 	return
 }
