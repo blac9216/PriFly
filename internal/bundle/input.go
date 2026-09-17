@@ -1,6 +1,7 @@
 // Package bundle inspects local external planning bundles. This file is its
 // input-safety layer: every read of bundle content goes through ReadRegular,
-// every JSON document through DecodeJSON, and every bundle-derived string that
+// every JSON document through DecodeJSON (Inspect applies its two checks,
+// decodeValue and Faults, separately), and every bundle-derived string that
 // reaches output through Quote or Member.
 package bundle
 
