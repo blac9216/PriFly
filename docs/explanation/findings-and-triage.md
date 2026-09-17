@@ -129,3 +129,7 @@ flowchart TD
 | PF-FND-08 | Product-validation defects receive explicit scheduling precedence through the common priority/blocking system. |
 | PF-FND-09 | Closeout cannot succeed while any scoped obligation remains unresolved merely because it is held or linked to future work. |
 | PF-FND-10 | No-action and duplicate outcomes preserve rationale, authority, and any surviving blocking obligation. |
+
+### Initial external planning handoff
+
+Current correction remains Factory-managed on the same Work Item/PR. New-scope follow-up and planning-change Findings are stored with complete provenance, requirement/target links and obligations, then routed to the external reviewed planning workflow until native Triage/Planner jobs are admitted. Coherent batches preserve every member identity; urgency is not suppressed by batch size. Holds age into durable Attention. Imported corrective work uses normal baseline/review/owner-release checks. No standing authority permits Pilot/Workers to discard risk, scope or held obligations; explicit owner disposition is exact-subject-bound.

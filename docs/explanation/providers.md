@@ -133,3 +133,7 @@ Optional display lag is surfaced without blocking unrelated authorized work. A p
 | PF-PROV-12 | Review/correction entries are durably recorded and published as history, not coalesced or overwritten by current-state synchronization. |
 | PF-PROV-13 | Profile capability/destination dependencies are validated, and required PR/merge operations remain distinct from optional planning views. |
 | PF-PROV-14 | Proposed-plan materialization and later state updates use durable provider obligations, idempotent canonical mappings, and explicit ambiguity handling. |
+
+### Initial projection selection
+
+The initial handover imports external planning mappings, uses mandatory PR/check/structured-review publication, and may publish Work Item link/status comments. Full labels/board/roadmap mirroring is disabled until separately enabled and qualified. Disabling a projection does not delete existing provider objects or clear mappings; re-enable reconciles before create/backfill. Optional view lag remains visible and cannot replace required merge evidence. Consequential App operations still require published SEND_ARMED, stable identity and profile reconciliation; marker comments are correlation rather than native idempotency.

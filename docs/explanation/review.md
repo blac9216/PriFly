@@ -144,3 +144,7 @@ Required native review/check publication must be confirmed before merge when the
 | PF-REV-13 | Historical review/correction entries are not coalesced into current status or overwritten by later verdicts. |
 | PF-REV-14 | An Attack Profile supplements rubrics with recorded probe outcomes; mandatory unprobed work remains explicit and blocking where required. |
 | PF-REV-15 | Reviewer approval is followed by Factory-controlled PR merge authorization, provider execution, observed integration, and validation-state updates. |
+
+### Initial protected probes and evidence reuse
+
+For the execution-handover profile, independent review reruns changed trust/durability/provider-boundary oracles and modified acceptance tests. Credible unaffected lower-risk evidence may be reused with its justification. Probe omissions remain unmet obligations; style preference without an applicable criterion or demonstrated defect is not a blocking Finding. New candidate/base/policy identities invalidate eligibility for the previous certificate. Controlled adversarial fixtures are declared evidence and cannot replace review of real product outcomes.

@@ -35,3 +35,7 @@ Read-only observations also retain provider/object identity, observation/correla
 ## Related contracts
 
 [Providers](../explanation/providers.md) defines reconciliation and configurable projections. [Git integration](../explanation/git-integration.md) defines PR-only integration. [Conformance](conformance.md) supplies failure-injection oracles. Adding or changing ambiguity, authority, conflict or acceptance guarantees requires design/policy review; formatting and backoff within those guarantees are adapter details.
+
+## Initial handover provider tuple
+
+Select repository-scoped GitHub App installation credentials without bypass, squash, strict trusted code/docs checks and effective native review rules. Qualify expected-head rejection, base/check race behavior, actual merge identity, transient permission/absence, exhaustive marker correlation and lost-reply reconciliation. No generic SDK retry may turn an unknown create/merge into another effect. Optional planning projections can be disabled, but mandatory PR/check/review conditions cannot. R2 coordination uses single-part conditional PutObject against the exact opaque ETag, unique update identity and the same key for publication/takeover; real CAS and pacing/backoff evidence is required.

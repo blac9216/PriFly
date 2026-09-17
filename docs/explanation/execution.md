@@ -101,3 +101,7 @@ A current correction includes updated PR Draft fields when the change affects th
 | PF-IMP-06 | Discovering unrelated work does not implicitly enlarge the current Implementation Envelope. |
 | PF-IMP-07 | Implementer authors the required PR content; Factory validates and deterministically renders it with canonical metadata. |
 | PF-IMP-08 | Factory confirms the pushed candidate and creates/updates the corresponding PR before dispatching candidate review. |
+
+### Initial execution boundary
+
+Imported released work enters the same implementation contract as internally planned work. Implementer may edit and commit locally within its envelope but has no provider mutation credential. After writer fencing, trusted Git verifies exact tree/ancestry/scope and checkpoint identity; Provider Broker confirms branch/PR mapping before review. The PR Draft identifies the problem/outcomes, actual change, attributable verification, risk/rollback, limitations and Work Item link; Factory does not fabricate missing substance. Progress checkpoints use controlled writer quiescence and never count as acceptance by themselves.

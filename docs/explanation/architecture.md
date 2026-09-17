@@ -150,6 +150,9 @@ flowchart TB
   DP --> WD[Dedicated Worker Docker daemon]
   W1 -->|attempt result capability| API
   W2 -->|attempt result capability| API
+  API --> GH[Git checkpoints and GitHub App Broker]
+  API --> VIEW[Read-only terminal viewer]
+  Pilot --> VIEW
 ```
 
-See [ADR-0029](../adr/0029-admit-external-reviewed-execution-packages.md), [ADR-0030](../adr/0030-own-attempts-behind-herdr-launcher.md), [ADR-0031](../adr/0031-verify-remote-state-before-publication.md) and the subsystem contracts ([planning admission](planning.md#external-reviewed-package-admission), [API bindings](../reference/api-contract.md#initial-execution-profile-bindings), [execution runtime](execution-runtime.md#initial-container-owned-attempt-profile), [security](security.md#initial-execution-capability-boundary), [publication adapter](persistence-and-durability.md#initial-remote-verified-publication-adapter), [transport permits](persistence-and-durability.md#bounded-transport-permits)) for the exact authority, failure and qualification rules. This is the proposed topology; actual socket/mount/container/host tuple qualification remains required.
+See [ADR-0029](../adr/0029-admit-external-reviewed-execution-packages.md), [ADR-0030](../adr/0030-own-attempts-behind-herdr-launcher.md), [ADR-0031](../adr/0031-verify-remote-state-before-publication.md) and the subsystem contracts ([planning admission](planning.md#external-reviewed-package-admission), [API bindings](../reference/api-contract.md#initial-execution-profile-bindings), [execution runtime](execution-runtime.md#initial-container-owned-attempt-profile), [security](security.md#initial-execution-capability-boundary), [publication adapter](persistence-and-durability.md#initial-remote-verified-publication-adapter), [transport permits](persistence-and-durability.md#bounded-transport-permits), [Git integration](git-integration.md#initial-non-bypassing-app-profile)) for the exact authority, failure and qualification rules. This is the proposed topology; actual socket/mount/container/host tuple qualification remains required.

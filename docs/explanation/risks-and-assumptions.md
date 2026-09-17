@@ -34,3 +34,7 @@ gives release dependencies; [Conformance](../reference/conformance.md) provides 
 This document selects a product architecture. It does not claim that a particular dependency release has already passed PriFly's conformance tests, that all licensed standards text has been inspected, or that every numerical operating target has been measured. Public official sources establish the cited tool capabilities and standards scope; the remaining implementation qualification is explicit.
 
 A feasibility result that disproves a selected mechanism must return as a specific design decision with alternatives and impact, not silently rewrite an implementation issue's acceptance criteria. The owner should not have to discover such a change only after code has landed.
+
+### Initial handover profile risks
+
+The proposed profile explicitly accepts low-volume publication and growing retained remote history in exchange for a directly verified frontier. Failure of fixed performance/capacity targets reopens the adapter decision before admission. Trusted lifecycle-engine access, external review-provenance trust, subscription entitlement/refresh uncertainty and non-bypassing GitHub policy enforcement require their named qualification evidence. Missing host reservations, stale ADR authority or an unavailable service blocks affected admission; none permits weaker guarantees. [Deployment parameters](../reference/deployment-parameters.md) fixes selected bounds and recheck triggers; [conformance](../reference/conformance.md) supplies negative-path oracles.
