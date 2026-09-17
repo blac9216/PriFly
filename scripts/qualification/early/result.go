@@ -6,8 +6,8 @@
 // 1: rejected, one "REJECT <CODE> <harness>: <reason>" line per finding; 2: usage error,
 // unreadable or over-long line, or a trace outside this grammar. Every line is exactly one
 // flat JSON object with nothing after it, no duplicate key and exactly its event's keys
-// (fields below); t, live, observe_ms and step_deadline_ms are integers >= 0, every other
-// value a non-empty string; target, outcome and writer take the listed values. Line 1, and
+// (fields below); t, live and observe_ms are integers >= 0, step_deadline_ms an integer in
+// 1..99999999 (the runner's accepted range), every other value a non-empty string; target, outcome and writer take the listed values. Line 1, and
 // no other, is the early-trace/v2 header. Each launch is a declared candidate at its exact
 // version, at most once per candidate and per run; every other event except a result names
 // a run launched on an earlier line. Per run, stop follows launch, observed follows stop and inventory
@@ -32,6 +32,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"slices"
 	"strconv"
@@ -93,13 +94,17 @@ func parse(line []byte) (e event, err error) {
 		s, _ := got[k].(string)
 		n, _ := got[k].(json.Number)
 		i, perr := strconv.ParseInt(string(n), 10, 64)
+		lo, hi, kind := int64(0), int64(math.MaxInt64), "an integer >= 0"
+		if k == "step_deadline_ms" {
+			lo, hi, kind = 1, 99999999, "an integer in 1..99999999"
+		}
 		switch {
-		case num[k] != nil && perr == nil && i >= 0:
+		case num[k] != nil && perr == nil && i >= lo && i <= hi:
 			*num[k] = i
 		case str[k] != nil && s != "":
 			*str[k] = s
 		default:
-			return e, fmt.Errorf("%s: %s is not %s", ev, k, map[bool]string{true: "an integer >= 0", false: "a non-empty string"}[num[k] != nil])
+			return e, fmt.Errorf("%s: %s is not %s", ev, k, map[bool]string{true: kind, false: "a non-empty string"}[num[k] != nil])
 		}
 	}
 	return e, nil
