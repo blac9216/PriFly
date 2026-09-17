@@ -600,12 +600,15 @@ replace "$fixture_root/pr-comment-bang-refs.md" $'Body text for Verified expecta
 run_case 'PR: a Refs line after a comment ended by --!> is still checked' 1 \
   'MISSING: no closing keyword for Refs #57 anywhere in the body' \
   --root "$root" --body "$fixture_root/pr-comment-bang-refs.md" "${pr[@]}"
+pr_body refs-in-comment $'Closes #154\n<!--\nRefs #57\n-->\n'
+run_case 'PR: a Refs line inside a closed HTML comment is not checked' 0 'check-readiness: 2/2 as expected' \
+  --root "$root" --body "$fixture_root/pr-refs-in-comment.md" "${pr[@]}"
 checkbox_case comment-reopen "$ac_h" $'<!-- a --> <!--\n\n- [ ] Q1\n' \
   'checkbox after a comment reopened on the line that closed one fails'
 checkbox_case comment-reopen-text "$ac_h" $'<!-- a --> <!--\n-->\n- [ ] Q1\n' \
   'checkbox after a reopened comment and a --> paragraph line fails'
-checkbox_case comment-close-reopen "$ac_h" $'<!--\n--> <!--\n\n- [ ] Q1\n' \
-  'checkbox after a comment reopened on its closing line fails'
+checkbox_case comment-close-reopen "$ac_h" $'<!--\n--> <!--\n-->\n- [ ] Q1\n' \
+  'checkbox after a comment reopened on its closing line and a --> paragraph line fails'
 checkbox_case comment-bang "$ac_h" $'<!--\n--!>\n- [ ] Q1\n-->\n' \
   'checkbox-shaped raw text after --!> inside a comment block fails'
 checkbox_case comment-bang-item-ends "$ac_h" $'- a\n  <!--\n  --!>\nx\n- [ ] Q1\n' \
@@ -621,20 +624,26 @@ checkbox_case quote-comment-closed "$ac_h" $'> <!--\n> x\n> -->\n- [ ] Q1\n' \
   'checkbox after a comment closed inside its quote passes' 0
 checkbox_case quote-comment-blank "$ac_h" $'> <!--\n\n> -->\n- [ ] Q1\n' \
   'checkbox after a comment whose quote ended at a blank line fails'
-checkbox_case quote-comment-nested "$ac_h" $'> > <!--\n> -->\n- [ ] Q1\n' \
-  'checkbox after a comment whose nested quote ended before its --> fails'
+checkbox_case quote-comment-nested "$ac_h" $'> >  <!--\n> -->\n- [ ] Q1\n' \
+  'checkbox after an indented comment whose nested quote ended before its --> fails'
 checkbox_case quote-comment-indented "$ac_h" $'>   <!--\n> -->\n- [ ] Q1\n' \
   'checkbox after an indented comment closed less indented in its quote passes' 0
 checkbox_case quote-comment-code "$ac_h" $'>     <!--\n- [ ] Q1\n' \
   'checkbox after a quote holding <!-- as indented code passes' 0
 checkbox_case quote-item-comment "$ac_h" $'> - <!--\n>\n>   -->\n- [ ] Q1\n' \
   'checkbox after a comment closed inside its quoted - item passes' 0
-checkbox_case quote-item-comment-ends "$ac_h" $'> - <!--\n> -->\n- [ ] Q1\n' \
-  'checkbox after a comment whose quoted - item ended before its --> fails'
+checkbox_case quote-item-comment-ends "$ac_h" $'> -    <!--\n> -->\n- [ ] Q1\n' \
+  'checkbox after a comment 4 columns past a quoted - whose item ended before its --> fails'
+checkbox_case quote-item-nested-quote "$ac_h" $'> - <!--\n> >   -->\n- [ ] Q1\n' \
+  'checkbox after a comment whose quoted - item ended at a nested quote line fails'
 checkbox_case quote-item-code-comment "$ac_h" $'> -     <!--\n- [ ] Q1\n' \
   'checkbox after a quoted - item holding <!-- as indented code passes' 0
 checkbox_case item-quote-comment-ends "$ac_h" $'- > <!--\n> -->\n- [ ] Q1\n' \
   'checkbox after a comment in a quote on a - item line that ended before its --> fails'
+checkbox_case item-quote-comment-text "$ac_h" $'- > <!--\n  x\n  > -->\n- [ ] Q1\n' \
+  'checkbox after a comment in a quote on a - item line that ended at a line of the item fails'
+checkbox_case item-wide-quote-comment "$ac_h" $'-   > <!--\n    > -->\n- [ ] Q1\n' \
+  'checkbox after a comment closed in a quote 4 columns into its - item passes' 0
 checkbox_case below-item-quote-comment-ends "$ac_h" $'- a\n  > <!--\n> -->\n- [ ] Q1\n' \
   'checkbox after a comment in a quote below a - item that ended before its --> fails'
 checkbox_case quote-then-item-comment "$ac_h" $'> <!--\n> -->\n- a\n  <!--\n  -->\n- [ ] Q1\n' \
