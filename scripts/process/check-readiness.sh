@@ -9,7 +9,10 @@
 # .github/PULL_REQUEST_TEMPLATE.md, a "Closes #<N>" or "Refs #<N>" line, no closing
 # keyword for any Refs'd #<N>, and directly after each Refs line a "Remainder: <text>"
 # line and a "Closing issue: #<M>" line (M != N) with no closing keyword directly before
-# an issue reference in those two lines (#157). --labels is a usage error in PR mode.
+# an issue reference in those two lines (#157). Each label is matched as written, colon
+# and space included (#168); a check that depends on a missing line is skipped, and the
+# missing line's message says so (#168). --labels is a usage error in PR mode, and --repo
+# is one in issue mode (#163).
 # Exit codes: 0 all checks pass; 1 a check fails; 2 usage error, or a missing, unreadable
 # or non-UTF-8 body; 3 a doc/template file is missing, unreadable or not UTF-8, or a rule
 # anchor it relies on is gone.
@@ -21,6 +24,7 @@ LABELS=""
 LABELS_SET=""
 MODE="issue"
 REPO=""
+REPO_SET=""
 
 while (($#)); do
   case "$1" in
@@ -42,8 +46,8 @@ while (($#)); do
     --mode=*) MODE="${1#*=}"; shift ;;
     --repo)
       [[ $# -ge 2 ]] || { echo "check-readiness: --repo requires a value" >&2; exit 2; }
-      REPO="$2"; shift 2 ;;
-    --repo=*) REPO="${1#*=}"; shift ;;
+      REPO="$2"; REPO_SET=1; shift 2 ;;
+    --repo=*) REPO="${1#*=}"; REPO_SET=1; shift ;;
     -h|--help)
       echo "usage: $0 --root R --body FILE|- [--labels a,b,c | --mode pr --repo OWNER/NAME]"
       exit 0
@@ -59,6 +63,8 @@ ROOT="$(cd "$ROOT" && pwd)"
   echo "check-readiness: --mode pr requires --repo OWNER/NAME" >&2; exit 2; }
 [[ "$MODE" == issue || -z "$LABELS_SET" ]] || {
   echo "check-readiness: --labels is not accepted with --mode pr" >&2; exit 2; }
+[[ "$MODE" == pr || -z "$REPO_SET" ]] || {
+  echo "check-readiness: --repo is not accepted with --mode issue" >&2; exit 2; }
 [[ -n "$BODY" ]] || { echo "check-readiness: --body is required (a file path, or - for stdin)" >&2; exit 2; }
 
 body_file="$BODY"
@@ -116,6 +122,7 @@ ANCHORS = [
     "body then carries no closing keyword anywhere",
     "directly after it a `Remainder: <text>` line and then a `Closing issue: #<M>` line",
     "No closing keyword comes directly before an issue reference in those two lines",
+    "Each of the two lines starts with its label exactly as written above",
 ]
 missing_anchors = [a for a in ANCHORS if a not in work_tracking]
 if missing_anchors:
@@ -231,18 +238,24 @@ if mode == 'pr':
         # "Closing issue: #<M>" with M != N, and neither puts a keyword before a reference.
         rem = raw[i + 1] if i + 1 < len(raw) else ''
         clo = raw[i + 2] if i + 2 < len(raw) else ''
-        has_rem = rem.startswith('Remainder:')
-        check(has_rem, f"Refs #{n}: a 'Remainder: <text>' line directly after it",
-              "" if has_rem else f"next line is {rem!r}")
-        text_ok = has_rem and bool(rem[len('Remainder:'):].strip())
-        check(text_ok, f"Refs #{n}: the Remainder text is non-empty",
-              "" if text_ok else "no Remainder text")
+        # Labels match case-sensitively, colon and space included (#168). "Remainder:" alone
+        # is the label with empty text: raw lines are rstripped, so its space is gone. A
+        # check that depends on a failed line is skipped rather than reported as a second
+        # MISSING line for the same cause, and the failed line's detail says so (#168).
+        rm = re.fullmatch(r'Remainder:(?: (.*))?', rem)
         cm = re.fullmatch(r'Closing issue: #(\d+)', clo)
-        check(cm is not None, f"Refs #{n}: a 'Closing issue: #<M>' line directly after the Remainder line",
-              "" if cm else f"line after that is {clo!r}")
+        check(rm is not None, f"Refs #{n}: a 'Remainder: <text>' line directly after it",
+              "" if rm else f"next line is {rem!r}; its text and Closing issue checks are skipped")
+        text_ok = rm is not None and bool((rm.group(1) or '').strip())
+        if rm:
+            check(text_ok, f"Refs #{n}: the Remainder text is non-empty",
+                  "" if text_ok else "no Remainder text")
+            check(cm is not None, f"Refs #{n}: a 'Closing issue: #<M>' line directly after the Remainder line",
+                  "" if cm else f"line after that is {clo!r}; the M != N check is skipped")
         differs = cm is not None and cm.group(1) != n
-        check(differs, f"Refs #{n}: the Closing issue is not #{n} itself",
-              "" if differs else f"Closing issue is #{n}" if cm else "no Closing issue line")
+        if rm and cm:
+            check(differs, f"Refs #{n}: the Closing issue is not #{n} itself",
+                  "" if differs else f"Closing issue is #{n}")
         form = [l for l, p in ((rem, 'Remainder:'), (clo, 'Closing issue:')) if l.startswith(p)]
         kw_found = [m.group(0) for l in form for m in keyword_re.finditer(l)]
         check(not kw_found, f"Refs #{n}: no closing keyword before an issue reference in its Remainder and Closing issue lines",
