@@ -133,38 +133,80 @@ if missing_anchors:
         )
     sys.exit(3)
 
-FENCE_RE = re.compile(r'^(`{3,}|~{3,})')
+# A list-item prefix is indentation then one or more markers ("1. ", "1) ", "- ", "* ",
+# "+ "), each followed by a space; a fence may open after it. A backtick fence's info
+# string holds no backtick. As far as CommonMark goes here (#176, #196): an ordered
+# marker other than 1, or a marker with nothing after it, cannot interrupt a paragraph, so
+# directly after a paragraph line it is text, not an item; an empty item followed by a
+# blank line ends there; a fence belongs to the innermost open list item whose content
+# column its line reaches, and a non-blank line indented less than that column ends the
+# item and the fence with it; a closing fence is the opening character, at least as long,
+# with nothing after it, indented at most 3 columns past that content column. Not
+# modelled (#192): blockquotes, tabs as columns, lazy continuation lines and the 4-space
+# indented-code rule.
+MARKER_RE = re.compile(r'(?:[-*+]|(\d{1,9})[.)])[ \t]+')
+FENCE_OPEN_RE = re.compile(r'(`{3,}|~{3,})(.*)$')
+FENCE_CLOSE_RE = re.compile(r'^(`{3,}|~{3,})\s*$')
+HEADING_RE = re.compile(r'^ {0,3}#{1,6}(?:[ \t]|$)')
 
 def clean_lines(text):
     return [line for _, line in clean_numbered(text)]
 
 def clean_numbered(text):
     # (index, line) for lines outside HTML comments and fenced code, in document order,
-    # where index is the line's position in text.splitlines(). Fence open/close
-    # follows CommonMark: a closing fence uses the opening fence's character and is at
-    # least as long, so a ``` line inside an open ~~~ fence is content, not a delimiter.
+    # where index is the line's position in text.splitlines(). A closing fence uses the
+    # opening fence's character, so a ``` line inside an open ~~~ fence is content.
     out, in_comment = [], False
-    fence_char, fence_len = None, 0
+    fence_char, fence_len, fence_col = None, 0, 0
+    items, in_para, para_depth = [], False, 0  # content columns of the open list items
+    empty_item = False  # the previous line opened an item with no content
     for i, line in enumerate(text.splitlines()):
         stripped = line.strip()
+        indent = len(line) - len(line.lstrip())
         if in_comment:
             if '-->' in line:
                 in_comment = False
             continue
-        if fence_char is None and stripped.startswith('<!--') and '-->' not in stripped:
-            in_comment = True
-            continue
-        m = FENCE_RE.match(stripped)
-        if m:
-            char, length = m.group(1)[0], len(m.group(1))
-            if fence_char is None:
-                fence_char, fence_len = char, length
-                continue
-            if char == fence_char and length >= fence_len:
-                fence_char, fence_len = None, 0
-                continue
+        was_empty, empty_item = empty_item, False
+        if fence_char is not None and stripped and indent < fence_col:
+            fence_char = None
         if fence_char is not None:
+            m = FENCE_CLOSE_RE.match(stripped)
+            if m and m.group(1)[0] == fence_char and len(m.group(1)) >= fence_len \
+                    and indent <= fence_col + 3:
+                fence_char = None
             continue
+        if not stripped:
+            if was_empty:
+                items.pop()
+            in_para = False
+        elif stripped.startswith('<!--'):
+            in_para = False
+            if '-->' not in stripped:
+                in_comment = True
+                continue
+        else:
+            while items and items[-1] > indent:
+                items.pop()
+            m, pos = MARKER_RE.match(line, indent), indent
+            if m and in_para and para_depth == len(items) and (not line[m.end():].strip()
+                                                               or (m.group(1) and int(m.group(1)) != 1)):
+                m = None
+            while m:
+                pos = m.end()
+                if not line[pos:].strip():  # an empty item's content column is marker width + 1
+                    pos, empty_item = m.start() + len(m.group(0).rstrip()) + 1, True
+                items.append(pos)
+                m = MARKER_RE.match(line, pos)
+            f = FENCE_OPEN_RE.match(line, pos)
+            if f and not (f.group(1)[0] == '`' and '`' in f.group(2)):
+                fence_char, fence_len = f.group(1)[0], len(f.group(1))
+                fence_col, in_para = (items[-1] if items else 0), False
+                continue
+            if HEADING_RE.match(line) or empty_item:
+                in_para = False
+            elif not in_para or pos > indent:
+                in_para, para_depth = True, len(items)
         out.append((i, line))
     return out
 
