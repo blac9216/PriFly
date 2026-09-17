@@ -62,7 +62,7 @@ if group real; then
   jq '.runs = 1 | .warmupMs = 1000 | .durationMs = 2000 | .cadenceMs = 1000 | .burst = {atMs: 0, count: 1} | .stepTimeoutS = 1' "$EARLY/publication.json" >"$real/publication.json"
   t0=$(($(date +%s%N) / 1000000)); CLOCK=real RUNNER="$real" runner real '{"bytes":0,"requests":0}' "hang@1:4"; t1=$(($(date +%s%N) / 1000000))
   line "real clock run reaches the evaluator" real 2 "fixture: procedure is not the fixed P4/P12a/P12b/P13 procedure"
-  holds "real clock: epoch-ms step clocks inside the run, in lane order" real "map(select(.ev == \"cmd\")) | length == 4 and all(.[]; $lane | map(select(. > 0)) | . == sort and all(.[]; . >= \$t0 and . <= \$t1))" --argjson t0 "$t0" --argjson t1 "$t1"
+  holds "real clock: epoch-ms step clocks inside the run, in lane order" real "map(select(.ev == \"cmd\")) | length == 4 and all(.[]; .ticket > 0 and ($lane | map(select(. > 0)) | . == sort and all(.[]; . >= \$t0 and . <= \$t1)))" --argjson t0 "$t0" --argjson t1 "$t1"
   holds "real clock: burst CAS paced 1100 ms" real 'map(select(.ev == "cmd")) | .[2].casStart - .[1].casStart >= 1100'
   holds "real timeout -k ends a TERM-ignoring step" real 'map(select(.ev == "cmd"))[3] | .reason == "sync-exit137" and .syncEnd - .syncStart < 2900'
 fi
