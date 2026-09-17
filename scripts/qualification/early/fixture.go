@@ -23,10 +23,12 @@
 // command n restores and CASes sequence n plus the renewals before it, and a renewal the sequence after the
 // entry before it (the frontier never moves backwards, C3 step 2); a failed entry records no clock after its
 // first 0; and no published step lasts over stepTimeoutS. No minimum step duration is set (no cited doc
-// names one). Use: a published entry records bytes, writes and requests, each ≥1; an entry outside a ticket
-// records none. Grant lines are the control/recovery grants of #252 ruling 5714969372: each lasts at most
-// grant.ms and has its own P12b control maxima, never reused or refilled (item 2); a ticket, or a plan call at
-// its clock t, is charged to the last grant live at that clock. The fixture step is a run's first ticketed
+// names one). Use: a ticketed entry records bytes, writes and requests, each ≥1, whether it published
+// or failed — the whole reservation is charged before the first step and a failure keeps that charge,
+// resolved or charged fully unknown (P12b L75); an entry outside a ticket records none. Grant lines
+// are the control/recovery grants of #252 ruling 5714969372: each lasts at most grant.ms and has its
+// own P12b control maxima, never reused or refilled (item 2); a ticket, or a plan call at its clock t,
+// is charged to the last grant live at that clock. The fixture step is a run's first ticketed
 // entry, with t0 as its ticket (ruling 5716255116 item 1): the run line names the last grant live at t0, and
 // its use is held to the ticket maxima and charged to that grant and to P12a. A plan line names its grant
 // (index in the run's grant order, 0 the plain grant), records no writes, and its bytes and requests count in
@@ -404,6 +406,8 @@ func main() {
 			check(e.Bytes > p.Ticket.Bytes || e.Writes > p.Ticket.Writes || e.Requests > p.Ticket.Requests,
 				"LEDGER", r, e.N, "remote use exceeds the pre-send ticket")
 			check(published && (e.Bytes < 1 || e.Writes < 1 || e.Requests < 1), "LEDGER", r, e.N, "publication records no remote use")
+			check(!published && e.Ticket != 0 && (e.Bytes < 1 || e.Writes < 1 || e.Requests < 1),
+				"LEDGER", r, e.N, "failed ticketed entry records no remote use; its reservation is charged in full")
 			u := &use[e.grant]
 			u.Bytes, u.Writes, u.Requests = add(u.Bytes, e.Bytes), add(u.Writes, e.Writes), add(u.Requests, e.Requests)
 		}
