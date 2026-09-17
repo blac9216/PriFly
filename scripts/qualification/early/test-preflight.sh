@@ -112,7 +112,7 @@ PY
 fails=0
 run_cases "$SCRIPT_DIR/preflight.sh" "$SCHEMA_SRC" || fails=$?
 bash "$SCRIPT_DIR/preflight.sh" --schema "$SCHEMA_SRC" >/dev/null 2>&1 && { echo "FAIL: missing --manifest accepted"; fails=$((fails + 1)); } || echo "PASS: missing --manifest is a usage error"
-bash "$SCRIPT_DIR/preflight.sh" --help >/dev/null 2>&1 && echo "PASS: sole --help prints usage (exit 0)" || { echo "FAIL: sole --help"; fails=$((fails + 1)); }
+if bash "$SCRIPT_DIR/preflight.sh" --help >/dev/null 2>&1; then echo "PASS: sole --help prints usage (exit 0)"; else echo "FAIL: sole --help"; fails=$((fails + 1)); fi
 [[ "$fails" == 0 ]] || { echo "self-test: $fails case(s) failed" >&2; exit 1; }
 
 # Mutants: file|exact text removed or replaced|replacement|comma-separated cases that must all go red.
