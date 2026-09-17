@@ -30,7 +30,9 @@
 # Exit: result.go's code (0, 1, 2); 20 refused before any step (usage, --observe-ms outside
 # 0..999999 or with a leading zero, preflight non-zero, --work outside the root); 21 aborted
 # with no verdict after launch began: a step failed, an attempt wrote an unparseable
-# sentinel line, or INT/TERM/HUP arrived. On 21 an open run gets stop and inventory first.
+# sentinel line, or INT/TERM/HUP arrived. On 21 an open run gets stop and inventory first;
+# the cleanup ignores further INT/TERM/HUP (its launcher inherits that), so a repeated
+# Ctrl-C cannot cut it short. --observe-ms digits are ASCII only, whatever the locale.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,7 +49,7 @@ while (($#)); do
   esac
 done
 [[ -n "$MANIFEST" && -n "$LAUNCHER" && -n "$HERDR" && -n "$WORK" ]] || refuse "--manifest, --launcher, --herdr-socket and --work are required"
-[[ "$OBSERVE" =~ ^(0|[1-9][0-9]{0,5})$ ]] || refuse "--observe-ms must be 0..999999 without a leading zero"
+[[ "$OBSERVE" =~ ^(0|[123456789][0123456789]{0,5})$ ]] || refuse "--observe-ms must be 0..999999 without a leading zero"
 if bash "$SCRIPT_DIR/preflight.sh" --manifest "$MANIFEST"; then :; else refuse "preflight exit $?"; fi
 
 now() { echo $(($(date +%s%N) / 1000000)); }
@@ -61,7 +63,7 @@ ENGINE="${TUPLES[0]}" ROOT="${TUPLES[1]%/}" WORK="$(realpath -m "$WORK")"
 mkdir -p "$WORK/other-workspace"
 OPEN=""
 finish() {  # every exit after this point except exec and 0: stop and inventory the open run
-  local rc=$?; trap - EXIT; ((rc == 0)) && exit 0
+  local rc=$?; trap '' INT TERM HUP; trap - EXIT; ((rc == 0)) && exit 0
   set +e; [[ -z "$OPEN" ]] || ((DRY)) || echo "ABORTED: open run stop exit $("$LAUNCHER" stop "$OPEN" >&2; echo $?), live $("$LAUNCHER" inventory "$OPEN" | tail -n1)"
   echo "ABORTED: exit $rc after launch began; no verdict"; exit 21
 }

@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # Local fake launcher for test-harness.sh: no harness, provider, network, engine or R2.
 # FAKE_MODE: ok | stop-only | stop-only-slow | engine | herdr | other-workspace | stale |
-# untyped | no-detached | garbage | stop-fails-once | signal; a mode named like a probe
-# target leaks that target. Access probes run in a private user+mount namespace that hides
+# untyped | no-detached | garbage | stop-fails-once | signal-term | signal-int | signal-hup |
+# signal-twice; a mode named like a probe target leaks that target. Access probes run in a private user+mount namespace that hides
 # the target unless the mode leaks it; if unshare or mount fails the probe exits non-zero,
 # never "denied". Writers are real local processes (the "docker" one is a labelled
 # stand-in, no engine); their pids go to $FAKE_STATE/<run>.pids so the test kills exactly
 # what it started. stop-only stops only the loop writer; -slow writes every 20s, so the
-# warm-up times out; signal sends TERM to the runner once the writers run.
+# warm-up times out; signal-sig sends SIG to the runner once the writers run; signal-twice
+# sends TERM there, then its stop sends INT and HUP to the runner (only while that pid is
+# still the runner) and takes 3s before stopping. Every call appends its pid to
+# $FAKE_STATE/launchers so the test can find a launcher left behind.
 # shellcheck disable=SC2016  # the sh -c bodies expand inside the child shell
 set -euo pipefail
 st="$FAKE_STATE" mode="$FAKE_MODE" verb="$1"
-echo "$verb" >>"$st/calls"
+echo "$verb" >>"$st/calls"; echo $$ >>"$st/launchers"
 case "$verb" in
   launch) echo "$5" >"$st/$4.ws" ;;
   probe)
@@ -34,9 +37,16 @@ case "$verb" in
       "${launch[@]}" sh -c 'while :; do echo "$1 $(($(date +%s%N) / 1000000))" >>"$2/sentinel"; sleep "$3"; done' _ "$w" "$ws" "$gap" </dev/null >/dev/null 2>&1 &
       echo $! >>"$st/$2.pids"
     done
-    if [[ "$mode" == signal ]]; then kill -TERM "$PPID"; fi ;;
+    sig="${mode#signal-}"; [[ "$sig" == twice ]] && sig=term
+    if [[ "$mode" == signal-* ]]; then echo "$PPID" >"$st/runner"; kill -"${sig^^}" "$PPID"; fi ;;
   stop|inventory)
     [[ "$mode$verb" == stop-fails-oncestop && ! -e "$st/stop-failed" ]] && { : >"$st/stop-failed"; exit 7; }
+    if [[ "$mode$verb" == signal-twicestop ]]; then
+      for sig in INT HUP; do
+        grep -qs harness "/proc/$(cat "$st/runner")/cmdline" && kill -"$sig" "$(cat "$st/runner")"
+        for _ in $(seq 15); do sleep 0.1; done
+      done
+    fi
     mapfile -t pids <"$st/$2.pids"
     [[ "$mode" == stop-only* ]] && pids=("${pids[0]}")
     if [[ "$verb" == stop ]]; then
