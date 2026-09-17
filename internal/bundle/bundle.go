@@ -6,7 +6,6 @@
 package bundle
 
 import (
-	"container/heap"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -53,20 +52,29 @@ const MaxDiagnostics = 1000
 type checker []Diagnostic
 
 func (c *checker) add(path, code, format string, args ...any) {
-	if d := (Diagnostic{path, code, fmt.Sprintf(format, args...)}); len(*c) <= MaxDiagnostics {
-		heap.Push(c, d)
-	} else if order(d, (*c)[0]) < 0 {
-		(*c)[0] = d
-		heap.Fix(c, 0)
+	d, h := Diagnostic{path, code, fmt.Sprintf(format, args...)}, *c
+	i := len(h)
+	if i <= MaxDiagnostics { // a new leaf, moved up past each parent before it
+		h = append(h, d)
+		for ; i > 0 && order(h[(i-1)/2], d) < 0; i = (i - 1) / 2 {
+			h[i] = h[(i-1)/2]
+		}
+	} else if order(d, h[0]) < 0 { // the top, moved down past each child after it
+		for i = 0; 2*i+1 < len(h); {
+			j := 2*i + 1
+			if j+1 < len(h) && order(h[j+1], h[j]) > 0 {
+				j++
+			}
+			if order(h[j], d) <= 0 {
+				break
+			}
+			h[i], i = h[j], j
+		}
+	} else {
+		return
 	}
+	h[i], *c = d, h
 }
-
-// Len, Less, Swap, Push and Pop implement heap.Interface for add.
-func (c checker) Len() int           { return len(c) }
-func (c checker) Less(i, j int) bool { return order(c[i], c[j]) > 0 }
-func (c checker) Swap(i, j int)      { c[i], c[j] = c[j], c[i] }
-func (c *checker) Push(d any)        { *c = append(*c, d.(Diagnostic)) }
-func (c *checker) Pop() (d any)      { d, *c = (*c)[len(*c)-1], (*c)[:len(*c)-1]; return d }
 
 // order compares diagnostics by path, then code, then detail.
 func order(a, b Diagnostic) int {
