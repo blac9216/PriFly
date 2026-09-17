@@ -74,6 +74,7 @@ case_ "second stop" "if $A1 \"stop\" then ., .t = 1350 else . end" 2 "result: li
 case_ "second observed" "if $A1 \"observed\" then ., . else . end" 2 "result: line 9: malformed event: repeated observed for run a1"
 case_ "second inventory" "if $A1 \"inventory\" then ., . else . end" 2 "result: line 10: malformed event: repeated inventory for run a1"
 case_ "repeated access probe" 'if .run == "a1" and .target == "engine" then ., . else . end' 2 "result: line 4: malformed event: repeated access engine for run a1"
+case_ "access after stop" . 2 "result: line 5: malformed event: access for run a1 after its stop" '3{h;d};4,5{H;d};7G'
 case_ "writer stamps out of time order" 'if .run == "a1" and .writer == "docker" then .t = 2300 - .t else . end' 2 "result: line 15: malformed event: docker writer stamp 1100 not after its previous stamp 1200"
 case_ "repeated writer stamp" 'if .run == "a1" and .writer == "docker" then .t = 1100 else . end' 2 "result: line 15: malformed event: docker writer stamp 1100 not after its previous stamp 1100"
 case_ "sentinel before launch" 'if .run == "a1" and .writer == "loop" then .t -= 200 else . end' 2 "result: line 10: malformed event: sentinel at 900 precedes its launch at 1000"

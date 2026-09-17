@@ -11,8 +11,9 @@
 // early-trace/v1 header. Each launch is a declared candidate at its exact version, at most
 // once per candidate and per run; every other event names a run launched on an earlier
 // line. Per run, stop follows launch, observed follows stop and inventory follows observed,
-// each at most once, access at most once per target, and none is stamped before that
-// predecessor; each writer's sentinel stamps strictly increase line by line. A missing
+// each at most once, access at most once per target and before the run's stop line, and
+// none is stamped before that predecessor; each writer's sentinel stamps strictly increase
+// line by line. A missing
 // candidate launch and the result count and interval are judged (exit 1), not malformed.
 // Covers, per candidate: launch at the exact pinned version; E1 denied engine, HerdR and
 // other-workspace access; one fixed typed result inside launch..stop; E4 loop, detached and
@@ -138,6 +139,8 @@ func main() {
 			err = fmt.Errorf("unknown %s value", e.Ev)
 		case !launched:
 			err = fmt.Errorf("%s for run %s before its %s", e.Ev, e.Run, after[e.Ev])
+		case e.Ev == "access" && latest[[3]string{e.Run, "stop", ""}].Ev != "":
+			err = fmt.Errorf("access for run %s after its stop", e.Run)
 		case repeated && e.Ev != "sentinel" && e.Ev != "result":
 			err = fmt.Errorf("repeated %s for run %s", strings.TrimSpace(e.Ev+" "+e.Target), e.Run)
 		case repeated && e.Ev == "sentinel" && e.T <= prev.T:
