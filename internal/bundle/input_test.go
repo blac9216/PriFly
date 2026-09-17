@@ -242,11 +242,11 @@ func TestGraphMemory(t *testing.T) {
 					deps = append(deps, wi(j))
 				}
 			}
-			contents[i] = []byte(`{"kind": "SLICE", "dependencies": [` + strings.Join(deps, ", ") + `], "outcomes": [{"baseline": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "obligation": "o"}]}`)
+			contents[i] = []byte(`{"kind": "SLICE", "dependencies": [` + strings.Join(deps, ", ") + `], "outcomes": [{"baseline": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "obligation": "o"}], "execution_envelope": "xen_dd00d1cf54fb4ef059011c2dc206e701"}`)
 		}
 		var c checker
 		var before, after runtime.MemStats
-		w := workItems{digest: map[string]int{}, baselines: map[string]bool{"bsl_6e73c229223db574a3c8fa28dd5a1a5a": true}}
+		w := workItems{digest: map[string]int{}, schemaIDs: map[string]bool{"Baseline/v1 bsl_6e73c229223db574a3c8fa28dd5a1a5a": true, "ExecutionEnvelope/v1 xen_dd00d1cf54fb4ef059011c2dc206e701": true}}
 		runtime.GC()
 		runtime.ReadMemStats(&before)
 		for i, content := range contents {

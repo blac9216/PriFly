@@ -7,7 +7,8 @@
   "owner_release_confirmed": true,
   "refs": [],
   "artifacts": [
-    {"id": "wi_8887ffc730f707abb82bb7cb7068e914", "revision": 1, "schema": "WorkItem/v1", "path": "artifacts/work-item.json", "sha256": "e9dc8c85e0f78d16761b80490c8b04e5bb56853b7c3e16592356dc79807c2ebd", "factory_attempt_id": "att_ccdd35168ab474fa5764a526cfb83621", "refs": []},
-    {"id": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "revision": 1, "schema": "Baseline/v1", "path": "artifacts/baseline.json", "sha256": "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34", "refs": []}
+    {"id": "wi_8887ffc730f707abb82bb7cb7068e914", "revision": 1, "schema": "WorkItem/v1", "path": "artifacts/work-item.json", "sha256": "e75149f5b53460eacd7e4bdb6af989a3903fb87754a129c906cb038f396646b3", "factory_attempt_id": "att_ccdd35168ab474fa5764a526cfb83621", "refs": []},
+    {"id": "bsl_6e73c229223db574a3c8fa28dd5a1a5a", "revision": 1, "schema": "Baseline/v1", "path": "artifacts/baseline.json", "sha256": "70e2a30e1b5a5d53b311faf4e2eb50acaed9c4be464fdca8f8eb72c6416efe34", "refs": []},
+    {"id": "xen_dd00d1cf54fb4ef059011c2dc206e701", "revision": 1, "schema": "ExecutionEnvelope/v1", "path": "artifacts/envelope.json", "sha256": "926292edd0e04fef4e8208bec6d1bc8ef899e12183b8942de1e0fc12802f03e9", "refs": []}
   ]
 }
