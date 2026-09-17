@@ -109,7 +109,7 @@ func TestReadChecked(t *testing.T) {
 			defer f.Close()
 			done := make(chan string, 1)
 			go func() {
-				_, reason := readChecked(f, info)
+				_, reason := readChecked(f, info, MaxFileBytes)
 				done <- reason
 			}()
 			select {
@@ -254,8 +254,8 @@ func TestGraphMemory(t *testing.T) {
 		}
 		c.graph(w)
 		runtime.ReadMemStats(&after)
-		if len(c) != want || c[len(c)-1].Code != "dependency-cycle" {
-			t.Errorf("%d Work Items, shared %v: got %d diagnostics, want %d ending in dependency-cycle", n, shared, len(c), want)
+		if d := c.done(true); len(d) != min(want, MaxDiagnostics+1) || d[0].Code != "dependency-cycle" { // listed first, then capped
+			t.Errorf("%d Work Items, shared %v: got %d diagnostics, want %d starting with dependency-cycle", n, shared, len(d), min(want, MaxDiagnostics+1))
 		}
 		return (after.TotalAlloc - before.TotalAlloc) / uint64(n)
 	}

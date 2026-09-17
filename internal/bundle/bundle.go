@@ -40,10 +40,45 @@ type Diagnostic struct{ Path, Code, Detail string }
 
 func (d Diagnostic) String() string { return d.Code + " " + d.Path + ": " + d.Detail }
 
+// MaxDiagnostics caps the diagnostics a list holds, so a fault-dense manifest
+// within MaxFileBytes cannot fill memory or output with them. It is an
+// implementation guard: no planning document fixes a value.
+const MaxDiagnostics = 1000
+
+// checker collects diagnostics, holding at most 2*MaxDiagnostics+1: past that
+// it keeps only the MaxDiagnostics+1 first in list order, which are the ones
+// done can list whatever the order they were added in.
 type checker []Diagnostic
 
 func (c *checker) add(path, code, format string, args ...any) {
-	*c = append(*c, Diagnostic{path, code, fmt.Sprintf(format, args...)})
+	if *c = append(*c, Diagnostic{path, code, fmt.Sprintf(format, args...)}); len(*c) > 2*MaxDiagnostics+1 {
+		*c = c.sorted()[:MaxDiagnostics+1]
+	}
+}
+
+// sorted sorts c by path, then code, then detail.
+func (c checker) sorted() checker {
+	slices.SortFunc(c, func(a, b Diagnostic) int {
+		if a.Path != b.Path {
+			return strings.Compare(a.Path, b.Path)
+		} else if a.Code != b.Code {
+			return strings.Compare(a.Code, b.Code)
+		}
+		return strings.Compare(a.Detail, b.Detail)
+	})
+	return c
+}
+
+// done returns c sorted and cut to its first MaxDiagnostics, followed by
+// Incomplete when it held more or complete is false.
+func (c checker) done(complete bool) []Diagnostic {
+	if c = c.sorted(); len(c) > MaxDiagnostics {
+		c, complete = c[:MaxDiagnostics], false
+	}
+	if !complete {
+		c = append(c, Incomplete)
+	}
+	return c
 }
 
 // object returns v as a closed object of schema, reporting unknown and missing
@@ -172,11 +207,14 @@ func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self i
 		}
 	}()
 	name, ok := c.str(m, p, "path")
-	if !ok {
+	if !ok || w.left < 0 { // no entry past MaxArtifactBytes is read
 		return self, refs
 	}
-	content, reason := ReadRegular(root, name)
-	if reason != "" {
+	content, reason := readRegular(root, name, min(MaxFileBytes, w.left))
+	if w.left -= len(content); w.left < 0 {
+		c.add(p+".path", "unreadable-artifact", "%s exceeds the %d-byte cap on artifact bytes read per bundle", Quote(name), MaxArtifactBytes)
+		return self, refs
+	} else if reason != "" {
 		c.add(p+".path", "unreadable-artifact", "%s %s", Quote(name), reason)
 		return self, refs
 	}
@@ -217,13 +255,11 @@ func (c *checker) closure(artifacts, refs []identity) {
 }
 
 // Inspect reads and validates the bundle in dir without writing. It returns
-// diagnostics sorted by path then code, and the manifest's SHA-256.
+// diagnostics as checker.done lists them, and the manifest's SHA-256.
 func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 	var c checker
-	defer func() {
-		slices.SortFunc(c, func(a, b Diagnostic) int { return strings.Compare(a.Path+"\x00"+a.Code, b.Path+"\x00"+b.Code) })
-		diags = c
-	}()
+	complete := true
+	defer func() { diags = c.done(complete) }()
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		c.add("$", "unreadable-bundle", "bundle directory cannot be opened")
@@ -237,7 +273,7 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 	}
 	manifestSHA256 = fmt.Sprintf("%x", sha256.Sum256(raw))
 	doc, isJSON := decodeValue(raw)
-	if c = Faults(raw); !isJSON {
+	if c, complete = faults(raw); !isJSON {
 		c.add("$", "invalid-json", "bundle.json is not a single JSON value")
 	}
 	if len(c) > 0 {
@@ -256,12 +292,13 @@ func Inspect(dir string) (diags []Diagnostic, manifestSHA256 string) {
 		}
 	}
 	var artifacts, refs []identity
-	w := workItems{digest: map[string]int{}, schemaIDs: map[string]bool{}}
+	w := workItems{digest: map[string]int{}, schemaIDs: map[string]bool{}, left: MaxArtifactBytes}
 	for i, a := range c.list(top, "$", "artifacts") {
 		self, r := c.artifact(root, fmt.Sprintf("$.artifacts[%d]", i), a, &w)
 		artifacts, refs = append(artifacts, self), append(refs, r...)
 	}
 	c.closure(artifacts, refs)
 	c.graph(w)
+	complete = w.left >= 0
 	return
 }
