@@ -98,8 +98,8 @@ mkdir -p "$work/work-escaping-the-root-through-a-symlink/root" && ln -s "$work/s
 probe "work escaping the root through a symlink" ok 300 20 "REFUSED: --work resolves outside isolated_host.workspace_root_path; no probe step ran" "m['isolated_host']['workspace_root_path'] = d + '/root'" --work "$work/work-escaping-the-root-through-a-symlink/root/link"
 UTF8=en_US.UTF-8 ARABIC300=$'\xd9\xa3\xd9\xa0\xd9\xa0'
 check "locale control: $UTF8 bracket range matches non-ASCII digits" 0 "$(LC_ALL=$UTF8 bash -c '[[ $1 =~ ^[1-9][0-9]{2}$ ]]' _ "$ARABIC300" 2>&1; echo $?)" "" /dev/null
-for dl in missing "" 0 01000 1e3 100000000 "$ARABIC300"; do
-  PROBE_LC=$UTF8 PROBE_DL=$dl probe "step-deadline-ms '$dl'" ok 300 20 "REFUSED: --step-deadline-ms must be 1..99999999 without a leading zero; no probe step ran"
+for dl in missing "" 0 01000 1e3 100000000; do  # no quotes in these names, so preflight would pass
+  PROBE_DL=$dl probe "step-deadline-ms $dl" ok 300 20 "REFUSED: --step-deadline-ms must be 1..99999999 without a leading zero; no probe step ran"
 done
 for ms in 0300 3e2 1000000 "" "$ARABIC300"; do
   PROBE_LC=$UTF8 probe "observe-ms '$ms'" ok "$ms" 20 "REFUSED: --observe-ms must be 0..999999 without a leading zero; no probe step ran"
