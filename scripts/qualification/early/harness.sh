@@ -22,10 +22,17 @@
 #                   lines to WORKSPACE/sentinel
 #   stop RUN        cancel the attempt; return only after the launcher's own stop verification
 #   inventory RUN   print the count of attempt-owned processes and containers still live
-# Every call, the abort cleanup's stop and inventory included, runs as timeout -k D D: TERM at
-# D ms, KILL D ms later, so one call ends within 2D. D has no default; the trace header
-# records it before the first call. timeout leads its own process group, so a group signal
-# to the runner (a terminal Ctrl-C or hangup) never reaches the launcher.
+# Every call, the abort cleanup's stop and inventory included, runs as timeout -k D D (TERM at
+# D ms, KILL D ms later) in its own session and process group, stdin from /dev/null, stdout
+# to a file the runner prints once the call returns. On expiry (timeout exit 124 or 137) the
+# runner itself sends KILL to that whole group and waits at most 1s for it to empty, since
+# uutils timeout signals only the launcher's pid and GNU timeout the group. So one call ends
+# within 2D plus that 1s wait, whichever timeout is on PATH, and leaves no process in its
+# group; a descendant that leaves the group (setsid) is the attempt's, for stop and inventory
+# to find, and cannot extend the call, since nothing waits on its output. D has no default;
+# the trace header records it before the first call, and each STEP line shows timeout's
+# arguments. A group signal to the runner (a terminal Ctrl-C or hangup) never reaches the
+# launcher; the runner acts on it once the call returns.
 # Raw control targets are the manifest's outer engine socket and the private HerdR server
 # socket (--herdr-socket; the manifest does not name it); the other workspace is a sibling
 # directory this runner creates under --work, whose resolved path must lie inside the
@@ -61,7 +68,17 @@ if bash "$SCRIPT_DIR/preflight.sh" --manifest "$MANIFEST"; then :; else refuse "
 
 now() { echo $(($(date +%s%N) / 1000000)); }
 D="$((DEADLINE / 1000)).$(printf %03d $((DEADLINE % 1000)))"
-step() { echo "STEP $*" >&2; ((DRY)) || timeout -k "$D" "$D" "$LAUNCHER" "$@"; }
+step() {  # one launcher call, see the header; prints its stdout and returns its exit
+  echo "STEP $* [timeout -k $D $D]" >&2; ((DRY)) && return
+  local out rc=0; out="$(mktemp "$WORK/.step.XXXXXX")"
+  # shellcheck disable=SC2016  # $$ is the new session's leader, the call's process group id
+  setsid -w sh -c 'echo $$ >"$0"; exec timeout -k "$@"' "$out.pgid" "$D" "$D" "$LAUNCHER" "$@" >"$out" </dev/null || rc=$?
+  if ((rc == 124 || rc == 137)); then
+    kill -KILL -- "-$(cat "$out.pgid")" 2>/dev/null || :
+    for _ in $(seq 20); do kill -0 -- "-$(cat "$out.pgid")" 2>/dev/null || break; sleep 0.05; done
+  fi
+  cat "$out"; rm -f -- "$out" "$out.pgid"; return "$rc"
+}
 mapfile -t TUPLES < <(python3 -c 'import json,sys
 m = json.load(open(sys.argv[1]))
 print(m["isolated_host"]["engine_socket_path"]); print(m["isolated_host"]["workspace_root_path"])
