@@ -46,8 +46,8 @@ func (d Diagnostic) String() string { return d.Code + " " + d.Path + ": " + d.De
 const MaxDiagnostics = 1000
 
 // checker collects diagnostics, holding at most 2*MaxDiagnostics+1: past that
-// it keeps only the MaxDiagnostics+1 first in list order, which are the ones
-// done can list whatever the order they were added in.
+// it keeps only the MaxDiagnostics+1 first in sorted order, so what done lists
+// never depends on the order diagnostics were added in.
 type checker []Diagnostic
 
 func (c *checker) add(path, code, format string, args ...any) {
