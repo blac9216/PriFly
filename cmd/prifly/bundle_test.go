@@ -181,8 +181,9 @@ var hostile = map[string]func(dir string) error{
 		return errors.Join(addItems(dir, naming(xenID, slice()), naming(xen2ID, slice()), naming(xen2ID, slice(-1)), naming(unresolved, slice()), naming(unresolved, slice()),
 			naming(invalid, slice()), naming(invalid, slice(-1)), naming(xenID, slice())), addArtifacts(dir, "xen", "ExecutionEnvelope/v1", envelope), replaceIn(dir, `"`+wiN(7)+`"`, `"`+wiN(0)+`"`))
 	},
-	"fault-budget":        nested(10), // 4 of 10 repeated keys total the manifest's length in paths
-	"fault-budget-at-end": nested(5),  // the last repeated key brings the paths past it
+	"fault-budget":        nested(10, ""),   // 4 of 10 repeated keys total the manifest's length in paths
+	"fault-budget-at-end": nested(5, ""),    // the last repeated key brings the paths past it
+	"fault-budget-syntax": nested(10, " x"), // a cut fault list, then a syntax error
 	"diagnostic-cap": func(dir string) error { // $.zz is added first, the unreadable artifact last
 		return errors.Join(replaceIn(dir, `"jobs": [`, `"zz": 1, "jobs": [`+strings.Repeat("7, ", 2000)), replaceIn(dir, `"artifacts/baseline.json"`, `"artifacts/missing.json"`))
 	},
@@ -208,11 +209,11 @@ const (
 )
 
 // nested writes bundle.json as d objects, each nesting the next under a 10-byte
-// key and repeating that key after it.
-func nested(d int) func(dir string) error {
+// key and repeating that key after it, with tail before the last "}".
+func nested(d int, tail string) func(dir string) error {
 	return func(dir string) error {
 		k := `"kkkkkkkkkk": `
-		return os.WriteFile(dir+"/bundle.json", []byte(strings.Repeat("{"+k, d)+"1"+strings.Repeat(", "+k+"1}", d)), 0o644)
+		return os.WriteFile(dir+"/bundle.json", []byte(strings.Repeat("{"+k, d)+"1"+strings.Repeat(", "+k+"1}", d-1)+", "+k+"1"+tail+"}"), 0o644)
 	}
 }
 
@@ -386,6 +387,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 		"diagnostic-cap":      capped(),
 		"fault-budget":        append(dups(7, 10), incomplete),
 		"fault-budget-at-end": dups(1, 5),
+		"fault-budget-syntax": append(append([]string{"invalid-json $: bundle.json is not a single JSON value"}, dups(7, 10)...), incomplete),
 		"lone-surrogate": {
 			"invalid-string $.bundle_id: string escapes an unpaired surrogate",
 			"invalid-string $.jobs[1]: string escapes an unpaired surrogate"},
