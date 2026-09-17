@@ -23,9 +23,18 @@ func TestReadRegular(t *testing.T) {
 	base := t.TempDir()
 	dir := filepath.Join(base, "root")
 	const unresolved = "does not resolve to a file inside the bundle directory"
+	// lockeddir holds a file behind a directory that may not be traversed, so
+	// the read is refused for permission and not for a name that does not
+	// resolve. Its mode is restored before TempDir's cleanup, which cannot
+	// remove a file inside a directory it may not traverse.
+	locked := filepath.Join(dir, "lockeddir")
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
 	for _, err := range []error{
 		os.WriteFile(filepath.Join(base, "outside.json"), []byte("{}"), 0o644),
 		os.MkdirAll(filepath.Join(dir, "sub"), 0o755),
+		os.MkdirAll(locked, 0o755),
+		os.WriteFile(filepath.Join(locked, "x"), []byte("{}"), 0o644),
+		os.Chmod(locked, 0o000),
 		os.WriteFile(filepath.Join(dir, "ok.json"), []byte(`{"ok": true}`), 0o644),
 		os.WriteFile(filepath.Join(dir, "locked"), []byte("{}"), 0o000),
 		os.WriteFile(filepath.Join(dir, "at-cap"), nil, 0o644),
@@ -49,22 +58,27 @@ func TestReadRegular(t *testing.T) {
 		name, reason string
 		size         int
 	}{
-		"regular":         {"ok.json", "", 12},
-		"symlink-inside":  {"link-in", "", 12},
-		"dotdot-inside":   {"sub/../ok.json", "", 12},
-		"at-cap":          {"at-cap", "", MaxFileBytes},
-		"over-cap":        {"over-cap", "exceeds the 16777216-byte size cap", 0},
-		"fifo":            {"fifo", "is not a regular file", 0},
-		"directory":       {"sub", "is not a regular file", 0},
-		"unreadable":      {"locked", "cannot be read", 0},
-		"missing":         {"missing.json", unresolved, 0},
-		"symlink-escape":  {"link-out", unresolved, 0},
-		"dotdot-escape":   {"../outside.json", unresolved, 0},
-		"absolute-escape": {filepath.Join(base, "outside.json"), unresolved, 0},
+		"regular":        {"ok.json", "", 12},
+		"symlink-inside": {"link-in", "", 12},
+		"dotdot-inside":  {"sub/../ok.json", "", 12},
+		"at-cap":         {"at-cap", "", MaxFileBytes},
+		"over-cap":       {"over-cap", "exceeds the 16777216-byte size cap", 0},
+		"fifo":           {"fifo", "is not a regular file", 0},
+		"directory":      {"sub", "is not a regular file", 0},
+		"unreadable":     {"locked", "cannot be read", 0},
+		// A present file behind a mode-000 directory: "cannot be read", never
+		// unresolved, which would report a file that is there as missing or
+		// outside the bundle. Removing input.go's fs.ErrPermission mapping
+		// turns this case red.
+		"unreadable-directory": {"lockeddir/x", "cannot be read", 0},
+		"missing":              {"missing.json", unresolved, 0},
+		"symlink-escape":       {"link-out", unresolved, 0},
+		"dotdot-escape":        {"../outside.json", unresolved, 0},
+		"absolute-escape":      {filepath.Join(base, "outside.json"), unresolved, 0},
 	} {
 		t.Run(label, func(t *testing.T) {
-			if label == "unreadable" && os.Geteuid() == 0 {
-				t.Skip("root reads mode-000 files")
+			if strings.HasPrefix(label, "unreadable") && os.Geteuid() == 0 {
+				t.Skip("root reads mode-000 files and traverses mode-000 directories")
 			}
 			done := make(chan string, 1)
 			go func() {
