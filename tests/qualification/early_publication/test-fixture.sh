@@ -20,22 +20,24 @@ def lane($t): {ticket: $t, commitStart: ($t + 100), commitEnd: ($t + 200), syncS
 $p[0] as $p | [range(0; $p.warmupMs + $p.durationMs; $p.cadenceMs) as $a
   | $a, (if $a == $p.warmupMs + $p.burst.atMs then range($p.burst.count) | $a else empty end)] as $arr
 | {ev: "trace", schema: "prifly/qualification/early-publication-trace/v1", procedureSha256: $ps,
-   runnerSha256: ("1" * 64), evaluatorSha256: $es, probeSha256: ("2" * 64), manifestSha256: ("3" * 64)},
+   runnerSha256: ("1" * 64), evaluatorSha256: $es, probeSha256: ("2" * 64), manifestSha256: ("3" * 64), priorBytes: 0, priorRequests: 0},
   (range(1; $p.runs + 1) as $r
-  | {ev: "run", run: $r, t0: 1000000, prefix: "q13/run\($r)/", lineage: "lineage-\($r)", generator: "gen-v1",
+  | {ev: "run", run: $r, t0: 1000000, grant: 0, prefix: "q13/run\($r)/", lineage: "lineage-\($r)", generator: "gen-v1",
      seed: $p.seed, litestream: $p.litestream, dbBytes: 52428800, bytes: 52494336, writes: 2, requests: 9},
+    {ev: "plan", run: $r, t: 1000000, grant: 0, bytes: 0, writes: 0, requests: 1},
     {ev: "grant", run: $r, t: 1000000, deadline: 1600000},
-    foreach range($arr | length) as $i ({free: 0, deadline: 1600000};
+    foreach range($arr | length) as $i ({free: 0, deadline: 1600000, k: 0};
       ([1000000 + $arr[$i], .free] | max) as $t | (.out = []) | .t = $t
-      | if $t + 5000 > .deadline then (lane($t) + {ev: "grant", run: $r, bytes: 65536, writes: 3, requests: 25}) as $g
-          | .out = [$g + {t: $g.ack, deadline: ($g.ack + $p.grant.ms)}] | .t = $g.ack | .deadline = $g.ack + $p.grant.ms
+      | if $t + 5000 > .deadline then .k += 1 | (lane($t) + {ev: "grant", run: $r, bytes: 65536, writes: 3, requests: 25, restoredSeq: ($i + .k), casSeq: ($i + .k),
+          txid: "r\(.k)", lineage: "lineage-\($r)", restoreTxid: "r\(.k)", integrity: "ok", casTxid: "r\(.k)"}) as $g
+          | .out = [{ev: "plan", run: $r, t: $t, grant: (.k - 1), bytes: 0, writes: 0, requests: 1}, $g + {t: $g.ack, deadline: ($g.ack + $p.grant.ms)}] | .t = $g.ack | .deadline = $g.ack + $p.grant.ms
         else . end
       | ($i + 1) as $n | $p.mix[$i % ($p.mix | length)] as $m | lane(.t) as $c | .free = $c.ack
-      | .out += [$c + {ev: "cmd", run: $r, n: $n, kind: $m.kind, arrival: $arr[$i], submit: (1000000 + $arr[$i]),
+      | .out += [{ev: "plan", run: $r, t: .t, grant: .k, bytes: 0, writes: 0, requests: 1}, $c + {ev: "cmd", run: $r, n: $n, kind: $m.kind, arrival: $arr[$i], submit: (1000000 + $arr[$i]),
           reason: "", bytes: ($m.payloadBytes + 66048), writes: 4, requests: 27, payloadSha256: hx("\($n)"),
           payloadBytes: $m.payloadBytes, before: "s\($n - 1)", after: "s\($n)", dbBytes: (52428800 + $n * 4096),
-          txid: "t\($n)", lineage: "lineage-\($r)", restoreTxid: "t\($n)", restoredSeq: $n, restoredPayloadSha256: hx("\($n)"),
-          integrity: "ok", casSeq: $n, casTxid: "t\($n)"}]; .out[]))
+          txid: "t\($n)", lineage: "lineage-\($r)", restoreTxid: "t\($n)", restoredSeq: ($n + .k), restoredPayloadSha256: hx("\($n)"),
+          integrity: "ok", casSeq: ($n + .k), casTxid: "t\($n)"}]; .out[]))
 JQ
 fails=0
 verdict() {  # name, want exit, want whole output line, procedure, trace
@@ -51,6 +53,7 @@ renewal='(map(select(.ev == "grant" and .run == 1))[1]) as $g | map(if . == $g t
 shift='with_entries(if (.key | test("Start$|End$|^ticket$|^ack$")) then .value += $d else . end)'
 cmd() { echo "(map(select(.ev == \"cmd\" and .run == $1 and .n == $2))[0])"; }
 unticketed='.ticket = 0 | .commitStart = 0 | .commitEnd = 0 | .syncStart = 0 | .syncEnd = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0 | .outcome = "failed" | .reason = "no-ticket" | .bytes = 0 | .writes = 0 | .requests = 0'
+failed='.outcome = "failed" | .reason = "cas-conflict"'
 PASS="VERDICT: every run meets the fixed publication thresholds; feasibility evidence only, not a Q13 PASS"
 MISS="VERDICT: a run misses a fixed publication threshold; feasibility evidence only"
 edit "valid trace" 0 "$PASS" '.'
@@ -74,6 +77,17 @@ edit "ticket inside a failed predecessor step" 1 "REJECT LANE run 1 n 6: step cl
   "$(at 1 5 '.outcome = "failed" | .reason = "sync-exit1" | .syncStart = 1080000 | .syncEnd = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0')"
 edit "commands swapped across a renewal" 1 "REJECT OLD-FRONTIER run 1 n 40: command entered the lane after command 41; the frontier moved backwards" \
   "($(cmd 1 41).ticket - $(cmd 1 40).ticket) as \$d | $(at 1 40 "$shift") | (-\$d) as \$d | $(at 1 41 "$shift")"
+edit "renewal CAS not numbered as a published command" 1 "REJECT OLD-FRONTIER run 1 n 0: restore or frontier at sequence 40" "$renewal"'.casSeq = 40 else . end)'
+edit "renewal restore past its sequence" 1 "REJECT LATER-FRONTIER run 1 n 0: restore or frontier at sequence 42" "$renewal"'.restoredSeq = 42 else . end)'
+edit "renewal T differs" 1 "REJECT WRONG-T run 1 n 0: grant 1: renewal restore or frontier T/lineage is not the synced T" "$renewal"'.casTxid = "r0" else . end)'
+edit "renewal restores another T" 1 "REJECT WRONG-T run 1 n 0: grant 1: renewal restore or frontier T/lineage is not the synced T" "$renewal"'.restoreTxid = "r0" else . end)'
+edit "renewal lineage differs" 1 "REJECT WRONG-T run 1 n 0: grant 1: renewal restore or frontier T/lineage is not the synced T" "$renewal"'.lineage = "lineage-2" else . end)'
+edit "renewal integrity failed" 1 "REJECT WRONG-RESULT run 1 n 0: grant 1: renewal restore integrity is not ok" "$renewal"'.integrity = "corrupt" else . end)'
+edit "command numbered as if no renewal came before it" 1 "REJECT OLD-FRONTIER run 1 n 41: restore or frontier at sequence 41" "$(at 1 41 '.casSeq = 41')"
+edit "failed command keeps its sequence number" 0 "$PASS" "$(at 1 10 "$failed") | $(at 1 11 '.before = "s9"')"  # #252 ruling 5714969372 item 3: n is never reused
+edit "command after a failed command reuses its sequence number" 1 "REJECT OLD-FRONTIER run 1 n 11: restore or frontier at sequence 10" \
+  "$(at 1 10 "$failed") | $(at 1 11 '.before = "s9" | .restoredSeq -= 1 | .casSeq -= 1')"
+edit "renewal after a failed command takes the next sequence number" 3 "$MISS" "$(at 1 40 "$failed") | $(at 1 41 '.before = "s39"')"
 edit "ack before CAS result" 1 "REJECT EARLY-ACK run 1 n 30: acknowledged before the frontier CAS result" "$(at 1 30 '.ack = .casEnd - 1')"
 edit "zero latency everywhere" 1 "REJECT EARLY-ACK run 1 n 1: acknowledged before the frontier CAS result" 'map(if .ev == "cmd" then .ack = .submit else . end)'
 edit "CAS pacing under 1.1 s" 1 "REJECT PACING run 1 n 83: CAS write under 1100ms after the previous one" \
@@ -106,30 +120,96 @@ edit "renewal reserved after expiry" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not
 edit "renewal reserved before the grant it renews" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.ticket = 999999 else . end)'
 edit "renewal failed" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.outcome = "failed" else . end)'
 edit "grant active before its renewal ack" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.t = .ack - 1 | .deadline -= 1 else . end)'
-GRANT0="REJECT LEDGER run 1 n 0: grant 0 use exceeds the P12b grant maxima" failed='.outcome = "failed" | .reason = "cas-conflict"'
-grant() {  # field, maximum, excess: commands 1-40 of run 1 and the renewal charged to grant 0 sum to maximum + excess
-  echo "$renewal.$1 = $2 - 40 * (($2 - 1) / 40 | floor) + $3 else . end) | map(if .ev == \"cmd\" and .run == 1 and .n <= 40 then .$1 = (($2 - 1) / 40 | floor) else . end)"; }
-for f in bytes:1073741824 writes:4096 requests:10000; do
-  edit "grant ${f%:*} at the maximum" 0 "$PASS" "$(grant "${f%:*}" "${f#*:}" 0)"
-  edit "grant maxima exceeded (${f%:*})" 1 "$GRANT0" "$(grant "${f%:*}" "${f#*:}" 1)"
+GRANT0="REJECT LEDGER run 1 n 0: grant 0 ticket and plan use exceeds the P12b control/recovery grant maxima"
+grant() {  # field, maximum, excess, plan share[, fixture use]: run 1's fixture step, commands 1-40, renewal and grant-0 plan calls (the renewal's holding the share) sum to maximum + excess
+  echo "(${5:-null} // (map(select(.ev == \"run\" and .run == 1))[0].$1)) as \$f | (($2 - $4 - \$f - 1) / 40 | floor) as \$c | $renewal.$1 = $2 - $4 - \$f - 40 * \$c + $3 elif .ev == \"plan\" and .run == 1 and .grant == 0 then .$1 = (if .t == \$g.ticket then $4 else 0 end) elif .ev == \"cmd\" and .run == 1 and .n <= 40 then .$1 = \$c elif .ev == \"run\" and .run == 1 then .$1 = \$f else . end)"; }
+for f in bytes:805306368 writes:3072 requests:24576; do  # P12b control/recovery grant: tickets are charged to it
+  edit "grant ${f%:*} at the maximum" 0 "$PASS" "$(grant "${f%:*}" "${f#*:}" 0 0)"
+  edit "grant maxima exceeded (${f%:*})" 1 "$GRANT0" "$(grant "${f%:*}" "${f#*:}" 1 0)"
 done
-edit "failed entry use counts in grant maxima" 1 "$GRANT0" "$(grant writes 4096 1) | $(at 1 40 "$failed")"
+for f in bytes:805306368:65536 requests:24576:100; do  # plan calls share the live control grant with tickets (#252 ruling 5714969372 items 1, 2)
+  IFS=: read -r k max share <<<"$f"
+  edit "plan and ticket $k at the control maximum" 0 "$PASS" "$(grant "$k" "$max" 0 "$share")"
+  edit "plan use counts in control maxima ($k)" 1 "$GRANT0" "$(grant "$k" "$max" 1 "$share")"
+done
+edit "failed entry use counts in grant maxima" 1 "$GRANT0" "$(grant writes 3072 1 0) | $(at 1 40 "$failed")"
+# The fixture upload is one ticket charged to the control grant live at t0, named on the run line (#252 ruling 5716255116 item 1)
+FIXTICKET="REJECT LEDGER run 1 n 0: fixture step exceeds the pre-send ticket" FIXGRANT="REJECT EXPIRED-PERMIT run 1 n 0: fixture step outside the grant it names, live at t0"
+for f in bytes:268435456:805306368 writes:1024:3072 requests:8192:24576; do
+  IFS=: read -r k tmax cmax <<<"$f"
+  edit "fixture $k at the ticket maximum" 0 "$PASS" "$(runfield 1 ".$k = $tmax")"
+  edit "fixture $k over the ticket" 1 "$FIXTICKET" "$(runfield 1 ".$k = $tmax + 1")"
+  edit "fixture and ticket $k at the control maximum" 0 "$PASS" "$(grant "$k" "$cmax" 0 0 "$tmax")"
+  edit "fixture use counts in control maxima ($k)" 1 "$GRANT0" "$(grant "$k" "$cmax" 1 0 "$tmax")"
+done
+edit "fixture step with 2^53-1 writes" 1 "$FIXTICKET" "$(runfield 1 '.writes = 9007199254740991')"  # the round-2 reviewer's three probes
+edit "fixture step with 1 GiB" 1 "$FIXTICKET" "$(runfield 1 '.bytes = 1073741824')"
+edit "fixture step with 30000 requests" 1 "$FIXTICKET" "$(runfield 1 '.requests = 30000')"
+edit "fixture step naming a later grant" 1 "$FIXGRANT" "$(runfield 1 '.grant = 1')"
+edit "fixture step before its grant" 1 "$FIXGRANT" 'map(if .ev == "grant" and .run == 1 and .ticket == null then .t += 1 else . end)'
+edit "fixture step after its grant ends" 1 "$FIXGRANT" 'map(if .ev == "grant" and .run == 1 and .ticket == null then .t -= 600001 | .deadline = .t + 600000 else . end)'
+# grant 0 ends exactly at t0 (inclusive): a renewal ticketed at t0, beside the fixture step, opens grant 1 for command 1 onwards,
+# so every run-1 sequence number moves up one and every later plan names the next grant
+edit "fixture step at its grant's deadline" 0 "$PASS" "$renewal"'. else . end) | (1000000 - $g.ticket) as $d | ($g | '"$shift"' | .t = .ack | .deadline = .ack + 600000 | .txid = "r-t0" | .restoreTxid = .txid | .casTxid = .txid | .restoredSeq = 1 | .casSeq = 1) as $r0 | map(if .run != 1 then . elif .ev == "grant" and .ticket == null then (.t -= 600000 | .deadline -= 600000), $r0 elif .ev == "grant" or .ev == "cmd" then .restoredSeq += 1 | .casSeq += 1 | (if .n == 1 then (1100 as $d | '"$shift"') else . end) elif .ev == "plan" and .t > 1000000 then .grant += 1 else . end) + [{ev: "plan", run: 1, t: 1001100, grant: 1, bytes: 0, writes: 0, requests: 1}]'
+# Plan calls (#252 ruling 5714969372 items 1 and 4): no writes, charged to the live grant they name, one before each ticketed entry
+PLAN1='(map(.ev == "plan" and .run == 1) | index(true)) as $i | .[$i]' PLANGRANT="REJECT EXPIRED-PERMIT run 1 n 0: plan call outside the live grant it names"
+edit "plan call with one write" 1 "REJECT LEDGER run 1 n 0: plan call records writes" "$PLAN1.writes = 1"
+edit "plan call with 2^53-1 writes" 1 "REJECT LEDGER run 1 n 0: plan call records writes" "$PLAN1.writes = 9007199254740991"
+edit "plan call before its grant" 1 "$PLANGRANT" "$PLAN1.t = 999999"
+edit "plan call after its grant ends" 1 "$PLANGRANT" \
+  '(map(select(.ev == "grant" and .run == 1)) | last) as $g | (map(.ev == "plan" and .run == 1) | rindex(true)) as $i | .[$i].t = $g.deadline + 1'
+edit "plan call naming a later grant" 1 "$PLANGRANT" "$PLAN1.grant = 1"
+edit "plan call naming an ended grant" 1 "$PLANGRANT" '(map(.ev == "plan" and .run == 1 and .grant == 1) | index(true)) as $i | .[$i].grant = 0'
+# One plan call of its own per ticketed entry, inside its window: previous entry's ack (or t0) up to its ticket (ruling 5716255116 item 2)
+NOPLAN="no plan call of its own from the previous entry's ack (or t0) up to its ticket" SPARE="plan call serves no entry: before this entry's window, or a second plan for the entry before"
+plan30() { echo "$(cmd 1 29).ack as \$a | $(cmd 1 30).ticket as \$t | map(if .ev == \"plan\" and .run == 1 and .t == \$t then $1 else . end)"; }  # command 30's plan; window [ack 29, ticket 30]
+edit "plan call at its window's start" 0 "$PASS" "$(plan30 '.t = $a')"
+edit "plan call at its window's end" 0 "$PASS" "$(plan30 '.t = $t')"
+edit "plan call before its window" 1 "REJECT PLAN run 1 n 30: $SPARE" "$(plan30 '.t = $a - 1')"
+edit "command without a plan call" 1 "REJECT PLAN run 1 n 30: $NOPLAN" "$(cmd 1 30).ticket as \$t | map(select(.ev != \"plan\" or .run != 1 or .t != \$t))"
+edit "plan call after its ticket" 1 "REJECT PLAN run 1 n 30: $NOPLAN" "$(plan30 '.t = $t + 1')"
+edit "two plan calls for one entry" 1 "REJECT PLAN run 1 n 31: $SPARE" "$(plan30 '., .')"
+edit "one plan call shared by two entries" 1 "REJECT PLAN run 1 n 30: $NOPLAN" \
+  "$(at 1 29 '.ticket as $t | .commitStart = $t | .commitEnd = $t | .syncStart = $t | .syncEnd = $t | .restoreStart = $t | .restoreEnd = $t | .casStart = $t | .casEnd = $t | .ack = $t') | $(plan30 'empty')"
+edit "run's plan calls all at t0" 1 "REJECT PLAN run 1 n 2: $SPARE" 'map(if .ev == "plan" and .run == 1 and .grant == 0 then .t = 1000000 else . end)'
+edit "plan call after the run's last entry" 1 "REJECT PLAN run 3 n 0: plan call serves no entry: after the run's last ticketed entry, or a second plan for it" \
+  '. + [(map(select(.ev == "plan" and .run == 3)) | last) | .t += 1]'
+edit "plan lines out of file order" 0 "$PASS" '(map(select(.ev == "plan" and .run == 1)) | reverse) as $p | map(select(.ev != "plan" or .run != 1)) + $p'
+edit "renewal without a plan call" 1 "REJECT PLAN run 1 n 0: $NOPLAN" '(map(select(.ev == "grant" and .run == 1))[1]) as $g | map(select(.ev != "plan" or .run != 1 or .t != $g.ticket))'
+# the fixture step's window is t0 alone; grant 0 also opens at t0, so the moved plan is outside its grant too
+edit "fixture step's plan call before t0" 1 "REJECT PLAN run 1 n 0: $SPARE" '(map(.ev == "plan" and .run == 1) | index(true)) as $i | .[$i].t -= 1'
+# the fixture step's window ends at t0 too: with command 1 ticketed 5 s later (its plan at its ticket), a fixture plan at t0+1 serves no fixture step
+edit "fixture step's plan call after t0" 1 "REJECT PLAN run 1 n 0: $NOPLAN" \
+  "(map(.ev == \"plan\" and .run == 1) | indices(true)) as \$p | .[\$p[0]].t += 1 | .[\$p[1]].t += 5000 | 5000 as \$d | $(at 1 1 "$shift")"
+# the fixture plan and command 1's share clock t0, so the one left serves the fixture step and command 1 has none
+edit "fixture step without a plan call" 1 "REJECT PLAN run 2 n 1: $NOPLAN" '(map(.ev == "plan" and .run == 2) | index(true)) as $i | del(.[$i])'
 for f in bytes:268435457 writes:1025 requests:8193; do
   edit "ticket exceeded (${f%:*})" 1 "REJECT LEDGER run 1 n 3: remote use exceeds the pre-send ticket" "$(at 1 3 ".${f%:*} = ${f#*:}")"
 done
-edit "renewal use counts in grant maxima" 1 "REJECT LEDGER run 1 n 0: grant 0 use exceeds the P12b grant maxima" \
-  "$renewal"'.writes = 17 else . end) | map(if .ev == "cmd" and .run == 1 and .n <= 40 then .writes = 102 else . end)'
+edit "renewal use counts in grant maxima" 1 "$GRANT0" "$renewal"'.writes = 33 else . end) | map(if .ev == "cmd" and .run == 1 and .n <= 40 then .writes = 76 else . end)'
 edit "renewal ticket exceeded" 1 "REJECT LEDGER run 1 n 0: remote use exceeds the pre-send ticket" "$renewal"'.bytes = 268435457 else . end)'
-P12A="REJECT LEDGER run 0 n 0: trace exceeds the P12a envelope (fixture steps, commands and renewals)"
-envelope() { echo "(map(.$1 // 0) | add) as \$s | $(runfield 1 ".$1 += $2 - \$s + $3")"; }  # field, limit, excess over the whole trace
+P12A="REJECT LEDGER run 0 n 0: trace exceeds the P12a envelope (prior use, plan calls, fixture steps, commands and renewals)"
+envelope() { echo "(map(.$1 // 0) | add) as \$s | map(if .ev == \"trace\" then .prior${1^} = $2 - \$s else . end) | $(at 2 1 ".$1 += $3")"; }  # field, limit, excess: prior use fills the rest
 for f in bytes:8589934592 requests:100000; do
   edit "envelope ${f%:*} at the limit" 0 "$PASS" "$(envelope "${f%:*}" "${f#*:}" 0)"
   edit "envelope ${f%:*} exceeded" 1 "$P12A" "$(envelope "${f%:*}" "${f#*:}" 1)"
 done
+for f in Bytes:8589934592 Requests:100000; do  # the header's prior usage: with the trace's own use, at the limit, then one over
+  k="${f%:*}" && prior="(map(.${k,} // 0) | add) as \$s | map(if .ev == \"trace\" then .prior$k = ${f#*:} - \$s"
+  edit "prior ${k,} at the limit" 0 "$PASS" "$prior else . end)"
+  edit "prior ${k,} counts in P12a" 1 "$P12A" "$prior + 1 else . end)"
+done
+for f in Bytes:8589934592 Requests:100000; do  # one plan call's use beside prior use filling the rest of P12a: at the limit, then one over
+  k="${f%:*}" && plan="(map(.ev == \"plan\" and .run == 2) | index(true)) as \$i | .[\$i].${k,} = 4096 | (map(.${k,} // 0) | add) as \$s | map(if .ev == \"trace\" then .prior$k = ${f#*:} - \$s else . end)"
+  edit "plan ${k,} at the limit" 0 "$PASS" "$plan"
+  edit "plan ${k,} counts in P12a" 1 "$P12A" "$plan | .[\$i].${k,} += 1"
+done
 edit "failed command use counts in P12a" 1 "$P12A" "$(envelope bytes 8589934592 1) | $(at 1 40 "$failed")"
 edit "renewal use counts in P12a" 1 "$P12A" 'map(if .ev == "cmd" then .bytes = 16777216 elif .ev == "grant" and .ticket then .bytes = 209715200 else . end)'
-edit "fixture bytes count in P12a" 1 "$P12A" 'map(if .ev == "run" then .bytes = 2900000000 else . end)'
-edit "fixture requests count in P12a" 1 "$P12A" 'map(if .ev == "run" then .requests = 34000 else . end)'
+for f in bytes:8589934592 requests:100000; do  # one over P12a on the fixture step, prior use filling the rest (a fixture step is held to one ticket)
+  k="${f%:*}" && edit "fixture $k count in P12a" 1 "$P12A" "(map(.$k // 0) | add) as \$s | map(if .ev == \"trace\" then .prior${k^} = ${f#*:} - \$s else . end) | $(runfield 1 ".$k += 1")"
+done
+edit "prior use and plan calls saturate" 1 "$P12A" 'map(if .ev == "trace" then .priorBytes = 9007199254740991 else . end) + [range(1100) | {ev: "plan", run: 1, t: 1000000, grant: 0, bytes: 9007199254740991, writes: 0, requests: 0}]'
 edit "usage sums saturate" 1 "$P12A" "$renewal"'. else . end) | map(if .ev == "cmd" then .bytes = 9007199254740991 else . end) + [range(600) | $g | .bytes = 9007199254740991]'
 # Workload, results and schedule
 edit "wrong T" 1 "REJECT WRONG-T run 1 n 9: restore or frontier T/lineage is not the synced T" "$(at 1 9 '.restoreTxid = "t0"')"

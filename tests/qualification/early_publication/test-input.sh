@@ -16,11 +16,12 @@ jq -nc '("a" * 64) as $h
 | def lane($t): {ticket: $t, commitStart: ($t + 100), commitEnd: ($t + 200), syncStart: ($t + 200), syncEnd: ($t + 500),
     restoreStart: ($t + 500), restoreEnd: ($t + 800), casStart: ($t + 800), casEnd: ($t + 1000), ack: ($t + 1100)};
   {ev: "trace", schema: "prifly/qualification/early-publication-trace/v1", procedureSha256: $h, runnerSha256: $h,
-   evaluatorSha256: $h, probeSha256: $h, manifestSha256: $h},
-  {ev: "run", run: 1, t0: 1000000, prefix: "q13/run1/", lineage: "lineage-1", generator: "gen-v1", seed: 9216,
+   evaluatorSha256: $h, probeSha256: $h, manifestSha256: $h, priorBytes: 0, priorRequests: 0},
+  {ev: "run", run: 1, t0: 1000000, grant: 0, prefix: "q13/run1/", lineage: "lineage-1", generator: "gen-v1", seed: 9216,
    litestream: "0.5.17", dbBytes: 52428800, bytes: 52494336, writes: 2, requests: 9},
   {ev: "grant", run: 1, t: 1000000, deadline: 1600000},
-  (lane(1590000) + {ev: "grant", run: 1, t: 1591100, deadline: 2191100, outcome: "published", bytes: 65536, writes: 3, requests: 25}),
+  (lane(1590000) + {ev: "grant", run: 1, t: 1591100, deadline: 2191100, outcome: "published", bytes: 65536, writes: 3, requests: 25,
+   txid: "t2", lineage: "lineage-1", restoreTxid: "t2", restoredSeq: 2, integrity: "ok", casSeq: 2, casTxid: "t2"}),
   (lane(1000000) + {ev: "cmd", run: 1, n: 1, kind: "package-revision", arrival: 0, submit: 1000000, outcome: "published",
    reason: "", bytes: 328192, writes: 4, requests: 27, payloadSha256: $h, payloadBytes: 262144, before: "s0", after: "s1",
    dbBytes: 52432896, txid: "t1", lineage: "lineage-1", restoreTxid: "t1", restoredSeq: 1, restoredPayloadSha256: $h,
@@ -90,9 +91,17 @@ text "unknown event alone" 4 '3a {"ev":"renewal"}'
 edit "extra key" 5 "$(line 5 '.note = "x"')"
 edit "header without runner identity" 1 "$(line 1 'del(.runnerSha256)')"
 edit "run without prefix" 2 "$(line 2 'del(.prefix)')"
+edit "run without its grant" 2 "$(line 2 'del(.grant)')"  # #252 ruling 5716255116 item 1: the run line names the fixture step's grant
 edit "grant without deadline" 3 "$(line 3 'del(.deadline)')"
 edit "grant with a partial lane" 3 "$(line 3 '.ticket = 1000000')"
 edit "renewal without ack" 4 "$(line 4 'del(.ack)')"
+edit "renewal without T" 4 "$(line 4 'del(.txid)')"
+edit "renewal without integrity" 4 "$(line 4 'del(.integrity)')"
+edit "published renewal with an empty lineage" 4 "$(line 4 '.lineage = ""')"
+feed "plan call use" 1 "$(input 7)" sed '3a {"ev":"plan","run":1,"t":1000000,"grant":0,"bytes":0,"writes":0,"requests":1}' "$good"
+text "plan without requests" 4 '3a {"ev":"plan","run":1,"t":1000000,"grant":0,"bytes":0,"writes":0}'
+text "plan without its grant" 4 '3a {"ev":"plan","run":1,"t":1000000,"bytes":0,"writes":0,"requests":1}'
+feed "failed renewal with empty result strings" 1 "$(input 6)" jq -c "$(line 4 '.outcome = "failed" | .txid = "" | .lineage = "" | .restoreTxid = "" | .integrity = "" | .casTxid = ""') | .[]" -s "$good"
 edit "command without payload hash" 5 "$(line 5 'del(.payloadSha256)')"
 edit "failed command without database size" 6 "$(line 6 'del(.dbBytes)')"
 # Values: unsigned integers in 0..2^53-1, typed, UTF-8, no lone surrogate, non-empty strings, outcome and reason
