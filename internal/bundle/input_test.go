@@ -161,6 +161,7 @@ func TestDecodeJSON(t *testing.T) {
 		quoted string // Quote of the decoded array's first element, when ok
 	}{
 		"single-value":        {`[1.50]`, true, "1.50"},
+		"huge-number":         {`[1e400]`, true, "1e400"},
 		"trailing-whitespace": {"[true] \t\r\n", true, "true"},
 		"trailing-brace":      {`{"a": 1}}`, false, ""},
 		"trailing-arrays":     {`{"a": 1}]]]`, false, ""},
@@ -169,11 +170,25 @@ func TestDecodeJSON(t *testing.T) {
 		"trailing-vtab":       {"[true]\v", false, ""},
 		"truncated":           {`{"a": `, false, ""},
 		"empty":               {"", false, ""},
+		"invalid-utf8":        {"[\"\xff\xfe\"]", false, ""},
+		"encoded-surrogate":   {"[\"\xed\xa0\x80\"]", false, ""},
+		"lone-high-surrogate": {`["a\ud800"]`, false, ""},
+		"lone-low-surrogate":  {`["\udc00\ud800"]`, false, ""},
+		"surrogate-pair":      {`["\ud83d\ude00"]`, true, `"\U0001f600"`},
+		"escaped-backslash-u": {`["\\ud800"]`, true, `"\\ud800"`},
+		"duplicate-key":       {`[{"a": 1, "a": 1}]`, false, ""},
+		"escaped-dup-key":     {`[{"a": 1, "\u0061": 2}]`, false, ""},
+		"nested-dup-key":      {`[{"a": [{"b": {}, "b": {}}]}]`, false, ""},
+		"same-key-per-object": {`[{"a": {"a": 1}}, {"a": 2}]`, true, "object"},
 	} {
 		t.Run(label, func(t *testing.T) {
 			v, ok := DecodeJSON([]byte(c.raw))
 			if ok != c.ok || ok && Quote(v.([]any)[0]) != c.quoted {
 				t.Errorf("DecodeJSON(%q) = %#v, %v; want ok=%v, element %q", c.raw, v, ok, c.ok, c.quoted)
+			}
+			// Inspect reports only Faults when DecodeJSON fails, so they must agree.
+			if faults := Faults([]byte(c.raw)); (faults == nil) != c.ok {
+				t.Errorf("Faults(%q) = %v; want none exactly when ok=%v", c.raw, faults, c.ok)
 			}
 		})
 	}
