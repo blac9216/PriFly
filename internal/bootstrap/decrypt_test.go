@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -51,7 +52,7 @@ func seal(t *testing.T, id *age.X25519Identity, plaintext string, damage ...int)
 		buf.Truncate(buf.Len() - cut)
 		buf.Bytes()[buf.Len()-1] ^= byte(1 - cut)
 	}
-	m := Manifest{ManifestSchema, factory, SecretsPath, fmt.Sprintf("%x", sha256.Sum256(buf.Bytes())), SecretSchema}
+	m := Manifest{ManifestSchema, factory, SecretsPath, fmt.Sprintf("%x", sha256.Sum256(buf.Bytes())), []RequiredSecret{{"r2", 1}}, SecretSchema}
 	return &Verified{Revision: strings.Repeat("a", 40), Manifest: m, Secrets: buf.Bytes()}
 }
 
@@ -79,7 +80,8 @@ func capture(t *testing.T, f func()) (stdout, stderr string) {
 var errPanic, inWork = errors.New("provision panicked"), "<work>"
 
 // decrypt runs Decrypt in dir with TMPDIR empty, asserts on the filesystem that provision's file is in a directory created in
-// work while TMPDIR is empty and that both are empty afterwards, and that no canary, age identity or work path is output.
+// work while TMPDIR is empty and that both are empty afterwards, and that no canary, age identity, work path or 8
+// consecutive ciphertext bytes, raw or hex-encoded, are output.
 func decrypt(t *testing.T, v *Verified, identityFile, dir string, provision func(string) error) (stdout, stderr string, err error, panicked bool) {
 	t.Helper()
 	work, tmpdir, at := t.TempDir(), t.TempDir(), ""
@@ -96,7 +98,11 @@ func decrypt(t *testing.T, v *Verified, identityFile, dir string, provision func
 		t.Fatalf("plaintext outside work or not removed: %d entries left in work, %d in TMPDIR; provisioned in %q", count(work), count(tmpdir), at)
 	}
 	for where, text := range map[string]string{"stdout": stdout, "stderr": stderr, "error": fmt.Sprint(err)} {
-		if strings.Contains(text, canary) || strings.Contains(text, "AGE-SECRET-KEY-") || strings.Contains(text, work) {
+		leak := strings.Contains(text, "prifly-canary") || strings.Contains(text, "AGE-SECRET-KEY-") || strings.Contains(text, work)
+		for i := 0; v != nil && i+8 <= len(v.Secrets); i++ {
+			leak = leak || strings.Contains(text, string(v.Secrets[i:i+8])) || strings.Contains(text, hex.EncodeToString(v.Secrets[i:i+8]))
+		}
+		if leak {
 			t.Fatalf("%s exposes a secret, identity or path: %q", where, text)
 		}
 	}
@@ -178,6 +184,48 @@ func TestDecrypt(t *testing.T) {
 			stdout, stderr, err, panicked := decrypt(t, c.v, c.identity, c.dir, c.provision)
 			if !errors.Is(err, c.want) || (c.want == nil) != (err == nil) || calls != before || stdout+"|"+stderr != c.output || panicked != (name == "provision panic") {
 				t.Fatalf("err = %v, want %v; refused provision called %t; output %q|%q; panicked %t", err, c.want, calls != before, stdout, stderr, panicked)
+			}
+		})
+	}
+}
+
+// TestDecryptRequiredSecrets pins the exact diagnostic for each way the decrypted secrets can differ from the ids and
+// generations the manifest requires, or carry an inconsistent rotation lineage. Only the matching file is provisioned.
+func TestDecryptRequiredSecrets(t *testing.T) {
+	id, identityFile := newIdentity(t)
+	r2 := func(generation int, lineage string) string {
+		return fmt.Sprintf(`{"id":"r2","purpose":"replication","generation":%d,%s"value":%q}`, generation, lineage, canary)
+	}
+	git := `{"id":"git","purpose":"fetch","generation":1,"value":"prifly-canary-git"}`
+	lineage := `secret "r2" rotation lineage inconsistent: supersedes_generation must be absent for generation 1, otherwise from 1 to generation-1`
+	for name, c := range map[string]struct {
+		secrets  []string
+		required []RequiredSecret
+		want     string // after "bootstrap: decrypted secrets invalid: "; "" when provisioned
+	}{
+		"exact generations":       {[]string{r2(3, `"supersedes_generation":2,`), git}, []RequiredSecret{{"git", 1}, {"r2", 3}}, ""},
+		"missing":                 {[]string{r2(1, "")}, []RequiredSecret{{"r2", 1}, {"git", 1}}, `required secret "git" missing`},
+		"stale":                   {[]string{r2(1, "")}, []RequiredSecret{{"r2", 2}}, `secret "r2" generation 1 is stale; the manifest requires 2`},
+		"newer":                   {[]string{r2(2, `"supersedes_generation":1,`)}, []RequiredSecret{{"r2", 1}}, `secret "r2" generation 2 is newer than the manifest requires (1)`},
+		"duplicate":               {[]string{r2(1, ""), r2(1, "")}, []RequiredSecret{{"r2", 1}}, `secret "r2" appears more than once`},
+		"unnamed extra":           {[]string{r2(1, ""), strings.Replace(git, `"git"`, `"prifly-canary-extra"`, 1)}, []RequiredSecret{{"r2", 1}}, "holds a secret the manifest does not require"},
+		"lineage at generation 1": {[]string{r2(1, `"supersedes_generation":1,`)}, []RequiredSecret{{"r2", 1}}, lineage},
+		"lineage absent":          {[]string{r2(2, "")}, []RequiredSecret{{"r2", 2}}, lineage},
+		"lineage below 1":         {[]string{r2(2, `"supersedes_generation":0,`)}, []RequiredSecret{{"r2", 2}}, lineage},
+		"lineage not older":       {[]string{r2(2, `"supersedes_generation":2,`)}, []RequiredSecret{{"r2", 2}}, lineage},
+		"lineage null":            {[]string{r2(1, `"supersedes_generation":null,`)}, []RequiredSecret{{"r2", 1}}, "not exactly one object of known, unique, exactly spelled, non-null fields"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := seal(t, id, fmt.Sprintf(`{"schema":%q,"factory_id":%q,"secrets":[%s]}`, SecretSchema, factory, strings.Join(c.secrets, ",")))
+			v.Manifest.RequiredSecrets = c.required
+			provisioned := 0
+			stdout, stderr, err, _ := decrypt(t, v, identityFile, inWork, func(string) error { provisioned++; return nil })
+			want, got := ErrSecrets.Error()+": "+c.want, fmt.Sprint(err)
+			if c.want == "" {
+				want = "<nil>"
+			}
+			if got != want || provisioned != map[bool]int{true: 1}[c.want == ""] || (err != nil) != errors.Is(err, ErrSecrets) || stdout+stderr != "" {
+				t.Fatalf("err = %q, want %q; provisioned %d times; output %q", got, want, provisioned, stdout+stderr)
 			}
 		})
 	}

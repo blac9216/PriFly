@@ -45,12 +45,15 @@ type secret struct {
 	ID         string `json:"id"`
 	Purpose    string `json:"purpose"`
 	Generation int    `json:"generation"`
+	// Supersedes is the rotation lineage: the generation this one replaced, absent exactly for generation 1.
+	Supersedes *int   `json:"supersedes_generation"`
 	Value      string `json:"value"`
 }
 
 // Decrypt re-checks that v.Secrets still matches the digest Fetch verified, decrypts it with the age
 // identities read from identityFile into a 0600 file in a fresh 0700 directory created in workDir, an
-// absolute path, checks the plaintext schema and calls provision with that file's path. Nothing is
+// absolute path, checks the plaintext schema and that it holds exactly the secrets v.Manifest requires, each
+// at its required generation, and calls provision with that file's path. Nothing is
 // written outside workDir. The directory is removed before Decrypt returns, on success, on every failure
 // and when provision panics (the panic continues), so the path is valid only during provision.
 func Decrypt(v *Verified, identityFile, workDir string, provision func(path string) error) error {
@@ -114,13 +117,18 @@ func readIdentities(identityFile string) ([]age.Identity, error) {
 
 // secretKeys are the member names checkSecrets accepts, spelled exactly. encoding/json alone matches names
 // case-insensitively and keeps the last duplicate, so a consumer of the file could read another value.
-var secretKeys = map[string]bool{"schema": true, "factory_id": true, "secrets": true, "id": true, "purpose": true, "generation": true, "value": true}
+var secretKeys = map[string]bool{"schema": true, "factory_id": true, "secrets": true, "id": true, "purpose": true,
+	"generation": true, "supersedes_generation": true, "value": true}
 
-var errMember = errors.New("duplicate or inexactly spelled member name")
+var errMember = errors.New("duplicate, inexactly spelled or null member")
 
-// strictMembers rejects a duplicate member name, or one not spelled exactly as in keys, at any depth of one JSON value.
+// strictMembers rejects a duplicate member name, or one not spelled exactly as in keys, and a null, at any depth of one
+// JSON value. encoding/json decodes null as an absent value, so without this a null would pass for an omitted field.
 func strictMembers(dec *json.Decoder, keys map[string]bool) error {
 	tok, err := dec.Token()
+	if err == nil && tok == nil {
+		return errMember
+	}
 	if err != nil || (tok != json.Delim('{') && tok != json.Delim('[')) {
 		return err
 	}
@@ -145,7 +153,7 @@ func checkSecrets(f io.ReaderAt, n int64, m Manifest) error {
 	dec := json.NewDecoder(io.NewSectionReader(f, 0, n))
 	dec.DisallowUnknownFields()
 	if strictMembers(json.NewDecoder(io.NewSectionReader(f, 0, n)), secretKeys) != nil || dec.Decode(&s) != nil || dec.Decode(&struct{}{}) != io.EOF {
-		return fmt.Errorf("%w: not exactly one object of known, unique, exactly spelled fields", ErrSecrets)
+		return fmt.Errorf("%w: not exactly one object of known, unique, exactly spelled, non-null fields", ErrSecrets)
 	}
 	switch {
 	case s.Schema != SecretSchema || s.Schema != m.SecretSchema:
@@ -155,12 +163,33 @@ func checkSecrets(f io.ReaderAt, n int64, m Manifest) error {
 	case len(s.Secrets) == 0:
 		return fmt.Errorf("%w: no secrets", ErrSecrets)
 	}
-	seen := map[string]bool{}
+	required, seen := map[string]int{}, map[string]bool{}
+	for _, r := range m.RequiredSecrets {
+		required[r.ID] = r.Generation
+	}
+	// A diagnostic names only an id the reviewed manifest declares; from the plaintext it carries at most a generation.
 	for _, e := range s.Secrets {
-		if e.ID == "" || seen[e.ID] || e.Purpose == "" || e.Generation < 1 || e.Value == "" {
-			return fmt.Errorf("%w: each secret needs a unique id, a purpose, generation >= 1 and a value", ErrSecrets)
+		want, named := required[e.ID]
+		switch {
+		case e.ID == "" || e.Purpose == "" || e.Generation < 1 || e.Value == "":
+			return fmt.Errorf("%w: each secret needs an id, a purpose, generation >= 1 and a value", ErrSecrets)
+		case !named:
+			return fmt.Errorf("%w: holds a secret the manifest does not require", ErrSecrets)
+		case seen[e.ID]:
+			return fmt.Errorf("%w: secret %q appears more than once", ErrSecrets, e.ID)
+		case (e.Supersedes == nil) != (e.Generation == 1) || e.Supersedes != nil && (*e.Supersedes < 1 || *e.Supersedes >= e.Generation):
+			return fmt.Errorf("%w: secret %q rotation lineage inconsistent: supersedes_generation must be absent for generation 1, otherwise from 1 to generation-1", ErrSecrets, e.ID)
+		case e.Generation < want:
+			return fmt.Errorf("%w: secret %q generation %d is stale; the manifest requires %d", ErrSecrets, e.ID, e.Generation, want)
+		case e.Generation > want:
+			return fmt.Errorf("%w: secret %q generation %d is newer than the manifest requires (%d)", ErrSecrets, e.ID, e.Generation, want)
 		}
 		seen[e.ID] = true
+	}
+	for _, r := range m.RequiredSecrets {
+		if !seen[r.ID] {
+			return fmt.Errorf("%w: required secret %q missing", ErrSecrets, r.ID)
+		}
 	}
 	return nil
 }

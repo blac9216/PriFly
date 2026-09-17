@@ -58,7 +58,7 @@ func fixture(t *testing.T) (url, rev, identityFile, envLog string) {
 	if w.Close() != nil {
 		t.Fatal("encrypting fixture")
 	}
-	manifest := fmt.Sprintf(`{"schema":%q,"factory_id":%q,"secrets_path":%q,"secrets_sha256":"%x","secret_schema":%q}`, bootstrap.ManifestSchema, factory, bootstrap.SecretsPath, sha256.Sum256(sealed.Bytes()), bootstrap.SecretSchema)
+	manifest := fmt.Sprintf(`{"schema":%q,"factory_id":%q,"secrets_path":%q,"secrets_sha256":"%x","required_secrets":[{"id":"r2","generation":1}],"secret_schema":%q}`, bootstrap.ManifestSchema, factory, bootstrap.SecretsPath, sha256.Sum256(sealed.Bytes()), bootstrap.SecretSchema)
 	envLog = filepath.Join(bin, "ssh-env")
 	ssh := "#!/bin/sh\nenv > '" + envLog + "'\nfor a; do last=$a; done\neval \"exec git upload-pack ${last#git-upload-pack }\"\n"
 	if os.WriteFile(filepath.Join(repo, bootstrap.ManifestPath), []byte(manifest), 0o644) != nil ||
