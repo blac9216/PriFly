@@ -136,8 +136,9 @@ if missing_anchors:
 # A list-item prefix is indentation then one or more markers ("1. ", "1) ", "- ", "* ",
 # "+ "), each followed by a space; a fence may open after it. A backtick fence's info
 # string holds no backtick. As far as CommonMark goes here (#176, #196): an ordered
-# marker other than 1 cannot interrupt a paragraph, so directly after a paragraph line it
-# is text, not an item; a fence belongs to the innermost open list item whose content
+# marker other than 1, or a marker with nothing after it, cannot interrupt a paragraph, so
+# directly after a paragraph line it is text, not an item; an empty item followed by a
+# blank line ends there; a fence belongs to the innermost open list item whose content
 # column its line reaches, and a non-blank line indented less than that column ends the
 # item and the fence with it; a closing fence is the opening character, at least as long,
 # with nothing after it, indented at most 3 columns past that content column. Not
@@ -158,6 +159,7 @@ def clean_numbered(text):
     out, in_comment = [], False
     fence_char, fence_len, fence_col = None, 0, 0
     items, in_para, para_depth = [], False, 0  # content columns of the open list items
+    empty_item = False  # the previous line opened an item with no content
     for i, line in enumerate(text.splitlines()):
         stripped = line.strip()
         indent = len(line) - len(line.lstrip())
@@ -165,6 +167,7 @@ def clean_numbered(text):
             if '-->' in line:
                 in_comment = False
             continue
+        was_empty, empty_item = empty_item, False
         if fence_char is not None and stripped and indent < fence_col:
             fence_char = None
         if fence_char is not None:
@@ -174,6 +177,8 @@ def clean_numbered(text):
                 fence_char = None
             continue
         if not stripped:
+            if was_empty:
+                items.pop()
             in_para = False
         elif stripped.startswith('<!--'):
             in_para = False
@@ -184,10 +189,13 @@ def clean_numbered(text):
             while items and items[-1] > indent:
                 items.pop()
             m, pos = MARKER_RE.match(line, indent), indent
-            if m and m.group(1) and int(m.group(1)) != 1 and in_para and para_depth == len(items):
+            if m and in_para and para_depth == len(items) and (not line[m.end():].strip()
+                                                               or (m.group(1) and int(m.group(1)) != 1)):
                 m = None
             while m:
                 pos = m.end()
+                if not line[pos:].strip():  # an empty item's content column is marker width + 1
+                    pos, empty_item = m.start() + len(m.group(0).rstrip()) + 1, True
                 items.append(pos)
                 m = MARKER_RE.match(line, pos)
             f = FENCE_OPEN_RE.match(line, pos)
@@ -195,7 +203,7 @@ def clean_numbered(text):
                 fence_char, fence_len = f.group(1)[0], len(f.group(1))
                 fence_col, in_para = (items[-1] if items else 0), False
                 continue
-            if HEADING_RE.match(line):
+            if HEADING_RE.match(line) or empty_item:
                 in_para = False
             elif not in_para or pos > indent:
                 in_para, para_depth = True, len(items)

@@ -355,5 +355,24 @@ checkbox_case list-deep-closer "$ac_h" $'1. ```text\n       ```\n   - [ ] quoted
   'checkbox inside a list fence after a closing-fence line indented 4 past the item fails'
 checkbox_case deep-closer "$ac_h" $'```\n    ```\n- [ ] Quoted inside a fence.\n```\n' \
   'checkbox inside a fence after a closing-fence line indented 4 columns fails'
+checkbox_case list-closer-3 "$ac_h" $'1. ```text\n   echo one\n      ```\n   - [ ] A criterion after the fence.\n' \
+  'checkbox after a closing-fence line indented exactly 3 past the item passes' 0
+checkbox_case list-fence-blank "$ac_h" $'1. ```text\n\n   - [ ] Quoted after a blank line inside a list-item fence.\n   ```\n' \
+  'checkbox after a blank line inside a list-item fence fails'
+# #191 round 1 F1 inside an item: "2. ```text" continuing the item's paragraph is text too.
+checkbox_case nested-interrupt "$ac_h" $'1. Run:\n   2. ```text\n      - [ ] A criterion under the step.\n' \
+  'checkbox after a 2. ```text line continuing a list item paragraph passes' 0
+checkbox_case zero-interrupt "$ac_h" $'Then:\n0. ```text\n   - [ ] A criterion after the text line.\n' \
+  'checkbox after a 0. ```text line directly after a paragraph line passes' 0
+# #191 round 2: an empty item cannot interrupt a paragraph, and one followed by a blank line
+# ends, so the indented fence after it is not in a list item (as GitHub renders these).
+checkbox_case empty-star-para "$ac_h" $'Then:\n* \n  ```text\n- [ ] quoted\n  ```\n' \
+  'checkbox inside a fence after an empty * item directly after a paragraph line fails'
+checkbox_case empty-one-para "$ac_h" $'Then:\n1. \n   ```text\n- [ ] quoted\n   ```\n' \
+  'checkbox inside a fence after an empty 1. item directly after a paragraph line fails'
+checkbox_case empty-dash-para "$ac_h" $'Then:\n- \n  ```text\n- [ ] quoted\n  ```\n' \
+  'checkbox inside a fence after an empty - item directly after a paragraph line fails'
+checkbox_case empty-dash-blank "$ac_h" $'- \n\n  ```text\n- [ ] quoted\n  ```\n' \
+  'checkbox inside a fence after an empty - item and a blank line fails'
 
 echo "test-check-readiness: $passed cases passed"
