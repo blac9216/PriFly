@@ -625,7 +625,9 @@ checkbox_case comment-bang-item-ends "$ac_h" $'- a\n  <!--\n  --!>\nx\n- [ ] Q1\
   'checkbox after a comment ended by --!> whose - item ended at a text line fails'
 checkbox_case comment-bang-open "$ac_h" $'- a\n  <!-- x --!>\nx\n- [ ] Q1\n' \
   'checkbox after a comment ended by --!> on its opening line whose - item ended fails'
-pr_body bang-item-inline $'1. <!-- x --!>\nx <!--\nRefs #2\nRemainder: r\nClosing issue: #3\n-->\n'
+pr_body bang-item-inline ''
+replace "$fixture_root/pr-bang-item-inline.md" $'Body text for Verified expectation.\n' \
+  $'1. <!-- x --!>\nx <!--\nRefs #2\nRemainder: r\nClosing issue: #3\n-->\n'
 run_case 'PR: a Refs line after an item comment ended by --!> and an inline <!-- is not counted as present' 1 \
   'MISSING: a Closes #<N> line or a Refs #<N> line present' \
   --root "$root" --body "$fixture_root/pr-bang-item-inline.md" "${pr[@]}"
