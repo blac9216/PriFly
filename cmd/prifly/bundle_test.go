@@ -844,9 +844,37 @@ func printableASCII(t *testing.T, what, s string) {
 	}
 }
 
-// formatVerbs returns the fmt verbs of format in order, "%%" skipped, and
+// formatVerb is one fmt directive read out of a format string: the verb byte,
+// and whether the directive carried the sharp flag, which changes what some
+// verbs render.
+type formatVerb struct {
+	verb  byte
+	sharp bool
+}
+
+// quotes reports whether the directive renders its argument the way
+// strconv.Quote does: quoted, with printable non-ASCII left raw. The q verb is
+// that call. So is a sharp-flagged v, which fmt renders as a Go-syntax
+// representation — on a string that is strconv.Quote, byte for byte what %q
+// produces on the same value, homoglyph intact, and on a slice of strings it is
+// a composite literal with the raw runes inside.
+//
+// Reading only the verb byte is what let a sharp-flagged v walk both controls
+// green, so this asks what the directive renders and not how it is spelled.
+func (v formatVerb) quotes() bool { return v.verb == 'q' || (v.verb == 'v' && v.sharp) }
+
+// String writes the directive back the way a reader will find it in the source,
+// so a failure names the spelling to look for rather than a bare verb byte.
+func (v formatVerb) String() string {
+	if v.sharp {
+		return "%#" + string(v.verb)
+	}
+	return "%" + string(v.verb)
+}
+
+// formatVerbs returns the fmt directives of format in order, "%%" skipped, and
 // whether every directive it read maps to a runtime argument at a position a
-// caller can compute by counting verbs.
+// caller can compute by counting them.
 //
 // mappable is false for fmt syntax that breaks that counting: an explicit
 // argument index ("%[1]q") names its argument outright, and a star width or
@@ -856,15 +884,25 @@ func printableASCII(t *testing.T, what, s string) {
 // examine — reporting it — rather than as one that holds no verb of interest:
 // before this returned mappable, "%[1]q" yielded the verb "[", never reached
 // the q test, and rendered text through strconv.Quote with the suite green.
-func formatVerbs(format string) (verbs []byte, mappable bool) {
+//
+// Flags are read rather than skipped over, because one of them decides what the
+// directive renders: the sharp flag is recorded wherever it appears among them,
+// so a directive written with the flags in either order, or with a width
+// between them and the verb, reports the same thing.
+func formatVerbs(format string) (verbs []formatVerb, mappable bool) {
 	mappable = true
 	for i := 0; i < len(format); i++ {
 		if format[i] != '%' {
 			continue
 		}
 		i++
+		sharp := false
 		for ; i < len(format); i++ {
 			c := format[i]
+			if c == '#' { // the Go-syntax flag, "%#v"
+				sharp = true
+				continue
+			}
 			if c == '[' { // an explicit argument index, "%[1]q"
 				mappable = false
 				j := strings.IndexByte(format[i:], ']')
@@ -878,7 +916,7 @@ func formatVerbs(format string) (verbs []byte, mappable bool) {
 				mappable = false
 				continue
 			}
-			if !strings.ContainsRune("+-# 0123456789.", rune(c)) {
+			if !strings.ContainsRune("+- 0123456789.", rune(c)) {
 				break
 			}
 		}
@@ -886,10 +924,83 @@ func formatVerbs(format string) (verbs []byte, mappable bool) {
 			return verbs, false // a trailing "%" begins a directive that never ends
 		}
 		if format[i] != '%' {
-			verbs = append(verbs, format[i])
+			verbs = append(verbs, formatVerb{format[i], sharp})
 		}
 	}
 	return verbs, mappable
+}
+
+// fileImports maps each name f binds an import to onto that import's path, and
+// returns the paths of any dot import separately. It is how the strconv rule in
+// both controls decides from the package a call resolves to rather than from
+// the identifier it is written with: an import under an alias makes that
+// identifier anything its author likes while strconv.Quote still runs.
+//
+// A dot import binds no name, so a call through one is spelled as a bare
+// identifier that neither control can resolve without type information. Both
+// report the file rather than guess, which is also why this returns those paths
+// instead of dropping them.
+//
+// An import with no name is taken to bind the last element of its path. That is
+// the package name for every import either package has, and for a package whose
+// name differs from its directory it can only bind a name this rule then does
+// not recognise as strconv — never the other way round, since strconv's package
+// name is its path.
+func fileImports(f *ast.File) (byName map[string]string, dotted []string) {
+	byName = map[string]string{}
+	for _, imp := range f.Imports {
+		path, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			continue
+		}
+		switch {
+		case imp.Name == nil:
+			byName[path[strings.LastIndexByte(path, '/')+1:]] = path
+		case imp.Name.Name == ".":
+			dotted = append(dotted, path)
+		case imp.Name.Name == "_": // imported for its side effects; nothing to call
+		default:
+			byName[imp.Name.Name] = path
+		}
+	}
+	return byName, dotted
+}
+
+// quotesRaw reports whether the function named sel of the package at path
+// leaves printable non-ASCII raw: a strconv quoting call that is not one of the
+// ToASCII ones. path is the resolved import path, so an alias changes nothing.
+func quotesRaw(path, sel string) bool {
+	return path == "strconv" && !strings.HasSuffix(sel, "ToASCII") &&
+		(strings.HasPrefix(sel, "Quote") || strings.HasPrefix(sel, "AppendQuote"))
+}
+
+// asWritten names a quoting call the way its file writes it, adding what it
+// resolves to when the two differ, so an aliased import is reported as both.
+func asWritten(name, sel string) string {
+	if name == "strconv" {
+		return "strconv." + sel
+	}
+	return name + "." + sel + " (strconv." + sel + ", imported as " + name + ")"
+}
+
+// reportImportHazards fails on the two import shapes that would leave the rule
+// above reading a name that is not what it says. A dot import removes the
+// selector the rule reads, leaving a bare identifier neither control can resolve
+// without type information. And anything else bound to the name strconv would
+// make a call that leaks read like the standard library's, and the reverse.
+// Both are stated here rather than left to TestBundleImportsNoNetworkOrProcess,
+// which rejects dot imports for its own reasons, so that each control closes its
+// own rule.
+func reportImportHazards(t *testing.T, fset *token.FileSet, f *ast.File, byName map[string]string, dotted []string) {
+	t.Helper()
+	for _, path := range dotted {
+		t.Errorf("%s: dot-imports %q, so a call into it is a bare identifier this control cannot resolve to "+
+			"its package; import it under a name", fset.Position(f.Pos()), path)
+	}
+	if path, bound := byName["strconv"]; bound && path != "strconv" {
+		t.Errorf("%s: imports %q under the name strconv, so a quoting call through it would read as the standard "+
+			"library's; import it under another name", fset.Position(f.Pos()), path)
+	}
 }
 
 // declaredNames returns the positions, by name, of every identifier f declares:
@@ -1000,8 +1111,19 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 
 	for _, file := range slices.Sorted(maps.Keys(parsedFiles)) {
 		f := parsedFiles[file]
-		schemaOnly := map[*ast.BasicLit]bool{} // formats whose every %q renders Schema
+		imports, dotted := fileImports(f)
+		reportImportHazards(t, fset, f, imports, dotted)
+		schemaOnly := map[*ast.BasicLit]bool{} // formats whose every quoting directive renders Schema
 		ast.Inspect(f, func(n ast.Node) bool {
+			// Every selector, not only one in call position: a quoting call
+			// bound to a name and called through it (q := strconv.Quote; q(s))
+			// is this selector too, so reading them all covers that form.
+			if sel, ok := n.(*ast.SelectorExpr); ok {
+				if x, isName := sel.X.(*ast.Ident); isName && quotesRaw(imports[x.Name], sel.Sel.Name) {
+					t.Errorf("%s: %s leaves printable non-ASCII raw; bundle text is rendered by Quote or Member",
+						fset.Position(sel.Pos()), asWritten(x.Name, sel.Sel.Name))
+				}
+			}
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
@@ -1012,10 +1134,6 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 			s, ok := call.Fun.(*ast.SelectorExpr)
 			if !ok {
 				return true
-			}
-			if x, isName := s.X.(*ast.Ident); isName && x.Name == "strconv" && !strings.HasSuffix(s.Sel.Name, "ToASCII") &&
-				(strings.HasPrefix(s.Sel.Name, "Quote") || strings.HasPrefix(s.Sel.Name, "AppendQuote")) {
-				t.Errorf("%s: strconv.%s leaves printable non-ASCII raw; bundle text is rendered by Quote or Member", fset.Position(s.Pos()), s.Sel.Name)
 			}
 			// checker.add is add(path, code, format string, args ...any).
 			if s.Sel.Name != "add" || len(call.Args) < 3 {
@@ -1032,7 +1150,7 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 			verbs, mappable := formatVerbs(format)
 			only := mappable && schemaIsTheConstant
 			for k, verb := range verbs {
-				if verb != 'q' {
+				if !verb.quotes() {
 					continue
 				} else if 3+k >= len(call.Args) {
 					only = false
@@ -1056,11 +1174,14 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 			verbs, mappable := formatVerbs(s)
 			if !mappable {
 				t.Errorf("%s: format %q uses fmt syntax this control cannot map to its arguments (an explicit "+
-					"argument index or a star width or precision), so a %%q in it would go unseen; write it plainly",
-					fset.Position(lit.Pos()), s)
+					"argument index or a star width or precision), so a quoting directive in it would go unseen; "+
+					"write it plainly", fset.Position(lit.Pos()), s)
 			}
-			if slices.Contains(verbs, 'q') {
-				t.Errorf("%s: %%q is strconv.Quote and leaves printable non-ASCII raw; render bundle text with Quote or Member", fset.Position(lit.Pos()))
+			for _, verb := range verbs {
+				if verb.quotes() {
+					t.Errorf("%s: %v renders its argument with strconv.Quote, which leaves printable non-ASCII raw; "+
+						"render bundle text with Quote or Member", fset.Position(lit.Pos()), verb)
+				}
 			}
 			return true
 		})
