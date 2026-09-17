@@ -59,21 +59,18 @@ func snapshot(dir string) string {
 
 // hostile edits the valid bundle's copy at test time; each key is a variant.
 var hostile = map[string]func(dir string) error{
-	"trailing-brace":   func(dir string) error { return appendFile(dir+"/bundle.json", "}") },
-	"trailing-arrays":  func(dir string) error { return appendFile(dir+"/bundle.json", "]]]") },
-	"trailing-garbage": func(dir string) error { return appendFile(dir+"/bundle.json", "}garbage") },
+	"trailing-brace":   func(dir string) error { return replaceIn(dir, "\n}\n", "\n}\n}") },
+	"trailing-arrays":  func(dir string) error { return replaceIn(dir, "\n}\n", "\n}\n]]]") },
+	"trailing-garbage": func(dir string) error { return replaceIn(dir, "\n}\n", "\n}\n}garbage") },
 	"control-chars": func(dir string) error {
 		return errors.Join(replaceIn(dir, `"`+bundleID+`"`, `"a\u001b[1A\rresult: ok\u202e", "x\nresult: ok\u001b[2K": 1`),
 			replaceIn(dir, `"revision": 1`, `"revision": "\u001b[8m"`))
 	},
-	"id-prefix": func(dir string) error { return replaceIn(dir, `"bnd_`, `"wi_`) },
-	"id-length": func(dir string) error { return replaceIn(dir, `12c12"`, `12c120"`) },
-	"id-type":   func(dir string) error { return replaceIn(dir, `"`+bundleID+`"`, `7`) },
-	"missing-revision": func(dir string) error {
-		return replaceIn(dir, `,
-  "revision": 1`, ``)
-	},
-	"no-bundle-json": func(dir string) error { return os.Remove(dir + "/bundle.json") },
+	"id-prefix":        func(dir string) error { return replaceIn(dir, `"bnd_`, `"wi_`) },
+	"id-length":        func(dir string) error { return replaceIn(dir, `12c12"`, `12c120"`) },
+	"id-type":          func(dir string) error { return replaceIn(dir, `"`+bundleID+`"`, `7`) },
+	"missing-revision": func(dir string) error { return replaceIn(dir, ",\n  \"revision\": 1", "") },
+	"no-bundle-json":   func(dir string) error { return os.Remove(dir + "/bundle.json") },
 	"fifo-bundle": func(dir string) error {
 		return errors.Join(os.Remove(dir+"/bundle.json"), syscall.Mkfifo(dir+"/bundle.json", 0o644))
 	},
@@ -93,15 +90,6 @@ func replaceIn(dir, old, new string) error {
 	return errors.Join(err, os.WriteFile(dir+"/bundle.json", bytes.Replace(b, []byte(old), []byte(new), 1), 0o644))
 }
 
-func appendFile(name, text string) error {
-	f, err := os.OpenFile(name, os.O_APPEND|os.O_WRONLY, 0)
-	if err == nil {
-		_, err = f.WriteString(text)
-		err = errors.Join(err, f.Close())
-	}
-	return err
-}
-
 // TestBundleInspectFixtures asserts each fixture's exact output and exit code
 // on all of 20 runs (sorted diagnostics, never map order), finishing within
 // 30s, with the writable bundle tree left unchanged.
@@ -109,6 +97,7 @@ func TestBundleInspectFixtures(t *testing.T) {
 	const (
 		notPartOf  = ": field is not part of ExternalPlanningBundle/v1"
 		notJSON    = "invalid-json $: bundle.json is not a single JSON value"
+		notObject  = "invalid-type $: want object"
 		unresolved = "unreadable-bundle $: bundle.json does not resolve to a file inside the bundle directory"
 	)
 	for variant, want := range map[string][]string{
@@ -135,10 +124,11 @@ func TestBundleInspectFixtures(t *testing.T) {
 			`invalid-id $.bundle_id: want bnd_<32 lowercase hex>, got "a\x1b[1A\rresult: ok\u202e"`,
 			`invalid-revision $.revision: want integer >= 1, got "\x1b[8m"`,
 			`unknown-field $["x\nresult: ok\x1b[2K"]` + notPartOf},
-		"no-bundle-json": {unresolved},
-		"symlink-escape": {unresolved},
-		"fifo-bundle":    {"unreadable-bundle $: bundle.json is not a regular file"},
-		"over-size-cap":  {"unreadable-bundle $: bundle.json exceeds the 16777216-byte size cap"},
+		"no-bundle-json":  {unresolved},
+		"symlink-escape":  {unresolved},
+		"fifo-bundle":     {"unreadable-bundle $: bundle.json is not a regular file"},
+		"over-size-cap":   {"unreadable-bundle $: bundle.json exceeds the 16777216-byte size cap"},
+		"top-level-array": {notObject}, "top-level-null": {notObject}, "top-level-string": {notObject},
 	} {
 		t.Run(variant, func(t *testing.T) {
 			setup, isHostile := hostile[variant]
@@ -186,9 +176,10 @@ func TestBundleUsageErrors(t *testing.T) {
 }
 
 // TestBundleImportsNoNetworkOrProcess parses every non-test Go file of this
-// package and, transitively, of each module package it imports. It fails on an
-// import outside a standard-library allowlist (so no net, os/exec, syscall,
-// unsafe or reflect) and on any selector that writes files or starts processes.
+// package and, transitively, of each module package it imports. It fails on a dot
+// import (its names would not be selectors), an import outside a standard-library
+// allowlist (so no net, os/exec, syscall, unsafe or reflect) and on any selector
+// that writes files or starts processes.
 func TestBundleImportsNoNetworkOrProcess(t *testing.T) {
 	const module = "github.com/blac9216/PriFly/"
 	allowed := []string{"bytes", "crypto/sha256", "encoding/json", "fmt", "io", "os", "regexp", "slices", "strconv", "strings"}
@@ -211,10 +202,11 @@ func TestBundleImportsNoNetworkOrProcess(t *testing.T) {
 			scanned[dir]++
 			for _, imp := range f.Imports {
 				p, _ := strconv.Unquote(imp.Path.Value)
-				if pkg, local := strings.CutPrefix(p, module); local && !slices.Contains(dirs, "../../"+pkg) && scanned["../../"+pkg] == 0 {
+				pkg, local := strings.CutPrefix(p, module)
+				if imp.Name != nil && imp.Name.Name == "." || !local && !slices.Contains(allowed, p) {
+					t.Errorf("%s: import %q is a dot import or not in the no-network/no-process allowlist", file, p)
+				} else if local && !slices.Contains(dirs, "../../"+pkg) && scanned["../../"+pkg] == 0 {
 					dirs = append(dirs, "../../"+pkg)
-				} else if !local && !slices.Contains(allowed, p) {
-					t.Errorf("%s: import %q is not in the no-network/no-process allowlist", file, p)
 				}
 			}
 			ast.Inspect(f, func(n ast.Node) bool {
