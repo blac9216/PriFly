@@ -611,10 +611,27 @@ checkbox_case comment-close-reopen "$ac_h" $'<!--\n--> <!--\n-->\n- [ ] Q1\n' \
   'checkbox after a comment reopened on its closing line and a --> paragraph line fails'
 checkbox_case comment-bang "$ac_h" $'<!--\n--!>\n- [ ] Q1\n-->\n' \
   'checkbox-shaped raw text after --!> inside a comment block fails'
+checkbox_case comment-bang-top "$ac_h" $'<!-- x --!>\n- [ ] Q1\n-->\n' \
+  'checkbox-shaped raw text after --!> on the opening line of a comment block fails'
+# A comment block that ends with its list item hides the rest of the body from presence checks even
+# when "--!>" ended its comment, since an HTML block after it can hide what follows (a false FAIL here).
+checkbox_case comment-bang-div "$ac_h" $'- a\n  <!--\n  --!>\n<div>\n- [ ] Q1\n' \
+  'checkbox after a comment ended by --!> whose - item ended at a <div> line fails'
+checkbox_case comment-bang-open-div "$ac_h" $'- <!-- a --!>\n</div>\n- [ ] Q1\n' \
+  'checkbox after a comment ended by --!> on a - item line whose item ended at a </div> line fails'
+checkbox_case comment-bang-open-tag "$ac_h" $'- <!-- x --!>\n<a title="x">\n- [ ] Q1\n' \
+  'checkbox after a comment ended by --!> on a - item line whose item ended at an <a> line fails'
 checkbox_case comment-bang-item-ends "$ac_h" $'- a\n  <!--\n  --!>\nx\n- [ ] Q1\n' \
-  'checkbox after a comment ended by --!> before its - item ended passes' 0
+  'checkbox after a comment ended by --!> whose - item ended at a text line fails'
 checkbox_case comment-bang-open "$ac_h" $'- a\n  <!-- x --!>\nx\n- [ ] Q1\n' \
-  'checkbox after a comment ended by --!> on its opening line before its - item ended passes' 0
+  'checkbox after a comment ended by --!> on its opening line whose - item ended fails'
+pr_body bang-item-inline $'1. <!-- x --!>\nx <!--\nRefs #2\nRemainder: r\nClosing issue: #3\n-->\n'
+run_case 'PR: a Refs line after an item comment ended by --!> and an inline <!-- is not counted as present' 1 \
+  'MISSING: a Closes #<N> line or a Refs #<N> line present' \
+  --root "$root" --body "$fixture_root/pr-bang-item-inline.md" "${pr[@]}"
+pr_body refs-in-comment-later $'Closes #154\n<!--\nx\nRefs #57\n-->\n'
+run_case 'PR: a Refs line below another line inside a closed HTML comment is not checked' 0 \
+  'check-readiness: 2/2 as expected' --root "$root" --body "$fixture_root/pr-refs-in-comment-later.md" "${pr[@]}"
 checkbox_case comment-abrupt "$ac_h" $'<!-->\n- [ ] Q1\n' 'checkbox after an empty <!--> comment passes' 0
 checkbox_case comment-abrupt-dash "$ac_h" $'<!--->\n- [ ] Q1\n' 'checkbox after an empty <!---> comment passes' 0
 # A comment opened in a quote ends with the quote.
@@ -630,6 +647,8 @@ checkbox_case quote-comment-indented "$ac_h" $'>   <!--\n> -->\n- [ ] Q1\n' \
   'checkbox after an indented comment closed less indented in its quote passes' 0
 checkbox_case quote-comment-code "$ac_h" $'>     <!--\n- [ ] Q1\n' \
   'checkbox after a quote holding <!-- as indented code passes' 0
+checkbox_case quote-comment-3col "$ac_h" $'>    <!--\n- [ ] Q1\n' \
+  'checkbox after a comment 3 columns into its quote that ended before its --> fails'
 checkbox_case quote-item-comment "$ac_h" $'> - <!--\n>\n>   -->\n- [ ] Q1\n' \
   'checkbox after a comment closed inside its quoted - item passes' 0
 checkbox_case quote-item-comment-ends "$ac_h" $'> -    <!--\n> -->\n- [ ] Q1\n' \
@@ -644,8 +663,12 @@ checkbox_case item-quote-comment-text "$ac_h" $'- > <!--\n  x\n  > -->\n- [ ] Q1
   'checkbox after a comment in a quote on a - item line that ended at a line of the item fails'
 checkbox_case item-wide-quote-comment "$ac_h" $'-   > <!--\n    > -->\n- [ ] Q1\n' \
   'checkbox after a comment closed in a quote 4 columns into its - item passes' 0
+checkbox_case item-quote-comment-nested "$ac_h" $'- - > <!--\n  > -->\n- [ ] Q1\n' \
+  'checkbox after a comment in a quote on a nested - item line that ended before its --> fails'
 checkbox_case below-item-quote-comment-ends "$ac_h" $'- a\n  > <!--\n> -->\n- [ ] Q1\n' \
   'checkbox after a comment in a quote below a - item that ended before its --> fails'
+checkbox_case below-nested-item-quote-comment "$ac_h" $'- a\n  - b\n    > <!--\n  > -->\n- [ ] Q1\n' \
+  'checkbox after a comment in a quote below a nested - item that ended before its --> fails'
 checkbox_case quote-then-item-comment "$ac_h" $'> <!--\n> -->\n- a\n  <!--\n  -->\n- [ ] Q1\n' \
   'checkbox after a closed quoted comment and a comment closed inside its - item passes' 0
 checkbox_case quote-comment-reopen "$ac_h" $'> <!-- a --> <!--\n> -->\n- [ ] Q1\n' \

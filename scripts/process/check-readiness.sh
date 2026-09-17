@@ -163,17 +163,24 @@ if missing_anchors:
 # parses the HTML, where a comment ends at the first "-->" or "--!>" and a "<!--" after that on a
 # line of the block opens another. A comment still open when its block ends hides every later line
 # up to the next "-->" or "--!>" GitHub emits as raw HTML, which is not modelled. Every check that
-# looks for something present reads such a comment as hiding the rest of the body, and the raw text
-# after a "--!>" in a block as hidden (fail closed): the heading check reports a later heading
-# GitHub renders as missing, and the checkbox check and the "Closes #<N> or Refs #<N> line present"
-# check do not count a later checkbox, Closes or Refs line GitHub renders (false FAILs). The Refs
-# form checks read every Refs line with that comment ending where its block ends, and the lines
-# after a "--!>" in a block, a superset of the lines GitHub renders, so a Refs line GitHub hides
-# after it is still checked (a possible false FAIL); the closing-keyword search reads the raw body.
-# Not modelled: the columns of list items inside a quote, apart from the content column that ends a
-# comment opened in one (a fence opened in one reads as indented code, so a line indented 4 or more
-# columns after the quote can read as paragraph text, which is never a checkbox), HTML blocks other
-# than comments, and setext headings or headings inside list items counting as "## " headings.
+# looks for something present reads such a comment as hiding the rest of the body, and reads a comment
+# block its list item or quote ends that way even when a "--!>" already ended the comment, since an HTML
+# block other than a comment after it can still hide what follows; it also reads the raw text after
+# a "--!>" in a block as hidden (fail closed): the heading check reports a later heading GitHub
+# renders as missing, and the checkbox check and the "Closes #<N> or Refs #<N> line present" check
+# do not count a later checkbox, Closes or Refs line GitHub renders (false FAILs). The Refs form
+# checks read every Refs line with a comment ending where its block ends, and the lines after a
+# "--!>" in a block, so a Refs line GitHub hides after it is still checked (a possible false FAIL);
+# the closing-keyword search reads the raw body. A "<!--" inside a tag's attribute value is read as
+# opening a comment, so a Refs line GitHub renders after it can go unchecked (a false PASS).
+# Not modelled: the columns of list items inside a quote, apart from the content column of the item
+# on whose line a comment opens, which ends that comment's block. A comment opened below the line of
+# a list item inside its quote reads as opened at the quote's column 0 and runs on over "> " lines,
+# although GitHub ends it at a less indented one, so a checkbox GitHub hides after it can count (a
+# false PASS). A fence opened in a quoted item reads as indented code, so a line indented 4 or more
+# columns after the quote can read as paragraph text, which is never a checkbox. Also not modelled:
+# HTML blocks other than comments, and setext headings or headings inside list items counting as
+# "## " headings.
 MARKER_RE = re.compile(r'(?:[-*+]|(\d{1,9})[.)])(?:[ \t]+|$)')
 FENCE_OPEN_RE = re.compile(r'(`{3,}|~{3,})(.*)$')
 FENCE_CLOSE_RE = re.compile(r'^(`{3,}|~{3,})\s*$')
@@ -288,10 +295,11 @@ def clean_numbered(text, para=None, fail_closed=True):
         if in_comment:
             # a line that ends the container a comment opened in ends the comment block; if the HTML
             # comment is still open, GitHub hides every line up to the next "-->" or "--!>" it emits as
-            # raw HTML. Which one that is, is not modelled, so fail closed runs the comment to the end
+            # raw HTML, and if not, an HTML block after the comment can still hide them. Neither is
+            # modelled, so fail closed runs the comment to the end
             left = bool(stripped) and indent < comment_col or quote_left(line[comment_col:], comment_quote)
-            gone = gone or left and hidden
-            if not (gone or left):
+            gone = gone or left
+            if not gone:
                 if not (fail_closed or hidden):  # raw HTML text after a "--!>"
                     out.append((i, raw))
                 hidden = comment_open(line, hidden)
