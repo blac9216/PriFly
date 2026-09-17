@@ -636,6 +636,8 @@ run_case 'PR: a Refs line below another line inside a closed HTML comment is not
   'check-readiness: 2/2 as expected' --root "$root" --body "$fixture_root/pr-refs-in-comment-later.md" "${pr[@]}"
 checkbox_case comment-abrupt "$ac_h" $'<!-->\n- [ ] Q1\n' 'checkbox after an empty <!--> comment passes' 0
 checkbox_case comment-abrupt-dash "$ac_h" $'<!--->\n- [ ] Q1\n' 'checkbox after an empty <!---> comment passes' 0
+checkbox_case comment-reopen-bang-open "$ac_h" $'<!-- a --> <!--!>\n\n- [ ] Q1\n' \
+  'checkbox after a comment reopened as <!--!>, which --!> does not end, fails'
 # A comment opened in a quote ends with the quote.
 checkbox_case quote-comment-ends "$ac_h" $'><!--\n  - [ ] Q1\n> 2. a\n' \
   'checkbox after a comment whose quote ended before its --> fails'
@@ -665,6 +667,8 @@ checkbox_case item-quote-comment-text "$ac_h" $'- > <!--\n  x\n  > -->\n- [ ] Q1
   'checkbox after a comment in a quote on a - item line that ended at a line of the item fails'
 checkbox_case item-wide-quote-comment "$ac_h" $'-   > <!--\n    > -->\n- [ ] Q1\n' \
   'checkbox after a comment closed in a quote 4 columns into its - item passes' 0
+checkbox_case item-quote-comment-code-line "$ac_h" $'- > <!--\n      > -->\n- [ ] Q1\n' \
+  'checkbox after a comment in a quote on a - item line that ended at a line indented 4 columns past the item fails'
 checkbox_case item-quote-comment-nested "$ac_h" $'- - > <!--\n  > -->\n- [ ] Q1\n' \
   'checkbox after a comment in a quote on a nested - item line that ended before its --> fails'
 checkbox_case below-item-quote-comment-ends "$ac_h" $'- a\n  > <!--\n> -->\n- [ ] Q1\n' \
