@@ -143,8 +143,8 @@ func (c *checker) ident(m map[string]any, p, prefix string) identity {
 // file's exact bytes, read through ReadRegular, with the declared digest, and
 // returns the artifact's identity and its references' identities; a WorkItem/v1
 // entry is added to w with the body read from its bytes, every entry's schema
-// and ID are added to w, and ExecutionEnvelope/v1 and QualityEvaluation/v1
-// content is checked.
+// and ID, and each first ExecutionEnvelope/v1 ID, are added to w, and
+// ExecutionEnvelope/v1 and QualityEvaluation/v1 content is checked.
 func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self identity, refs []identity) {
 	m := c.object(a, p, Schema, "id", "revision", "schema", "path", "sha256", "refs")
 	schema, isString := c.str(m, p, "schema")
@@ -158,9 +158,13 @@ func (c *checker) artifact(root *os.Root, p string, a any, w *workItems) (self i
 		refs = append(refs, c.ident(c.object(r, rp, Schema, "id", "revision", "sha256"), rp, ""))
 	}
 	isItem, b := schema == "WorkItem/v1", -1
+	if schema == "ExecutionEnvelope/v1" && self.id != "" && !w.schemaIDs[schema+" "+self.id] {
+		w.envelopes = append(w.envelopes, self)
+	}
 	if self.id != "" {
 		w.schemaIDs[schema+" "+self.id] = true
 	}
+	w.unknown = w.unknown || !supported
 	defer func() { // an unreadable Work Item is still an entry, with no body
 		if isItem {
 			w.items = append(w.items, workItem{p, self.id, b})

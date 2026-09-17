@@ -2,8 +2,8 @@
 // from each WorkItem/v1 artifact's bytes, and the dependency graph over them (C1
 // "acyclic dependencies"; "SLICE or justified ENABLER with named consumers";
 // "explicit dependency conditions"; "coverage of all outcomes"; "finite
-// envelopes"). Only these fields are read; structural validation of the rest is
-// #181.
+// envelopes"), and one Work Item per execution envelope. Only these fields are
+// read; structural validation of the rest is #181.
 
 package bundle
 
@@ -43,11 +43,12 @@ var resolves = map[string][2]string{"outcomes": {"Baseline/v1", "unresolved-base
 // body is the references read from one distinct content, reported at path, the
 // first Work Item entry naming those bytes; slice is whether its kind is SLICE;
 // next is the position in deps of the first dependency left after removal,
-// found once for every walk.
+// found once for every walk; envelope is the valid execution_envelope ID, and
+// known is false when the content or that field is unreadable or invalid.
 type body struct {
-	path                   string
+	path, envelope         string
 	deps, users, artifacts []edge
-	slice                  bool
+	slice, known           bool
 	next                   int
 }
 
@@ -58,15 +59,19 @@ type workItem struct {
 	body     int
 }
 
-// workItems holds the Work Item entries and the bodies they name, and the
-// schema and ID of every artifact entry. Content is parsed once per schema and
-// SHA-256 of exact bytes: entries sharing bytes share their references and
-// diagnostics, so memory is linear in the bundle's bytes, not entries × bytes.
+// workItems holds the Work Item entries and the bodies they name, the schema
+// and ID of every artifact entry, the first ExecutionEnvelope/v1 entry of each
+// ID, and whether an entry of unsupported schema, which may be a Work Item,
+// exists. Content is parsed once per schema and SHA-256 of exact bytes: entries
+// sharing bytes share their references and diagnostics, so memory is linear in
+// the bundle's bytes, not entries × bytes.
 type workItems struct {
 	items     []workItem
 	bodies    []body
 	digest    map[string]int
 	schemaIDs map[string]bool // schema + " " + ID
+	envelopes []identity
+	unknown   bool
 }
 
 // read checks content of schema, whose SHA-256 is digest, at the entry path p
@@ -98,6 +103,7 @@ func (c *checker) body(p string, content []byte) body {
 	if m == nil {
 		return b
 	}
+	b.known = true
 	for _, key := range []string{"kind", "dependencies"} {
 		if _, present := m[key]; !present {
 			c.add(cp+"."+key, "missing-field", "required field is absent")
@@ -138,7 +144,8 @@ func (c *checker) body(p string, content []byte) body {
 	if _, present := m["execution_envelope"]; !present {
 		c.add(cp+".execution_envelope", "unbound-work-item", "Work Item names no ExecutionEnvelope/v1 artifact")
 	} else {
-		b.artifacts = append(b.artifacts, edge{"execution_envelope", 0, c.idValue(m["execution_envelope"], cp+".execution_envelope", "xen")})
+		b.envelope = c.idValue(m["execution_envelope"], cp+".execution_envelope", "xen")
+		b.artifacts, b.known = append(b.artifacts, edge{"execution_envelope", 0, b.envelope}), b.envelope != ""
 	}
 	b.slice = m["kind"] == "SLICE"
 	switch kind, present := m["kind"]; {
@@ -158,8 +165,9 @@ func (c *checker) body(p string, content []byte) body {
 
 // graph rejects a dependency or consumer naming no Work Item in the bundle, a
 // consumer naming a Work Item whose content is read but is not a SLICE, and an
-// outcome or execution_envelope naming no entry of its schema, and it
-// names one cycle per disjoint walk of the dependencies left after removing,
+// outcome or execution_envelope naming no entry of its schema, and an
+// ExecutionEnvelope/v1 artifact named by several Work Item entries or by none;
+// it names one cycle per disjoint walk of the dependencies left after removing,
 // iteratively, every Work Item whose dependencies are all removed (Kahn). A
 // body is a node every entry naming it depends on, so shared bytes' edges are
 // held once. Time and memory are linear in the Work Items, bodies and body
@@ -194,6 +202,33 @@ func (c *checker) graph(w workItems) {
 			if r := resolves[e.list]; e.id != "" && !w.schemaIDs[r[0]+" "+e.id] {
 				c.add(e.path(body.path), r[1], "no %s artifact in this bundle has ID %s", r[0], Quote(e.id))
 			}
+		}
+	}
+	// One envelope binds one Work Item (#291 ruling). An entry repeating an earlier
+	// Work Item ID, or naming an invalid or unresolved ID, is not counted; while a
+	// Work Item's binding is unknown, no envelope is reported unnamed.
+	named, unknown, counted := map[string]int{}, w.unknown, make([]bool, n)
+	for i, it := range items {
+		if it.body < 0 || !w.bodies[it.body].known {
+			unknown = true
+		} else if e := w.bodies[it.body].envelope; e != "" && w.schemaIDs["ExecutionEnvelope/v1 "+e] {
+			first, seen := index[it.id]
+			if counted[i] = !seen || first == i; counted[i] {
+				named[e]++
+			} else if _, found := named[e]; !found {
+				named[e] = 0
+			}
+		}
+	}
+	for i, it := range items {
+		if counted[i] && named[w.bodies[it.body].envelope] > 1 {
+			e := w.bodies[it.body].envelope
+			c.add(it.path+".content.execution_envelope", "shared-envelope", "ExecutionEnvelope/v1 artifact %s is named by %d Work Items", Quote(e), named[e])
+		}
+	}
+	for _, e := range w.envelopes {
+		if _, found := named[e.id]; !found && !unknown {
+			c.add(e.path+".id", "orphan-envelope", "no Work Item in this bundle names this ExecutionEnvelope/v1 artifact")
 		}
 	}
 	queue := []int{}

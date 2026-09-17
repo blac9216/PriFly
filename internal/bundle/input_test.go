@@ -233,11 +233,11 @@ func TestFaultsMemory(t *testing.T) {
 func TestGraphMemory(t *testing.T) {
 	wi := func(i int) string { return fmt.Sprintf(`{"work_item": "wi_%032x", "condition": "c"}`, i) }
 	perItem := func(n int, shared bool) uint64 {
-		contents, keys, want := make([][]byte, n), make([]string, n), 1
+		contents, keys, want := make([][]byte, n), make([]string, n), n+1 // each Work Item is reported naming the shared envelope
 		for i := range contents {
 			deps := []string{wi((i + 1) % n)}
 			if keys[i] = fmt.Sprint(i); shared {
-				deps, keys[i], want = []string{}, "shared", n+1
+				deps, keys[i], want = []string{}, "shared", 2*n+1
 				for j := range 2 * n {
 					deps = append(deps, wi(j))
 				}
