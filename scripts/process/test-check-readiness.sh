@@ -483,6 +483,16 @@ checkbox_case quote-tab-code "$ac_h" $'>\t  x\n    - [ ] Q1\n' \
   'checkbox in indented code after a quote tab and 2 spaces of indented code fails'
 checkbox_case quote-item-setext "$ac_h" $'> - a\n===\n2. ```text\n   - [ ] quoted\n   ```\n' \
   'checkbox inside a fence on a 2. item after a lazy === line continuing a list item in a quote fails'
+checkbox_case quote-item-fence "$ac_h" $'> - ```\n> x\n    - [ ] Q1\n' \
+  'checkbox in indented code after a fence opened on a quoted list item line fails'
+checkbox_case quote-item-unblock "$ac_h" $'> - ```\n> text\n===\n2. ```text\n   - [ ] quoted\n   ```\n' \
+  'checkbox inside a fence on a 2. item after a line following a fence opened on a quoted list item fails'
+checkbox_case quote-nested-reopen "$ac_h" $'> > ```\n> ```\n> x\n    - [ ] Q1\n' \
+  'checkbox in indented code after a quoted fence reopened when a nested quoted fence ends fails'
+checkbox_case quote-nested-lazy "$ac_h" $'- a\n  > > text\nlazy\n  ```text\n- [ ] A criterion after the item ends.\n  ```\n' \
+  'checkbox after a lazy line continuing a nested quote paragraph in a list item passes' 0
+checkbox_case item-quote-para "$ac_h" $'- > text\n  2. ```text\n     - [ ] quoted\n     ```\n' \
+  'checkbox inside a fence on a 2. item after a quote opened on a list item line fails'
 checkbox_case quote-item-code "$ac_h" $'> -      code\n    - [ ] Q1\n' \
   'checkbox in indented code after a quoted list item holding indented code fails'
 checkbox_case quote-nested-para "$ac_h" $'> > ```\n> > ```\n> text\n===\n2. ```text\n   - [ ] quoted\n   ```\n' \

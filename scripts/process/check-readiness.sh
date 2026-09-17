@@ -197,7 +197,7 @@ def quote_open(s):
     rest = c0[m.end():] if m else c0
     code = len(content) - len(c0) > 3 or bool(m and rest and m.group(0).endswith('     '))
     f = not code and fence_at(rest, 0)
-    return ((f.group(1), depth) if f else None), not code and rest != '' and not starts_block(rest)
+    return ((f.group(1), depth, bool(m)) if f else None), not code and rest != '' and not starts_block(rest)
 
 def clean_numbered(text):
     # (index, line) for lines outside HTML comments and fenced or indented code, in document
@@ -207,7 +207,8 @@ def clean_numbered(text):
     fence_char, fence_len, fence_col = None, 0, 0
     items, in_para, para_depth = [], False, 0  # content columns of the open list items
     empty_item = False  # the previous line opened an item with no content
-    quote_fence = None  # (opening run, quote depth) of a fence open inside a "> " quote
+    quote_fence = None  # (opening run, quote depth, opened on a list item) of a fence in a quote
+    item_quote = False  # the previous line was a "> " line in a fence opened on a quoted list item
     for i, raw in enumerate(text.splitlines()):
         line = raw.expandtabs(4)
         stripped = line.strip()
@@ -218,6 +219,7 @@ def clean_numbered(text):
             continue
         was_empty, empty_item = empty_item, False
         was_quoted, quote_fence = quote_fence, None
+        after_item_quote, item_quote = item_quote, False
         if fence_char is not None and stripped and indent < fence_col:
             fence_char = None
         if fence_char is not None:
@@ -261,6 +263,7 @@ def clean_numbered(text):
                     c = len(content) - len(content.lstrip(' ')) < 4 and FENCE_CLOSE_RE.match(content.lstrip(' '))
                     closes = c and c.group(1)[0] == was_quoted[0][0] and len(c.group(1)) >= len(was_quoted[0])
                     quote_fence, in_para = None if closes else was_quoted, False
+                    item_quote = was_quoted[2]  # the item's columns are not modelled
                 else:
                     (quote_fence, in_para), para_depth = quote_open(stripped), -1
             else:
@@ -289,8 +292,8 @@ def clean_numbered(text):
                     in_para, raw = False, raw.lstrip(' ')
                 elif HEADING_RE.match(line, pos) or BREAK_RE.match(stripped) or empty_item:
                     in_para = False
-                elif not in_para or pos > indent:
-                    in_para, para_depth = True, len(items)
+                elif not in_para or pos > indent:  # it may continue a quoted item's paragraph
+                    in_para, para_depth = True, (-1 if after_item_quote else len(items))
         out.append((i, raw))
     return out
 
