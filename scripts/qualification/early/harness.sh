@@ -12,7 +12,8 @@
 # left to R01-R05/Q03, and not certified by a Q12 PASS: E1 terminal-to-process mapping and
 # native identity; E4 HerdR disconnect/restart with observer attach, late-result rejection,
 # no native resume, and unresolved cleanup holding the next lease.
-# Usage: harness.sh --manifest FILE --launcher EXE --herdr-socket PATH --work DIR --observe-ms N [--dry-run]
+# Usage: harness.sh --manifest FILE --launcher EXE --herdr-socket PATH --work DIR --observe-ms N
+#        --step-deadline-ms D [--dry-run]
 # Launcher contract (argv; stdout's last line as noted; a non-zero exit aborts the run):
 #   launch HARNESS VERSION RUN WORKSPACE  start one interactive session in its own attempt
 #   probe RUN engine|herdr|other-workspace PATH  try that access from inside the attempt; print denied|allowed
@@ -21,7 +22,10 @@
 #                   lines to WORKSPACE/sentinel
 #   stop RUN        cancel the attempt; return only after the launcher's own stop verification
 #   inventory RUN   print the count of attempt-owned processes and containers still live
-#   (in abort cleanup, stop and inventory inherit INT/TERM/HUP ignored from the runner)
+# Every call, the abort cleanup's stop and inventory included, runs as timeout -k D D: TERM at
+# D ms, KILL D ms later, so one call ends within 2D. D has no default; the trace header
+# records it before the first call. timeout leads its own process group, so a group signal
+# to the runner (a terminal Ctrl-C or hangup) never reaches the launcher.
 # Raw control targets are the manifest's outer engine socket and the private HerdR server
 # socket (--herdr-socket; the manifest does not name it); the other workspace is a sibling
 # directory this runner creates under --work, whose resolved path must lie inside the
@@ -29,21 +33,22 @@
 # later is a writer that outlived stop. A warm-up that does not see every writer twice
 # within 5s prints WARM-UP TIMEOUT and continues; result.go then rejects the unseen cadence.
 # Exit: result.go's code (0, 1, 2); 20 refused before any step (usage, --observe-ms outside
-# 0..999999 or with a leading zero, preflight non-zero, --work outside the root); 21 aborted
-# with no verdict after launch began: a step failed, an attempt wrote an unparseable
-# sentinel line, or INT/TERM/HUP arrived. On 21 an open run gets stop and inventory first;
-# the cleanup ignores further INT/TERM/HUP (its launcher inherits that), so a repeated
-# Ctrl-C cannot cut it short. --observe-ms digits are ASCII only, whatever the locale.
+# 0..999999 or with a leading zero, --step-deadline-ms missing, outside 1..99999999 or with a
+# leading zero, preflight non-zero, --work outside the root); 21 aborted with no verdict
+# after launch began: a step failed or passed its deadline (exit 124, or 137 once killed),
+# an attempt wrote an unparseable sentinel line, or INT/TERM/HUP arrived. On 21 an open run gets stop and inventory first;
+# the cleanup ignores further INT/TERM/HUP, so a repeated Ctrl-C cannot cut it short. Both
+# numbers' digits are ASCII only, whatever the locale.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MANIFEST="" LAUNCHER="" HERDR="" WORK="" OBSERVE="" DRY=0
+MANIFEST="" LAUNCHER="" HERDR="" WORK="" OBSERVE="" DEADLINE="" DRY=0
 refuse() { echo "REFUSED: $*; no probe step ran"; exit 20; }
 while (($#)); do
   case "$1" in
-    --manifest|--launcher|--herdr-socket|--work|--observe-ms)
+    --manifest|--launcher|--herdr-socket|--work|--observe-ms|--step-deadline-ms)
       [[ $# -ge 2 ]] || refuse "$1 requires a value"
-      case "$1" in --manifest) MANIFEST="$2" ;; --launcher) LAUNCHER="$2" ;; --herdr-socket) HERDR="$2" ;; --work) WORK="$2" ;; *) OBSERVE="$2" ;; esac
+      case "$1" in --manifest) MANIFEST="$2" ;; --launcher) LAUNCHER="$2" ;; --herdr-socket) HERDR="$2" ;; --work) WORK="$2" ;; --observe-ms) OBSERVE="$2" ;; *) DEADLINE="$2" ;; esac
       shift 2 ;;
     --dry-run) DRY=1; shift ;;
     *) refuse "unknown argument $1" ;;
@@ -51,10 +56,12 @@ while (($#)); do
 done
 [[ -n "$MANIFEST" && -n "$LAUNCHER" && -n "$HERDR" && -n "$WORK" ]] || refuse "--manifest, --launcher, --herdr-socket and --work are required"
 [[ "$OBSERVE" =~ ^(0|[123456789][0123456789]{0,5})$ ]] || refuse "--observe-ms must be 0..999999 without a leading zero"
+[[ "$DEADLINE" =~ ^[123456789][0123456789]{0,7}$ ]] || refuse "--step-deadline-ms must be 1..99999999 without a leading zero"
 if bash "$SCRIPT_DIR/preflight.sh" --manifest "$MANIFEST"; then :; else refuse "preflight exit $?"; fi
 
 now() { echo $(($(date +%s%N) / 1000000)); }
-step() { echo "STEP $*" >&2; ((DRY)) || "$LAUNCHER" "$@"; }
+D="$((DEADLINE / 1000)).$(printf %03d $((DEADLINE % 1000)))"
+step() { echo "STEP $*" >&2; ((DRY)) || timeout -k "$D" "$D" "$LAUNCHER" "$@"; }
 mapfile -t TUPLES < <(python3 -c 'import json,sys
 m = json.load(open(sys.argv[1]))
 print(m["isolated_host"]["engine_socket_path"]); print(m["isolated_host"]["workspace_root_path"])
@@ -65,12 +72,12 @@ mkdir -p "$WORK/other-workspace"
 OPEN=""
 finish() {  # every exit after this point except exec and 0: stop and inventory the open run
   local rc=$?; trap '' INT TERM HUP; trap - EXIT; ((rc == 0)) && exit 0
-  set +e; [[ -z "$OPEN" ]] || ((DRY)) || echo "ABORTED: open run stop exit $("$LAUNCHER" stop "$OPEN" >&2; echo $?), live $("$LAUNCHER" inventory "$OPEN" | tail -n1)"
+  set +e; [[ -z "$OPEN" ]] || ((DRY)) || echo "ABORTED: open run stop exit $(step stop "$OPEN" >&2; echo $?), live $(step inventory "$OPEN" | tail -n1)"
   echo "ABORTED: exit $rc after launch began; no verdict"; exit 21
 }
 trap finish EXIT; trap 'exit 143' INT TERM HUP
 TRACE="$WORK/trace.jsonl"
-printf '{"ev":"trace","schema":"prifly/qualification/early-trace/v1","observe_ms":%s}\n' "$OBSERVE" >"$TRACE"
+printf '{"ev":"trace","schema":"prifly/qualification/early-trace/v2","observe_ms":%s,"step_deadline_ms":%s}\n' "$OBSERVE" "$DEADLINE" >"$TRACE"
 for tuple in "${TUPLES[@]:2}"; do
   read -r harness version <<<"$tuple"
   run="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
