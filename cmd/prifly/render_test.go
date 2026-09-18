@@ -157,6 +157,12 @@ func TestCommandRendersASCII(t *testing.T) {
 					// function at all and a call written through parentheses,
 					// (fmt.Fprintf)(w, f, a), whose selector is not the call's own
 					// function. Nothing here is written any of those ways today.
+					// A local bound to an imported name is still read as the
+					// import, having no type information to ask: measured, a local
+					// named fmt shadowing the import, with one Fprintf call made
+					// through it, is red at 7 against a want of 6 although no call
+					// there reaches package fmt. That much can only add a site to
+					// a count and never hide one.
 					if imports[x.Name] == "fmt" {
 						name := "fmt." + sel.Sel.Name
 						if called[sel] {
@@ -245,8 +251,8 @@ func TestCommandRendersASCII(t *testing.T) {
 		}
 	}
 	// The rows above are of the two renderers this package escapes text with; the
-	// rows below are of the sites that write text through fmt, by the spelling
-	// each one uses. The two questions are different: a new site that renders
+	// rows below are of the sites that write text through an fmt call, by the
+	// spelling each one uses. The two questions are different: a new site that renders
 	// operator-supplied text through fmt without reaching quoteArgs or
 	// bundle.Quote moves no row above and carries no quoting directive for the
 	// rules to read, so without this table it is invisible to every other
@@ -278,11 +284,21 @@ func TestCommandRendersASCII(t *testing.T) {
 	// rule about where a rendered value comes from, and every rule in this
 	// control reads the shape of the source instead.
 	//
-	// A writer that is not an fmt call at all is left to
-	// TestBundleImportsNoNetworkOrProcess, whose forbidden list is of selector
-	// names and holds .Write and .WriteString among them. That list does not hold
-	// Printf, Print, Println or Sprintf, so it is not the fallback for an fmt
-	// spelling this table does not name; the loop below is.
+	// What reaches these rows is an fmt call, so a write that makes none reaches
+	// no row here, and nothing else in this control sees it either: such a site
+	// carries neither a quoting directive for the format rule to read nor a
+	// strconv selector for the leak rule. Measured, a stderr path built from
+	// io.Copy over a strings.NewReader renders a printable non-ASCII rune raw
+	// with this package green.
+	//
+	// TestBundleImportsNoNetworkOrProcess does not stand behind that. What it
+	// refuses is a selector on its forbidden list, .Write and .WriteString among
+	// them, and neither Copy nor NewReader is on that list while io and strings
+	// are both on its import allowlist. It is named here for what it refuses
+	// rather than handed a class it does not cover: it does not hold Printf,
+	// Print, Println or Sprintf either, so it is not the fallback for an fmt
+	// spelling this table does not name. The loop below is that fallback, and it
+	// is one only for a spelling of fmt's.
 	counted := map[string]bool{}
 	for _, c := range []struct {
 		name string
