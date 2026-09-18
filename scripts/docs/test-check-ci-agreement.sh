@@ -10,7 +10,9 @@
 # case as well -- one per scope above the step, one per exempt-step key that decides
 # whether it runs, and the two limits that issue records rather than closes. Each mutation
 # #361 names has a case too: one per tail of each job's step list, and one per exempt step
-# whose position moved, with the list that issue adds proved to rot in both directions.
+# whose position moved, with the list that issue adds proved to rot in both directions. The
+# one mutation #365 names has a case at each of the two indents that reach the rule it
+# widens, and three more holding that rule to a skip rather than a refusal.
 # All cases run; the script exits 1 if any failed.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -708,11 +710,11 @@ reset_fixture
 sed -i 's@^6. `test-check-links.sh`@6. `bash`@' "$manifest"
 check_case 'a manifest entry narrowed to a bare interpreter name passes, as the header records' 0 'workflow steps agree with their documented commands'
 
-# --- #361: a job's step list runs to the dedent that ends it -------------------------
+# --- #361: a blank line does not end a job's step list -------------------------------
 # A blank line inside steps: used to end this checker's step list, so a step written after
 # one was never read. In docs-checks.yml that was silent at all nine scripts under
 # scripts/docs/; in go-checks.yml it was silent here and turned the append case above red
-# instead. The three appends below are the mutations that become red, and the three
+# instead. The two appends below are the mutations that become red, and the three
 # green cases after them are the tails that are genuinely unchanged, which is what stops
 # the fix being a blanket refusal of a blank line.
 reset_fixture
@@ -732,15 +734,6 @@ reset_fixture
 printf '%s\n' '  ' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
 check_case 'a step appended after a whitespace-only line in the docs job is read' 1 "step 'Undocumented new step'"
 
-# The limit the header records rather than closes (#361, round 1 of this change's review): a
-# comment line, unlike a blank one, still ends the step list when it is indented under a
-# step's six spaces. This case pins that state so a later change that closes it turns red
-# here and the header is what has to be corrected with it -- the shape the manifest limit
-# case at the foot of this file already uses.
-reset_fixture
-printf '%s\n' '# a comment' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
-check_case 'a step appended after a column-0 comment is unread, as the header records' 0 'workflow steps agree with their documented commands'
-
 reset_fixture
 printf '%s\n' '' >>"$wf_go"
 check_case 'a bare trailing blank line in the go job changes nothing' 0 'workflow steps agree with their documented commands'
@@ -750,6 +743,45 @@ check_case 'a bare trailing blank line in the docs job changes nothing' 0 'workf
 reset_fixture
 awk '/^      - name: go build$/ { print "" } { print }' "$wf_go" >"$wf_go.blank" && mv "$wf_go.blank" "$wf_go"
 check_case 'a blank line inside the go step list does not truncate it' 0 'workflow steps agree with their documented commands'
+
+# --- #365: a comment line does not end a job's step list either ----------------------
+# mapping_at skips a blank line and a comment line alike at the workflow and job scopes;
+# steps_of skipped only the blank one until #365, so a comment written under a step's six
+# spaces ended the list while a YAML loader read on, and a step after it ran with this
+# checker exit 0 and its summary line byte-identical. A case in the section above pinned
+# that state until #365; these cases replace it.
+#
+# Two indents, because two mutants of the widened predicate reach different depths of it.
+# Column 0 pins the rule at all: reverting the predicate to line.strip() == "" turns four
+# cases red -- both appends here, the first one's also_expect, and the go case below. Two
+# spaces pins its reach: narrowing line.lstrip(" ").startswith("#") to line.startswith("#")
+# leaves the column-0 append green and turns two red, the two-space append and that same go
+# case. Six spaces is not a case here and cannot be one -- steps_of reads past any six-space
+# line matching no step, key or sub-key pattern, for a reason that has nothing to do with
+# this rule, so such a fixture is green whether the rule exists or not, which is why the
+# four-indent table in the header shows six and eight spaces already exit 1 before this
+# change. The section above records the same trap in its own round 1.
+reset_fixture
+printf '%s\n' '# a comment' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a step appended after a column-0 comment is read' 1 "step 'Undocumented new step'"
+also_expect 'the step after a column-0 comment names its file and job' '.github/workflows/docs-checks.yml job design-docs step'
+
+reset_fixture
+printf '%s\n' '  # a comment' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a step appended after a two-space comment is read' 1 "step 'Undocumented new step'"
+
+# The tails that are genuinely unchanged, so the rule is a skip rather than a refusal of a
+# comment: a comment with nothing after it still changes nothing, and comments between two
+# steps of the go job leave that job's list whole.
+reset_fixture
+printf '%s\n' '# a comment' >>"$wf_docs"
+check_case 'a bare trailing column-0 comment in the docs job changes nothing' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' '  # a comment' >>"$wf_docs"
+check_case 'a bare trailing two-space comment in the docs job changes nothing' 0 'workflow steps agree with their documented commands'
+reset_fixture
+awk '/^      - name: go build$/ { print "# a comment"; print "  # a comment" } { print }' "$wf_go" >"$wf_go.hash" && mv "$wf_go.hash" "$wf_go"
+check_case 'comment lines inside the go step list do not truncate it' 0 'workflow steps agree with their documented commands'
 
 # --- #361: an exempt step's position is declared -------------------------------------
 # Moving an exempt step changes none of its bytes, so the declared exempt content list

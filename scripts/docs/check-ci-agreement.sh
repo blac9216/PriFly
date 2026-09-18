@@ -13,36 +13,38 @@
 # boundary between two tables paired against one job is order-bearing too: see the table
 # boundary list below.
 #
-# A blank line inside a job's steps: block does not end its step list (#361). A blank line
-# there is insignificant YAML, so this reader skips it and carries on. Until #361 it broke
-# there instead, so a step written after a blank line was never read. Appended to job
-# design-docs in docs-checks.yml that was exit 0 at all nine scripts under scripts/docs/
-# with this checker's summary line byte-identical; appended to job go it was exit 0 here
-# too, and was caught only because the self-test's own fixture append lands after the same
-# blank line, so what went red named a fixture step rather than the workflow. Measured
-# after the change: the step list this reader takes for job go and for job design-docs is
-# the list yaml.safe_load takes for the same job, name for name, on the unmutated tree and
-# under each of those two appends.
-#   A blank line is the whole of what this reaches, and the reach is stated here rather than
-#   corrected in the limits at the foot of this header (#353 M3, #358 M2). Skipping a blank
-#   line is one half of the rule mapping_at applies at the two scopes above; the other half,
-#   which skips a comment line too, is not here, so a comment line indented fewer than six
-#   spaces still ends the step list. Measured on this tree, a comment line and then a
-#   two-line step appended to job design-docs in docs-checks.yml: at column 0 and at two
-#   spaces this checker is exit 0 with its summary line byte-identical, reading 13 steps
-#   where yaml.safe_load reads 14; at six and at eight spaces it is exit 1 and both read 14.
-#   Eight of the nine scripts under scripts/docs/ are exit 0 on the silent case. The ninth is
-#   this checker's self-test, and it goes red for the reason #361 gives for row C rather than
-#   for the comment: the docs-fixture appends this change adds land after the same comment
-#   line in their own copy of the file and go unread too. Five FAIL lines, naming those cases
-#   and a fixture step, 'Undocumented new step', that is in no repository file. Two of the five
-#   do name docs-checks.yml, each inside its own case's expected text; none names the comment
-#   line, and none names the step appended to the repository's file. So this change gives
-#   the docs fixture the accidental detection the go fixture already had, and it is worth no
-#   more here than it was there. #361 scoped its outcomes to a blank line and put a YAML parser
-#   out of scope, so this is recorded here by its case rather than closed, and raised for
-#   triage. What the change above proves is that a blank line no longer ends the list, not
-#   that nothing else does.
+# Neither a blank line nor a comment line inside a job's steps: block ends its step list
+# (#361, #365). Neither ends a block in YAML, so this reader skips both and carries on.
+# Until #361 it broke on a blank line and until #365 on a comment, so a step written after
+# either was never read. Appended to job design-docs in docs-checks.yml each was exit 0 at
+# all nine scripts under scripts/docs/ with this checker's summary line byte-identical;
+# after a blank line in job go it was exit 0 here too, and was caught only because the
+# self-test's own fixture append lands after the same blank line, so what went red named a
+# fixture step rather than the workflow. The predicate is now the one mapping_at applies at
+# the two scopes above, at both scopes and here; a comment more indented than the run: key
+# that opens a block scalar is that scalar's own text and is taken as such before the
+# predicate is reached. Measured after the change: the step list this reader takes for job
+# go and for job design-docs is the list yaml.safe_load takes for the same job, name for
+# name, on the unmutated tree, under a blank-line append to each job, and under a comment
+# append to job design-docs at column 0, at two, at six and at eight spaces -- 14 against
+# 14 at every one of those four indents, against 13 against 14 at column 0 and at two
+# spaces before this change. A comment with no step after it leaves all nine scripts under
+# scripts/docs/ exit 0 with the summary line byte-identical at each of those four indents,
+# so this is a skip and not a refusal of a comment.
+#   What still ends the list is stated here rather than in the limits at the foot of this
+#   header (#353 M3, #358 M2, #365 M3). It is the break below: the first line that is
+#   neither blank nor a comment and does not begin with six spaces. That is not the same as
+#   the dedent that ends the block, and this header does not claim it is -- that exact
+#   over-claim was #362 review round 1's C2. A multi-line double-quoted scalar and a
+#   multi-line flow collection both keep the block open across a continuation line written
+#   under six spaces, and yaml.safe_load reads the steps after one where this reader stops.
+#   Four such shapes were measured on this tree, each appended to job design-docs with a
+#   further step behind it: a quoted run: scalar continued at column 0, at two and at four
+#   spaces, and a flow with: mapping continued at two spaces. In every one this checker is
+#   exit 3, refusing the file by name -- at the workflow scope, at the job scope, on the
+#   quoted run: it does not normalise, or on the step left with no run: -- so none of them
+#   reports agreement the way a comment line did. That is four shapes measured, not a proof
+#   that no silent one exists; a YAML parser is out of scope here as it was in #361.
 #
 # A step is more than its run: line. Which of its other keys decide whether it runs at
 # all, and whether its failure blocks, is written down in the load-bearing attribute list
@@ -651,10 +653,14 @@ def steps_of(relative: str, job: str) -> list[Step]:
                 continue
             body = None
             pending = []
-        if line.strip() == "":
-            # Insignificant YAML, not the end of the list (#361). The block ends where the
-            # file dedents out of it, below. Breaking here left a step written after a
-            # blank line unread while a YAML loader still ran it.
+        if line.strip() == "" or line.lstrip(" ").startswith("#"):
+            # Insignificant YAML, not the end of the list: a blank line (#361), and a comment
+            # line at any indentation (#365). Neither ends a block, so neither ends this list;
+            # the break below is what ends it. Breaking on either left a step written after
+            # one unread while a YAML loader still ran it. This is the predicate mapping_at
+            # applies at the workflow and job scopes, now applied here too; a comment more
+            # indented than the run: key that opens a block scalar belongs to that scalar
+            # and is taken above, before this line is reached.
             continue
         if not line.startswith("      "):
             break

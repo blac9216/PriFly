@@ -162,9 +162,10 @@ keep these tables, `docs-checks.yml`, `go-checks.yml` and the `## CI` step list 
 [doc-manifest.md](../doc-manifest.md) in agreement. That agreement is mechanical:
 `scripts/docs/check-ci-agreement.sh`, a step of the required `design-docs` job, pairs
 each workflow step with its row in the Commands tables above, in order, and fails on any
-step or row that is neither paired nor on its written exemption list. A blank line inside a
-job's `steps:` block no longer ends its step list, so a step written after one is read like
-any other; the checker's header records, by its measured case, what that reach stops at.
+step or row that is neither paired nor on its written exemption list. Neither a blank line
+nor a comment line inside a job's `steps:` block ends its step list, so a step written after
+either is read like any other; the checker's header records, with its measurements, what
+still ends that list.
 The boundary between the two tables the `go` job
 pairs against is order-bearing too, so a row moved
 from the Go suite table into the qualification table fails even though the two tables
