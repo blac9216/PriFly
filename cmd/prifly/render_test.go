@@ -334,7 +334,8 @@ func TestCommandRendersASCII(t *testing.T) {
 }
 
 // TestCommandStreamsAreWrittenThroughFmt reads where this package's output
-// streams go. It is the control standing behind the fmt tables in
+// streams go, and refuses the two builtins that write to one of them while
+// naming none. It is the control standing behind the fmt tables in
 // TestCommandRendersASCII, which need an fmt call to have anything to read: a
 // write that makes none carries no format string for the directive rule, no
 // strconv selector for the leak rule and no fmt selector for the tables, so it
@@ -351,6 +352,11 @@ func TestCommandRendersASCII(t *testing.T) {
 // through the stream's own methods (stderr.Write), a binding that gives the
 // stream another name (sink := stderr), and a handoff to a parameter that is not
 // an io.Writer, which would carry the value out of this rule's sight.
+//
+// One shape writes to the same terminal while naming no stream at all, so the
+// sentence above cannot reach it, and it is refused separately: a call to the
+// builtin println or print. The reasons it is a name here and io.Copy is a
+// position are at that check.
 //
 // The rule holds the value where it stands rather than following it, and a name
 // this file declares io.Writer is a stream expression wherever it stands, so a
@@ -376,12 +382,17 @@ func TestCommandRendersASCII(t *testing.T) {
 //
 // What the rule does not reach, stated rather than left to be found:
 //
-//   - A handle to the same file descriptor opened another way. os.NewFile(2,
-//     "stderr") is neither an io.Writer declaration nor os.Stderr, so a write to
-//     it reaches no rule here — measured, green, with the raw rune on the
-//     terminal. os.Create, os.OpenFile and os.WriteFile are refused by
+//   - A stream this package never names, reached by opening the same file
+//     descriptor again. os.NewFile(2, "stderr") is neither an io.Writer
+//     declaration nor os.Stderr, so a write to it reaches no rule here —
+//     measured, green, with the raw rune on the terminal. os.Create,
+//     os.OpenFile and os.WriteFile are refused by
 //     TestBundleImportsNoNetworkOrProcess; os.NewFile and os.Open are not on
-//     that list.
+//     that list, though os.Open opens read-only, so a copy to what it returns
+//     puts nothing on the terminal — measured, green here and stderr empty.
+//     This is what remains of the class the two builtins were part of, and it
+//     stays open because a handle can be got in unboundedly many ways while
+//     println and print are two names the language fixes.
 //   - Anything outside this package's own non-test source. This reads one hop
 //     and has no type information, the limit quotesRaw records. internal/bundle
 //     needs no rule of this kind: it declares no io.Writer and names no os.Std*
@@ -474,6 +485,31 @@ func TestCommandStreamsAreWrittenThroughFmt(t *testing.T) {
 						permitted[n.Args[0]] = "as an fmt call's first argument"
 					}
 				case *ast.Ident:
+					// println and print write text to standard error without
+					// naming a stream: a call to one carries no argument for
+					// the rule below to judge, no import for the allowlist in
+					// TestBundleImportsNoNetworkOrProcess to refuse and no
+					// selector for its forbidden list, so before this check
+					// every control in the package passed over one. Measured,
+					// at 4b6076c and at the head that added the rule below:
+					// green, with U+0430 raw on the terminal, byte for byte the
+					// io.Copy measurement.
+					//
+					// They are refused by name where io.Copy is not, and the
+					// difference is not a preference. The argument against a
+					// list of writer names is that it is open-ended by
+					// construction; these two are closed by the language
+					// specification, so naming them ends a class rather than
+					// starting a list. A name this package declares itself is
+					// not the builtin and is left alone.
+					isPrintBuiltin := fun.Name == "println" || fun.Name == "print"
+					if _, declaredHere := writerArgs[fun.Name]; isPrintBuiltin && !declaredHere {
+						t.Errorf("%s: the builtin %s writes text to standard error, which is the stream this "+
+							"package hands its callees, while naming no stream this control can read: no rule here, "+
+							"no import and no selector records it. Write operator-visible text to this package's own "+
+							"stream with fmt.Fprint*, rendering any operator-supplied part of it through bundle.Quote "+
+							"or quoteArgs", fset.Position(fun.Pos()), fun.Name)
+					}
 					for i, arg := range n.Args {
 						if at := writerArgs[fun.Name]; i < len(at) && at[i] && isStream(arg) {
 							permitted[arg] = "at an io.Writer parameter of this package"
