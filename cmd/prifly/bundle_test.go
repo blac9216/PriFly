@@ -1076,9 +1076,14 @@ func declaredNames(fset *token.FileSet, f *ast.File) map[string][]token.Position
 // end to end with a printable non-ASCII character by the cases above.
 //
 // The call-site counts are asserted so the enumeration stays by occurrence and
-// not by line: two lines of bundle.go carry two Quote calls each. The fmt
-// spellings that render this package's text are counted the same way, and for a
-// reason the renderer counts cannot serve: a site that renders text through fmt
+// not by line: two lines of bundle.go carry two Quote calls each. A name given
+// Quote and called through it is not counted, measured: that count reads an
+// identifier in call position, so a binding and three calls through it leave it
+// at 24 and green. What the omission costs is nothing this count is for, since
+// each of those calls still renders through Quote, and giving a name Quote in
+// place of a real call lowers the number and is red. The fmt spellings that
+// render this package's text are counted by occurrence too, and for a reason
+// the renderer counts cannot serve: a site that renders text through fmt
 // without reaching Quote or Member moves no count above and holds no quoting
 // directive, so nothing else here sees it. Which spellings are pinned, why no
 // Fprint* row is listed, what a count does and does not prove, and what renders
@@ -1090,9 +1095,13 @@ func declaredNames(fset *token.FileSet, f *ast.File) map[string][]token.Position
 // an explicit argument index above all — can carry a %q past it. The carve-out
 // is refused outright, rather than applied by name, if "Schema" ever names more
 // than the package-level constant: this check reads identifiers, so a second
-// Schema in scope would make the whitelist a guess. And an fmt spelling the count
+// Schema in scope would make the whitelist a guess. An fmt spelling the count
 // does not name is reported rather than passed over, so the table pins the
-// families it lists without assuming they are the only ones.
+// families it lists without assuming they are the only ones. And an fmt member
+// named without being called is reported as well, because the table counts
+// calls: a name given such a value renders text once per call through it while
+// standing in the source once, so the count cannot hold those sites and refuses
+// the shape instead.
 func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 	const pkg = "../../internal/bundle"
 	files, err := filepath.Glob(filepath.Join(pkg, "*.go"))
@@ -1101,6 +1110,7 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 	}
 	fset, calls, parsed := token.NewFileSet(), map[string]int{}, 0
 	fmtSites := map[string][]token.Position{}
+	called := map[ast.Expr]bool{} // the expressions this package calls, by node
 	parsedFiles := map[string]*ast.File{}
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
@@ -1149,13 +1159,41 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 					// and a call through a package bound to the name fmt is not.
 					// A renderer wrapped in a third package is out of reach
 					// either way: this reads the file's imports, one hop, the
-					// limit quotesRaw records above. A local bound to an
-					// imported name is read as the import, having no type
-					// information to ask, which can only add a site to a count
-					// and never hide one.
+					// limit quotesRaw records above.
+					//
+					// What is counted is a selector this file calls, and one it
+					// does not call is reported rather than counted. The leak
+					// rule above reads a selector wherever it stands, because
+					// there a single occurrence settles the question; a count
+					// cannot be read that way. A name given fmt.Sprintf renders
+					// text at every call made through it while the selector
+					// stands once, so counting that one occurrence held three
+					// render sites at one — measured, on the probe #357 records
+					// — and passing over it would hold them at none. Refusing
+					// the occurrence is what stops one occurrence standing in for
+					// the calls made through a name given an fmt value. What the
+					// number still does not hold is recorded below, at the table.
+					//
+					// The price is that this package may name an fmt member only
+					// where it calls it directly: a value of one put in a
+					// variable, passed to a function or held in a composite
+					// literal is refused, and so are a selector that is not a
+					// function at all, the type fmt.Stringer among them, and a
+					// call written through parentheses, (fmt.Sprintf)(f, a),
+					// whose selector is not the call's own function. Nothing here
+					// is written any of those ways today. A local bound to an
+					// imported name is still read as the import, having no type
+					// information to ask, and that much can only add a site to a
+					// count and never hide one.
 					if imports[x.Name] == "fmt" {
 						name := "fmt." + sel.Sel.Name
-						fmtSites[name] = append(fmtSites[name], fset.Position(sel.Pos()))
+						if called[sel] {
+							fmtSites[name] = append(fmtSites[name], fset.Position(sel.Pos()))
+						} else {
+							t.Errorf("%s: %s is named here without being called, and the count below counts "+
+								"calls, so calls made through a name given this value would not reach it; "+
+								"name an fmt member only where you call it", fset.Position(sel.Pos()), name)
+						}
 					}
 				}
 			}
@@ -1163,6 +1201,10 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 			if !ok {
 				return true
 			}
+			// Recorded before the walk reaches call.Fun, which is this node's
+			// own child: ast.Inspect visits a node before its children, so the
+			// selector branch above reads a call recorded here.
+			called[call.Fun] = true
 			if id, ok := call.Fun.(*ast.Ident); ok {
 				calls[id.Name]++
 			}
@@ -1250,14 +1292,14 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 	// and a first writer added later is caught as an unnamed spelling, with a
 	// message that says to give it a row.
 	//
-	// What this table pins is what render_test.go's count pins, and no more: that
-	// a site cannot be added silently, not that a site prints safely. A new
-	// fmt.Sprintf rendering operator-supplied text with a plain %s is green once
-	// its author records the new number, so the message below leads with the case
-	// to add and closes with the count — the cheapest reading of it is the one
-	// that covers the new site. That limit is disclosed here rather than closed:
-	// closing it would take a rule about where a rendered value comes from, and
-	// every rule in this control reads the shape of the source instead.
+	// What this table pins is that a site cannot be added silently, not that a
+	// site prints safely. A new fmt.Sprintf rendering operator-supplied text with
+	// a plain %s is green once its author records the new number, so the message
+	// below leads with the case to add and closes with the count — the cheapest
+	// reading of it is the one that covers the new site. That limit is disclosed
+	// here rather than closed: closing it would take a rule about where a
+	// rendered value comes from, and every rule in this control reads the shape
+	// of the source instead.
 	//
 	// The other edge of the same disclosure: what is counted is fmt calls, not
 	// every way text is built. A site that renders with the + operator instead
@@ -1267,6 +1309,18 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 	// fmt families is what closes the gap the renderer counts leave; concatenation
 	// is a further gap, named here so it is read off this comment rather than
 	// found.
+	//
+	// Refusing a name given an fmt value does not make these numbers a count of
+	// render sites either, and nothing here claims it does. A helper of this
+	// package's own wrapping a single fmt call renders text at every call made to
+	// it while the selector inside it stands once: measured, a probeWrap(format
+	// string, args ...any) string returning fmt.Sprintf(format, args...), called
+	// three times, moves fmt.Sprintf by one and is green once 15 is recorded,
+	// with no fmt member named outside call position anywhere. That is the
+	// concatenation family rather than the shape the rule above refuses — the
+	// wrapper is itself a call site, so it cannot be added without moving a
+	// number — and it is why the claim made there is about a name given an fmt
+	// value and not about render sites at large.
 	counted := map[string]bool{}
 	for _, c := range []struct {
 		name string
