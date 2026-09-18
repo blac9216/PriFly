@@ -1170,17 +1170,21 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 					// stands once, so counting that one occurrence held three
 					// render sites at one — measured, on the probe #357 records
 					// — and passing over it would hold them at none. Refusing
-					// the occurrence is what leaves the number below a count of
-					// the sites that render.
+					// the occurrence is what stops one occurrence standing in for
+					// the calls made through a name given an fmt value. What the
+					// number still does not hold is recorded below, at the table.
 					//
 					// The price is that this package may name an fmt member only
-					// where it calls it: a value of one put in a variable, passed
-					// to a function or held in a composite literal is refused,
-					// and so is a selector that is not a function at all, the
-					// type fmt.Stringer among them. Nothing here is written that
-					// way today. A local bound to an imported name is still read
-					// as the import, having no type information to ask, and that
-					// much can only add a site to a count and never hide one.
+					// where it calls it directly: a value of one put in a
+					// variable, passed to a function or held in a composite
+					// literal is refused, and so are a selector that is not a
+					// function at all, the type fmt.Stringer among them, and a
+					// call written through parentheses, (fmt.Sprintf)(f, a),
+					// whose selector is not the call's own function. Nothing here
+					// is written any of those ways today. A local bound to an
+					// imported name is still read as the import, having no type
+					// information to ask, and that much can only add a site to a
+					// count and never hide one.
 					if imports[x.Name] == "fmt" {
 						name := "fmt." + sel.Sel.Name
 						if called[sel] {
@@ -1305,6 +1309,18 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 	// fmt families is what closes the gap the renderer counts leave; concatenation
 	// is a further gap, named here so it is read off this comment rather than
 	// found.
+	//
+	// Refusing a name given an fmt value does not make these numbers a count of
+	// render sites either, and nothing here claims it does. A helper of this
+	// package's own wrapping a single fmt call renders text at every call made to
+	// it while the selector inside it stands once: measured, a probeWrap(format
+	// string, args ...any) string returning fmt.Sprintf(format, args...), called
+	// three times, moves fmt.Sprintf by one and is green once 15 is recorded,
+	// with no fmt member named outside call position anywhere. That is the
+	// concatenation family rather than the shape the rule above refuses — the
+	// wrapper is itself a call site, so it cannot be added without moving a
+	// number — and it is why the claim made there is about a name given an fmt
+	// value and not about render sites at large.
 	counted := map[string]bool{}
 	for _, c := range []struct {
 		name string
