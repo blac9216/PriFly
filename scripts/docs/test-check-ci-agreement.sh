@@ -263,11 +263,12 @@ check_case 'a new step with no row and no exemption fails' 1 "step 'Undocumented
 also_expect 'the unpaired step says the list is not a wildcard' 'no exemption entry'
 also_expect 'the unpaired step names the job it was appended to' '.github/workflows/go-checks.yml job go step'
 
-# The same append, with a blank line before it (#361). The case above is the only append
-# to a workflow fixture in this suite, so before #361 a bare trailing blank line in
+# The same append, with a blank line before it (#361). Until this change the case above was
+# the only append to a workflow fixture in this suite, so a bare trailing blank line in
 # go-checks.yml turned it red on its own: the append landed after the blank line, the
 # checker's step list stopped there, and the two FAIL lines named a fixture step that is
-# in no repository file. It now reports on the step it names either way.
+# in no repository file. It now reports on the step it names either way, which is what the
+# pair of cases here holds it to.
 reset_fixture
 printf '%s\n' '' '      - name: Undocumented new step' '        run: true' >>"$wf_go"
 check_case 'a step appended after a blank line in the go job is read' 1 "step 'Undocumented new step'"
