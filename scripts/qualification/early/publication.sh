@@ -30,11 +30,11 @@
 # sent after its grant's deadline. Each entry: reserve the whole ticket; artifact; commit; sync, requiring a
 # 16-hex TXID and the run's lineage before restore; restore that T, requiring its sequence, T, integrity and
 # result; pace the CAS casMinSpacingMs after the last (P4); require the CAS readback of sequence and T; only
-# then ack. Each entry's line records the reservation charged before its first step beside the use settled
-# after it, so a failure is read at the value it kept. Each probe call runs in its own process group and is
-# reaped by the wait builtin; a watchdog TERMs that group at stepTimeoutS and KILLs it a second later, both
-# waits timed by read on a fifo nothing writes, so no poll stands between a probe's exit and the step's end
-# clock and a call the bound ends exits 143, or 137 once killed. A failure charges the whole reservation and
+# then ack. Every command and renewal line records the reservation charged before its first step beside the use
+# settled after it, so a failure is read at the charge it kept. Each probe call runs in its own process group
+# and is reaped by the wait builtin; a watchdog TERMs that group at stepTimeoutS and KILLs it a second later,
+# timing both waits by read on a fifo nothing writes, so nothing polls between a probe's exit and the step's end
+# clock, and a call the bound ends exits 143, or 137 once killed. A failure charges the whole reservation and
 # blocks the lane for the rest of the run, so an ambiguous CAS never admits a successor, and a plan call left
 # without a ticket stops the run (its trace cannot pass); blocked commands are recorded failed, never dropped.
 # Exit: fixture.go's code; 20 refused before any probe call (usage; ledger missing, malformed or at the
@@ -83,8 +83,8 @@ ledger() {  # BYTES REQUESTS: this invocation's charge UB UR once the ledger fil
 charge() { QB=$((QB + $1)) QW=$((QW + $2)) QR=$((QR + $3)); ledger $((UB + $1)) $((UR + $3)); }  # BYTES WRITES REQUESTS: grant and P12a
 ms() { printf '%d.%03d' $(($1 / 1000)) $(($1 % 1000)); }
 sha() { sha256sum "$1" | cut -d' ' -f1; }
-bound() {  # PID: TERM PID's process group at the step bound and KILL it a second later; fd 9 is never
-  read -t "$STEP" -u 9 -r _ && return 0  # written, so each wait is one read builtin, with nothing to poll
+bound() {  # PID: TERM PID's process group at the step bound and KILL it a second later, waiting on fd 9,
+  read -t "$STEP" -u 9 -r _ && return 0  # which nothing writes, so each wait is one builtin rather than a poll
   kill -TERM -- "-$1" 2>/dev/null || return 0
   read -t 1 -u 9 -r _ && return 0
   kill -KILL -- "-$1" 2>/dev/null || :

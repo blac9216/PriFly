@@ -107,6 +107,8 @@ if group accept; then
   holds "CAS writes at least 1100 ms apart, the burst at that bound" accept \
     'map(select(.casStart > 0)) | group_by(.run) | all(sort_by(.casStart) | [range(1; length) as $i | .[$i].casStart - .[$i - 1].casStart] | min >= 1100 and min < 1200)'
   holds "no ack before its CAS result" accept 'all(.[] | select(.outcome == "published"); .ack > .casEnd and .casEnd > .casStart)'
+  holds "a published command settles under the reservation it was charged" accept 'map(select(.ev == "cmd" and .outcome == "published"))[0] |
+    .bytes < .reservedBytes and .writes < .reservedWrites and .requests < .reservedRequests'
   holds "ledger is the prior use plus every charge" accept '.[0].priorBytes == 1000 and $l[0] == {bytes: (1000 + (map(.bytes // 0) | add)), requests: (10 + (map(.requests // 0) | add))}'
 fi
 if group envelope; then  # prior use leaving run 3 800 MiB: its fixture fits, and a later command lacks the 732 MiB two-ticket room
@@ -134,8 +136,6 @@ if group faults; then
   holds "a failed command is charged its whole reservation" faults 'map(select(.reason == "cas-exit1"))[0] |
     .bytes == .payloadBytes + 65536 and .writes == 8 and .requests == 40 and
     [.bytes, .writes, .requests] == [.reservedBytes, .reservedWrites, .reservedRequests]'
-  holds "a published command settles under the reservation it was charged" accept 'map(select(.ev == "cmd" and .outcome == "published"))[0] |
-    .bytes < .reservedBytes and .writes < .reservedWrites and .requests < .reservedRequests'
   holds "a failed plan call is charged its declared use" checks4 'map(select(.ev == "plan" and .run == 3))[1].requests == 1'
   line "a plan call left without a ticket stops the run" checks3 1 "REJECT PLAN run 3 n 0: plan call serves no entry: after the run's last ticketed entry, or a second plan for it"
   cond "no plan call after the one left without a ticket" grep -q '^plan 3 finding-review ' <(grep '^plan 3 ' "$work/checks3/state/calls" | tail -n1)
