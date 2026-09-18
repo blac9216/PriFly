@@ -12,7 +12,12 @@
 # #361 names has a case too: one per tail of each job's step list, and one per exempt step
 # whose position moved, with the list that issue adds proved to rot in both directions. The
 # one mutation #365 names has a case at each of the two indents that reach the rule it
-# widens, and three more holding that rule to a skip rather than a refusal.
+# widens, and three more holding that rule to a skip rather than a refusal. The value that
+# does not close on its own line (#369) has a case per shape its rule reads, at both silent
+# indents and in both jobs, one per node property that may sit in front of the value and
+# per way of writing two of them, seven holding that the rule refuses an unreadable value
+# rather than a quote, a bracket or a property, and one holding the cost of refusing rather
+# than reading the value through.
 # All cases run; the script exits 1 if any failed.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -782,6 +787,237 @@ check_case 'a bare trailing two-space comment in the docs job changes nothing' 0
 reset_fixture
 awk '/^      - name: go build$/ { print "# a comment"; print "  # a comment" } { print }' "$wf_go" >"$wf_go.hash" && mv "$wf_go.hash" "$wf_go"
 check_case 'comment lines inside the go step list do not truncate it' 0 'workflow steps agree with their documented commands'
+
+# --- #369: a step attribute's value that does not close on its own line ---------------
+# The two rules above skip a line that carries no value. This one is the opposite shape:
+# a line that carries a value the reader cannot see the end of. YAML lets a value close on
+# a later line at any indentation when it opens with a quote or with a flow indicator, and
+# a loader reads the steps after it; this reader stopped at the continuation line, so until
+# #369 a step written below one ran with this checker exit 0 and its summary line
+# byte-identical. timeout-minutes: is the key it was silent on, being the one step key
+# permitted on a paired step and compared against nothing.
+#
+# The rule reads the line that opens the value, not the line that closes it, so the
+# continuation's indentation is not a dimension of it and no deletion can narrow the rule
+# to one indent: under every deletion below the two-space and three-space cases go red
+# together. The mutant that separates them has to add a lookahead rather than remove
+# anything -- refuse only when the very next line begins with exactly two spaces -- and
+# measured, that mutant leaves the clean tree exit 0 and 203 of the 205 cases green, the
+# two red ones being the three-space pair here. So the second indent is not redundant, and
+# the pair is what #369 M4 asks for.
+#
+# Every rule of value_closes and of the refusal that calls it is listed here with the
+# number of cases the mutant of that rule alone turns red, each number read off a run of
+# that mutant rather than off this list. The first version of this list under-counted four
+# of its eight rows, which reads as a rule with one pin when it has several; the second
+# was missing the two rules review round 2 found unpinned. No mutant below survives, and
+# the clean tree stays exit 0 under every one of them.
+#   drop '"' from the first-character gate                -> 17
+#   drop "'" from it                                      ->  3
+#   drop '[' from it                                      ->  8
+#   drop '{' from it                                      ->  2
+#   delete the backslash-escape branch                    ->  1
+#   delete the doubled-quote branch                       ->  1
+#   delete the quote tracking inside a flow collection    ->  7, four of them closed values
+#   stop tracking single quotes, keeping double ones      ->  2, one of them a closed value
+#   drop the flow depth from a closer                     ->  1
+#   drop the flow depth from the single-quote close       ->  1
+#   delete the flow closer branch outright                ->  1, a closed value below
+#   drop the bounds guard from the property strip         ->  1, a closed value below
+#   delete the node-property strip                        -> 13
+#   drop '!' from the strip                               -> 11
+#   drop '&' from it                                      ->  5
+#   run the strip once instead of repeatedly              ->  3
+#   split the strip on a literal space, not on whitespace ->  2
+#   delete the refusal in steps_of                        -> 30, every red case of this
+#                                                            section
+#   count brackets over the whole value instead of
+#   scanning it from the first character                  -> 24, the closed 1[0 case
+#                                                            below among them
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a double-quoted value continued at two spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+also_expect 'the refusal names the file, job and step' ".github/workflows/docs-checks.yml job design-docs step 'CI agreement checker regression tests'"
+also_expect 'the refusal says what it would otherwise have missed' 'miss every step written below it while a YAML loader ran them'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1' '   0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a double-quoted value continued at three spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' "        timeout-minutes: '1" "  0'" '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a single-quoted value continued at two spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: [1,' '  0]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a flow sequence continued at two spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: [1,' '   0]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a flow sequence continued at three spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: {a: 1,' '  b: 2}' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a flow mapping continued at two spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# The value a contributor could plausibly have meant: a double-quoted scalar whose first
+# line ends in a backslash suppresses the fold, so this one is the string 10 to both
+# yaml.safe_load and psych, and the step below it runs.
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1\' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a value folded to 10 by a trailing backslash is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# The three shapes a first-and-last-character test would call closed.
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1\"' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a backslash-escaped quote does not close a double-quoted value' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' "        timeout-minutes: '1''" "  0'" '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a doubled quote does not close a single-quoted value' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: ["a]",' '  1]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a bracket inside a flow scalar does not close the sequence' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: {"a}": 1,' '  b: 2}' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a brace inside a flow scalar does not close the mapping' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# The same shape in the other job and the other file, because the reader is the same one.
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_go"
+check_case 'a continued value in the go job is refused' 3 ".github/workflows/go-checks.yml job go step 'Early publication runner local proof (fake probe, virtual clock)'"
+
+# The cost of refusing rather than reading the value through, pinned rather than left to
+# prose: a continued value with no step written after it hides nothing, and this checker
+# rejects it all the same, because it refuses the shape it cannot read and not the
+# concealment. #369 M2 requires that be stated as a cost; this is the case that holds it.
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1' '  0"' >>"$wf_docs"
+check_case 'a continued value with no step after it is refused too' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# A YAML node's properties -- a tag, an anchor, or both in either order -- are written in
+# front of the content and are not the content, so a reader that decides on the value's
+# first character decides on the property instead, and answers "closed" for every tagged
+# and every anchored value there is. Review round 1 of #369 measured twelve such values
+# exit 0 with the summary line byte-identical at 4b6076c and at the head that first
+# carried this rule, each hiding a fourteenth step that yaml.safe_load read -- except the
+# one carrying a local tag safe_load has no constructor for, which psych read instead.
+# Each case below goes red under a different way of losing the strip: deleting it takes
+# all of them, dropping ! takes the tagged ones, dropping & takes the anchored ones,
+# running the strip once rather than repeatedly takes the two that carry both properties,
+# and splitting on a literal space rather than on whitespace takes the two whose
+# properties are separated by something other than a single space.
+reset_fixture
+printf '%s\n' '        timeout-minutes: !!str "1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a tagged value continued at two spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: &t "1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'an anchored value continued at two spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: !!seq [1,' '  0]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a tagged flow sequence continued at two spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: &t [1,' '  0]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'an anchored flow sequence continued at two spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: !foo [1,' '  0]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a local tag does not close the value' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: !<tag:yaml.org,2002:str> "1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a verbatim tag does not close the value' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' "        timeout-minutes: !!str '1" "  0'" '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a tagged single-quoted value is read past its tag' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: &t !!str "1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'an anchor and a tag together do not close the value' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: !!str &t "1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a tag and an anchor together do not close the value' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: &t  !!str "1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'two spaces between an anchor and a tag do not close the value' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# A tab separates a property from its content for psych, which reads the hidden step, and
+# not for yaml.safe_load, which rejects the file. The refusal is for the shape either way.
+reset_fixture
+printf '%s\n' '        timeout-minutes: !!str	"1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a tab between a tag and its value does not close it' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# The tagged form of the value a contributor could plausibly have meant. The trailing
+# backslash suppresses the fold and the tag makes it an integer, so both loaders read
+# timeout-minutes as 10 and run the step written after it.
+reset_fixture
+printf '%s\n' '        timeout-minutes: !!int "1\' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a tagged integer folded to 10 by a trailing backslash is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: !!str "1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_go"
+check_case 'a tagged value in the go job is refused' 3 ".github/workflows/go-checks.yml job go step 'Early publication runner local proof (fake probe, virtual clock)'"
+
+# Two shapes the flow-depth bookkeeping is the only thing that catches. Without the depth
+# on a closer, a nested flow collection is called closed at its inner ]; without the depth
+# on the single-quote close, or without tracking single quotes at all, a ] written inside
+# a single-quoted flow scalar is called closed. Both were exit 0 with the summary line
+# byte-identical at 4b6076c and under those reverts, with a fourteenth step hidden.
+reset_fixture
+printf '%s\n' '        timeout-minutes: [{a: 1},' '  {b: 2}]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a nested flow collection closed on the second line is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' "        timeout-minutes: ['a]'," '  1]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a bracket inside a single-quoted flow scalar does not close the sequence' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# And the seven values that do close, so this is a refusal of an unreadable value rather
+# than of a quote, a bracket or a property. Six of the seven are reached by a mutant of the
+# twenty, and which mutant reaches which was read off a run rather than reasoned about:
+#   "10"        -> quotes not tracked inside a flow collection
+#   [1, 0]      -> the flow closer branch deleted, which refuses a sequence that does close
+#   "1[0"       -> that mutant, and a bracket count over the whole value, which this case
+#                  exists to reject: a closed double-quoted scalar that happens to hold a [
+#   '10'        -> that mutant, and single quotes not tracked at all, which is the half of
+#                  a lost single-quote rule the refusals above cannot see
+#   !!str "10"  -> quotes not tracked inside a flow collection; stripping the tag has to
+#                  leave the closed quoted scalar behind
+#   !!str       -> the bounds guard dropped from the property strip, which is an IndexError
+#                  on a value that is only a property, because the split leaves one part
+# The seventh, &t 10, is reached by none of the twenty and cannot be by any mutant of this
+# function: under every mutant of the strip the value still begins with an ampersand, and
+# under the strip as written it is the plain 10, so both paths reach the same return. It is
+# here for symmetry with the tagged one, and this comment says so rather than implying a
+# mutant that does not exist.
+reset_fixture
+printf '%s\n' '        timeout-minutes: "10"' >>"$wf_docs"
+check_case 'a closed double-quoted timeout-minutes: changes nothing' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' '        timeout-minutes: [1, 0]' >>"$wf_docs"
+check_case 'a closed flow timeout-minutes: changes nothing' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1[0"' >>"$wf_docs"
+check_case 'a bracket inside a closed quoted value changes nothing' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' "        timeout-minutes: '10'" >>"$wf_docs"
+check_case 'a closed single-quoted timeout-minutes: changes nothing' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' '        timeout-minutes: !!str "10"' >>"$wf_docs"
+check_case 'a closed tagged timeout-minutes: changes nothing' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' '        timeout-minutes: &t 10' >>"$wf_docs"
+check_case 'a closed anchored timeout-minutes: changes nothing' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' '        timeout-minutes: !!str' >>"$wf_docs"
+check_case 'a value that is only a tag closes, with nothing behind it' 0 'workflow steps agree with their documented commands'
 
 # --- #361: an exempt step's position is declared -------------------------------------
 # Moving an exempt step changes none of its bytes, so the declared exempt content list
