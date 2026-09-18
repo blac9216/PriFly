@@ -20,15 +20,18 @@ jq -nc '("a" * 64) as $h
   {ev: "run", run: 1, t0: 1000000, grant: 0, prefix: "q13/run1/", lineage: "lineage-1", generator: "gen-v1", seed: 9216,
    litestream: "0.5.17", dbBytes: 52428800, bytes: 52494336, writes: 2, requests: 9},
   {ev: "grant", run: 1, t: 1000000, deadline: 1600000},
-  (lane(1590000) + {ev: "grant", run: 1, t: 1591100, deadline: 2191100, outcome: "published", bytes: 65536, writes: 3, requests: 25,
+  (lane(1590000) + {ev: "grant", run: 1, t: 1591100, deadline: 2191100, outcome: "published", reason: "", bytes: 65536, writes: 3,
+   requests: 25, reservedBytes: 66560, reservedWrites: 4, reservedRequests: 28,
    txid: "t2", lineage: "lineage-1", restoreTxid: "t2", restoredSeq: 2, integrity: "ok", casSeq: 2, casTxid: "t2"}),
   (lane(1000000) + {ev: "cmd", run: 1, n: 1, kind: "package-revision", arrival: 0, submit: 1000000, outcome: "published",
-   reason: "", bytes: 328192, writes: 4, requests: 27, payloadSha256: $h, payloadBytes: 262144, before: "s0", after: "s1",
+   reason: "", bytes: 328192, writes: 4, requests: 27, reservedBytes: 329216, reservedWrites: 5, reservedRequests: 30,
+   payloadSha256: $h, payloadBytes: 262144, before: "s0", after: "s1",
    dbBytes: 52432896, txid: "t1", lineage: "lineage-1", restoreTxid: "t1", restoredSeq: 1, restoredPayloadSha256: $h,
    integrity: "ok", casSeq: 1, casTxid: "t1"}),
   (lane(1015000) + {restoreStart: 0, restoreEnd: 0, casStart: 0, casEnd: 0, ack: 0, ev: "cmd", run: 1, n: 2,
    kind: "attempt-result", arrival: 15000, submit: 1015000, outcome: "failed", reason: "sync-exit124", bytes: 1114112,
-   writes: 2, requests: 12, payloadSha256: $h, payloadBytes: 1048576, before: "s1", after: "", dbBytes: 0, txid: "",
+   writes: 2, requests: 12, reservedBytes: 1114112, reservedWrites: 2, reservedRequests: 12,
+   payloadSha256: $h, payloadBytes: 1048576, before: "s1", after: "", dbBytes: 0, txid: "",
    lineage: "", restoreTxid: "", restoredSeq: 0, restoredPayloadSha256: "", integrity: "", casSeq: 0, casTxid: ""})' >"$good"
 fails=0
 verdict() {  # name, want exit, want whole output line, procedure, trace, optional ulimit -v KiB
@@ -97,12 +100,18 @@ edit "grant with a partial lane" 3 "$(line 3 '.ticket = 1000000')"
 edit "renewal without ack" 4 "$(line 4 'del(.ack)')"
 edit "renewal without T" 4 "$(line 4 'del(.txid)')"
 edit "renewal without integrity" 4 "$(line 4 'del(.integrity)')"
+edit "renewal without a reason" 4 "$(line 4 'del(.reason)')"
+edit "renewal without its reservation" 4 "$(line 4 'del(.reservedWrites)')"
+edit "published renewal with a reason" 4 "$(line 4 '.reason = "late"')"
 edit "published renewal with an empty lineage" 4 "$(line 4 '.lineage = ""')"
 feed "plan call use" 1 "$(input 7)" sed '3a {"ev":"plan","run":1,"t":1000000,"grant":0,"bytes":0,"writes":0,"requests":1}' "$good"
 text "plan without requests" 4 '3a {"ev":"plan","run":1,"t":1000000,"grant":0,"bytes":0,"writes":0}'
 text "plan without its grant" 4 '3a {"ev":"plan","run":1,"t":1000000,"bytes":0,"writes":0,"requests":1}'
-feed "failed renewal with empty result strings" 1 "$(input 6)" jq -c "$(line 4 '.outcome = "failed" | .txid = "" | .lineage = "" | .restoreTxid = "" | .integrity = "" | .casTxid = ""') | .[]" -s "$good"
+feed "failed renewal with empty result strings" 1 "$(input 6)" jq -c "$(line 4 '.outcome = "failed" | .reason = "cas-exit1" | .txid = "" | .lineage = "" | .restoreTxid = "" | .integrity = "" | .casTxid = ""') | .[]" -s "$good"
+edit "failed renewal without a reason" 4 "$(line 4 '.outcome = "failed"')"
 edit "command without payload hash" 5 "$(line 5 'del(.payloadSha256)')"
+edit "command without its reservation" 5 "$(line 5 'del(.reservedBytes)')"
+edit "failed command without its reservation" 6 "$(line 6 'del(.reservedRequests)')"
 edit "failed command without database size" 6 "$(line 6 'del(.dbBytes)')"
 # Values: unsigned integers in 0..2^53-1, typed, UTF-8, no lone surrogate, non-empty strings, outcome and reason
 edit "null value" 5 "$(line 5 '.casEnd = null')"

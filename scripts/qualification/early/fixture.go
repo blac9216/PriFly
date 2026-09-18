@@ -15,17 +15,22 @@
 // reason is empty and a failed entry leaves its reason non-empty and may leave its result strings
 // (results below) empty; outcome is published or failed. Line 1, and no other, is the trace header; an
 // empty trace or a blank line is malformed.
-// Semantics. Grants are in time order: the first a plain grant, every later one a renewal, a published
-// ticketed entry reserved inside the grant it renews, with a command's synced T, lineage and integrity.
+// Semantics. Grants are in time order: the first a plain grant, every later one a renewal, a ticketed
+// entry reserved inside the grant it renews, carrying a command's synced T, lineage and integrity when
+// it published. A renewal may fail: it then opens no grant (t and deadline 0) and blocks the lane, so
+// no entry after it publishes, and it is a failure of an honest run, not a rejected trace.
 // Lane clocks (ms, one clock, 0 = step not reached): ticket ≤ commitStart ≤ … ≤ casEnd ≤ ack. Commands
 // and renewals share one lane in ticket order: each ticket is at or after the previous entry's ack; commands
 // enter in schedule order; a renewal is a published command in the same sequence space (C3), so a published
 // command n restores and CASes sequence n plus the renewals before it, and a renewal the sequence after the
 // entry before it (the frontier never moves backwards, C3 step 2); a failed entry records no clock after its
 // first 0; and no published step lasts over stepTimeoutS. No minimum step duration is set (no cited doc
-// names one). Use: a ticketed entry records bytes, writes and requests, each ≥1, whether it published
-// or failed — the whole reservation is charged before the first step and a failure keeps that charge,
-// resolved or charged fully unknown (P12b L75); an entry outside a ticket records none. Grant lines
+// names one). Use: a ticketed entry records the reservation charged before its first step, within the
+// ticket maxima, and the bytes, writes and requests it then used, each ≥1 when it published. A failure
+// keeps the whole charge (already precharged finite tickets are resolved or charged fully unknown, P12b
+// L75), so a failed ticketed entry records exactly its reservation; an entry outside a ticket records
+// neither use nor reservation. The fixture step's run line carries no reservation, because it can never
+// be recorded failed: a fixture step that fails ends the run with no trace. Grant lines
 // are the control/recovery grants of #252 ruling 5714969372: each lasts at most grant.ms and has its
 // own P12b control maxima, never reused or refilled (item 2); a ticket, or a plan call at its clock t,
 // is charged to the last grant live at that clock. The fixture step is a run's first ticketed
@@ -110,12 +115,16 @@ type event struct {
 	Before, After, PayloadSha256, RestoredPayloadSha256, Txid, RestoreTxid, CasTxid, Integrity string
 	Run, N, Seed, DbBytes, T0, T, Deadline, Arrival, Submit, PriorBytes, PriorRequests         int64
 	PayloadBytes, RestoredSeq, CasSeq, Bytes, Writes, Requests, Grant                          int64
+	ReservedBytes, ReservedWrites, ReservedRequests                                            int64
 	renewal                                                                                    bool
 }
 
 const lane = " ticket commitStart commitEnd syncStart syncEnd restoreStart restoreEnd casStart casEnd ack"
 
-const renewal = "ev run t deadline outcome bytes writes requests txid lineage restoreTxid restoredSeq integrity casSeq casTxid" + lane
+// reserved is the ticket a ticketed lane entry reserved, and was charged, before its first step.
+const reserved = " reservedBytes reservedWrites reservedRequests"
+
+const renewal = "ev run t deadline outcome reason bytes writes requests txid lineage restoreTxid restoredSeq integrity casSeq casTxid" + lane + reserved
 
 // results are the strings a failed command, which never reached its result, may leave empty.
 const results = " after txid lineage restoreTxid restoredPayloadSha256 integrity casTxid "
@@ -126,7 +135,7 @@ var keys = map[string]string{
 	"grant": "ev run t deadline",
 	"plan":  "ev run t grant bytes writes requests",
 	"cmd": "ev run n kind arrival submit outcome reason bytes writes requests payloadSha256 payloadBytes before after " +
-		"dbBytes txid lineage restoreTxid restoredSeq restoredPayloadSha256 integrity casSeq casTxid" + lane,
+		"dbBytes txid lineage restoreTxid restoredSeq restoredPayloadSha256 integrity casSeq casTxid" + lane + reserved,
 }
 
 type laneEntry struct {
@@ -316,13 +325,18 @@ func main() {
 		check(ok && (ru.Bytes < 1 || ru.Writes < 1 || ru.Requests < 1), "LEDGER", r, 0, "fixture step records no remote use")
 		seen[ru.Prefix], seen[ru.Lineage] = true, true
 		usedBytes, usedRequests = add(usedBytes, ru.Bytes), add(usedRequests, ru.Requests)
-		lane := []laneEntry{}
+		lane, renewalFailed := []laneEntry{}, false
 		for k, g := range grants[r] {
 			check(g.Deadline < g.T || g.Deadline-g.T > p.Grant.Ms, "EXPIRED-PERMIT", r, 0, fmt.Sprintf("grant %d ends before it starts or lasts over %dms", k, p.Grant.Ms))
 			check(g.renewal != (k > 0), "RENEWAL", r, 0, fmt.Sprintf("grant %d: only a grant after the first is a renewal", k))
 			if k > 0 {
-				check(g.Outcome != "published" || g.Ticket < grants[r][k-1].T || g.Ticket > grants[r][k-1].Deadline || g.T < g.Ack,
+				check(g.Ticket < grants[r][k-1].T || g.Ticket > grants[r][k-1].Deadline || g.Outcome == "published" && g.T < g.Ack,
 					"RENEWAL", r, 0, fmt.Sprintf("grant %d is not a ticketed publication reserved inside the grant it renews", k))
+				if g.Outcome != "published" { // an honest failed renewal, retained: it opens nothing and its run misses
+					check(g.T != 0 || g.Deadline != 0, "RENEWAL", r, 0, fmt.Sprintf("grant %d: a failed renewal opens no grant", k))
+					fmt.Printf("FAILURE run %d grant %d kind renewal reason %s\n", r, k, g.Reason)
+					renewalFailed = true
+				}
 				check(g.Outcome == "published" && (g.RestoreTxid != g.Txid || g.CasTxid != g.Txid || g.Lineage != ru.Lineage),
 					"WRONG-T", r, 0, fmt.Sprintf("grant %d: renewal restore or frontier T/lineage is not the synced T", k))
 				check(g.Outcome == "published" && g.Integrity != "ok", "WRONG-RESULT", r, 0, fmt.Sprintf("grant %d: renewal restore integrity is not ok", k))
@@ -349,7 +363,8 @@ func main() {
 			if gi >= 0 {
 				lane = append(lane, laneEntry{event: c, grant: gi})
 			}
-			check(gi < 0 && (c.clocks != clocks{} || c.Outcome == "published" || c.Bytes != 0 || c.Writes != 0 || c.Requests != 0),
+			check(gi < 0 && (c.clocks != clocks{} || c.Outcome == "published" || c.Bytes != 0 || c.Writes != 0 || c.Requests != 0 ||
+				c.ReservedBytes != 0 || c.ReservedWrites != 0 || c.ReservedRequests != 0),
 				"EXPIRED-PERMIT", r, n, fmt.Sprintf("remote use or publication without a ticket inside a live grant of at most %dms", p.Grant.Ms))
 			l := int64(math.MaxInt64)
 			if c.Outcome == "published" {
@@ -375,9 +390,12 @@ func main() {
 		}
 		sort.SliceStable(lane, func(i, j int) bool { return lane[i].Ticket < lane[j].Ticket })
 		free, lastCas, lastN, renewals, use := int64(0), int64(math.MinInt64/2), int64(0), int64(0), make([]limits, len(grants[r]))
+		blocked := false
 		for i, e := range lane {
 			lane[i].from = free
 			published, reached, last := e.Outcome == "published", true, e.Ticket
+			check(blocked && published, "RENEWAL", r, e.N, "entry published after a failed renewal blocked the lane")
+			blocked = blocked || e.renewal && !published
 			if e.N > 0 {
 				check(e.N <= lastN, "OLD-FRONTIER", r, e.N, fmt.Sprintf("command entered the lane after command %d; the frontier moved backwards", lastN))
 				lastN = e.N
@@ -405,9 +423,11 @@ func main() {
 			}
 			check(e.Bytes > p.Ticket.Bytes || e.Writes > p.Ticket.Writes || e.Requests > p.Ticket.Requests,
 				"LEDGER", r, e.N, "remote use exceeds the pre-send ticket")
+			check(e.ReservedBytes > p.Ticket.Bytes || e.ReservedWrites > p.Ticket.Writes || e.ReservedRequests > p.Ticket.Requests,
+				"LEDGER", r, e.N, "reservation exceeds the pre-send ticket")
 			check(published && (e.Bytes < 1 || e.Writes < 1 || e.Requests < 1), "LEDGER", r, e.N, "publication records no remote use")
-			check(!published && e.Ticket != 0 && (e.Bytes < 1 || e.Writes < 1 || e.Requests < 1),
-				"LEDGER", r, e.N, "failed ticketed entry records no remote use; its reservation is charged in full")
+			check(!published && e.Ticket != 0 && (e.Bytes != e.ReservedBytes || e.Writes != e.ReservedWrites || e.Requests != e.ReservedRequests),
+				"LEDGER", r, e.N, "failed ticketed entry does not record its reservation, which is charged in full")
 			u := &use[e.grant]
 			u.Bytes, u.Writes, u.Requests = add(u.Bytes, e.Bytes), add(u.Writes, e.Writes), add(u.Requests, e.Requests)
 		}
@@ -461,7 +481,7 @@ func main() {
 		}
 		sort.Slice(lat, func(i, j int) bool { return lat[i] < lat[j] })
 		p95, worst := lat[int(math.Ceil(0.95*float64(len(lat))))-1], lat[len(lat)-1]
-		meets := p95 <= p.Thresholds.P95Ms && worst <= p.Thresholds.MaxMs && burst <= p.Thresholds.BurstMs
+		meets := p95 <= p.Thresholds.P95Ms && worst <= p.Thresholds.MaxMs && burst <= p.Thresholds.BurstMs && !renewalFailed
 		miss = miss || !meets
 		fmt.Printf("RUN %d measured %d failures %d p95 %d max %d burst %d meets %t\n", r, len(lat), failures, p95, worst, burst, meets)
 	}

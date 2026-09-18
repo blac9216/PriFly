@@ -30,7 +30,11 @@
 # sent after its grant's deadline. Each entry: reserve the whole ticket; artifact; commit; sync, requiring a
 # 16-hex TXID and the run's lineage before restore; restore that T, requiring its sequence, T, integrity and
 # result; pace the CAS casMinSpacingMs after the last (P4); require the CAS readback of sequence and T; only
-# then ack. Each probe call runs under timeout -k 1 stepTimeoutS. A failure charges the whole reservation and
+# then ack. Each entry's line records the reservation charged before its first step beside the use settled
+# after it, so a failure is read at the value it kept. Each probe call runs in its own process group and is
+# reaped by the wait builtin; a watchdog TERMs that group at stepTimeoutS and KILLs it a second later, both
+# waits timed by read on a fifo nothing writes, so no poll stands between a probe's exit and the step's end
+# clock and a call the bound ends exits 143, or 137 once killed. A failure charges the whole reservation and
 # blocks the lane for the rest of the run, so an ambiguous CAS never admits a successor, and a plan call left
 # without a ticket stops the run (its trace cannot pass); blocked commands are recorded failed, never dropped.
 # Exit: fixture.go's code; 20 refused before any probe call (usage; ledger missing, malformed or at the
@@ -60,6 +64,7 @@ now() {  # NOW: epoch ms from date's full-width nanoseconds; another shape, or a
 now
 if bash "$HERE/preflight.sh" --manifest "$MANIFEST"; then :; else halt "preflight exit $?"; fi
 mkdir -p "$WORK" && go build -o "$WORK/fixture" "$HERE/fixture.go" || halt "evaluator build failed"
+rm -f "$WORK/bound" && mkfifo "$WORK/bound" && exec 9<>"$WORK/bound" || halt "cannot open the step-bound timer fifo"
 mapfile -t ARR < <(jq -r '.warmupMs as $w | .burst as $b | range(0; $w + .durationMs; .cadenceMs) as $a
   | $a, (if $a == $w + $b.atMs then range($b.count) | $a else empty end)' "$PROC")
 mapfile -t MIX < <(jq -r '.mix[] | "\(.kind) \(.payloadBytes)"' "$PROC")
@@ -78,10 +83,19 @@ ledger() {  # BYTES REQUESTS: this invocation's charge UB UR once the ledger fil
 charge() { QB=$((QB + $1)) QW=$((QW + $2)) QR=$((QR + $3)); ledger $((UB + $1)) $((UR + $3)); }  # BYTES WRITES REQUESTS: grant and P12a
 ms() { printf '%d.%03d' $(($1 / 1000)) $(($1 % 1000)); }
 sha() { sha256sum "$1" | cut -d' ' -f1; }
+bound() {  # PID: TERM PID's process group at the step bound and KILL it a second later; fd 9 is never
+  read -t "$STEP" -u 9 -r _ && return 0  # written, so each wait is one read builtin, with nothing to poll
+  kill -TERM -- "-$1" 2>/dev/null || return 0
+  read -t 1 -u 9 -r _ && return 0
+  kill -KILL -- "-$1" 2>/dev/null || :
+}
 call() {  # KEYS VERB ARGS...: one bounded probe call, its output in its own file; b w r = its use, PICK = KEYS of it
-  local keys="$1" f="$WORK/probe.$((++CALLS))" rc=0; shift
+  local keys="$1" f="$WORK/probe.$((++CALLS))" rc=0 pid wd; shift
   echo "STEP $*" >&2
-  timeout -k 1 "$STEP" "$PROBE" "$@" >"$f" || rc=$?
+  setsid "$PROBE" "$@" >"$f" & pid=$!  # its own process group, so the bound reaches what the probe started
+  bound "$pid" & wd=$!
+  wait "$pid" 2>/dev/null || rc=$?  # 2>/dev/null: bash would report a call the watchdog ends with KILL
+  kill -KILL "$wd" 2>/dev/null || :; wait "$wd" 2>/dev/null || :
   read -r b w r PICK < <(tail -n1 "$f" | jq -rc --arg k "$keys" "$USE"' | "\(.bytes) \(.writes) \(.requests) \(with_entries(select(.key | IN($k | split(" ")[]))))"' 2>/dev/null) &&
     ((rc == 0)) || { REASON="$1-exit$rc"; ((rc)) || REASON="$1-output"; return 1; }
 }
@@ -132,7 +146,7 @@ publish() {  # N PAYLOAD_BYTES: entry KIND at sequence SEQ, ticketed at the NOW 
   now; CLK[ack]=$NOW
 }
 entry() {  # N PAYLOAD_BYTES: publish as sequence n + renewals, then settle: a published entry's charge becomes its use, a failure keeps all
-  SEQ=$((n + REN)) OUTCOME=published REASON=""
+  SEQ=$((n + REN)) OUTCOME=published REASON="" VB=$RB VW=$RW VR=$RR
   publish "$@" || OUTCOME=failed LB=0 LW=0 LR=0
   charge $((-LB)) $((-LW)) $((-LR))
   SB=$((RB - LB)) SW=$((RW - LW)) SR=$((RR - LR))
@@ -141,7 +155,7 @@ renew() {  # a renewal before command n, as a published command; its grant opens
   plan renewal 0 && live || return 1
   KIND=renewal; entry 0 0; REN=$((REN + 1))
   local t=0; [[ $OUTCOME != published ]] || t=${CLK[ack]}
-  emit "{\"ev\":\"grant\",\"run\":$run,\"t\":$t,\"deadline\":$((t ? t + GMS : 0)),\"outcome\":\"$OUTCOME\",\"bytes\":$SB,\"writes\":$SW,\"requests\":$SR,\"txid\":\"\",\"lineage\":\"\",\"restoreTxid\":\"\",\"restoredSeq\":0,\"integrity\":\"\",\"casSeq\":0,\"casTxid\":\"\"$(clocks)}"
+  emit "{\"ev\":\"grant\",\"run\":$run,\"t\":$t,\"deadline\":$((t ? t + GMS : 0)),\"outcome\":\"$OUTCOME\",\"reason\":\"$REASON\",\"bytes\":$SB,\"writes\":$SW,\"requests\":$SR,\"reservedBytes\":$VB,\"reservedWrites\":$VW,\"reservedRequests\":$VR,\"txid\":\"\",\"lineage\":\"\",\"restoreTxid\":\"\",\"restoredSeq\":0,\"integrity\":\"\",\"casSeq\":0,\"casTxid\":\"\"$(clocks)}"
   [[ $OUTCOME == published ]] && DEADLINE=$((t + GMS)) QB=0 QW=0 QR=0 GI=$((GI + 1))
 }
 order() {  # command n at its submission clock; 1 when the lane must block
@@ -149,7 +163,7 @@ order() {  # command n at its submission clock; 1 when the lane must block
   local rc=0; now
   if ! room 1 || ((NOW + MAXMS > DEADLINE)); then
     [[ $REASON != envelope ]] && renew || rc=1
-    CLK=() PART="" OUTCOME=failed SB=0 SW=0 SR=0  # the renewal's state never reaches the command
+    CLK=() PART="" OUTCOME=failed SB=0 SW=0 SR=0 VB=0 VW=0 VR=0  # the renewal's state never reaches the command
     ((rc == 0)) || { [[ $REASON == envelope ]] || REASON="renewal-${REASON#renewal-}"; return 1; }
     room 1 || return 1
   fi
@@ -174,10 +188,10 @@ for ((run = 1; run <= RUNS; run++)); do
   emit "{\"ev\":\"run\",\"run\":$run,\"t0\":$T0,\"grant\":$GI,\"prefix\":\"$prefix\",\"lineage\":\"\",\"generator\":\"\",\"seed\":0,\"litestream\":\"\",\"dbBytes\":0,\"bytes\":$((RB - LB)),\"writes\":$((RW - LW)),\"requests\":$((RR - LR))}"
   PART="" LASTCAS=$((-SPACING)) BLOCKED=""
   for i in "${!ARR[@]}"; do
-    n=$((i + 1)) submit=$((T0 + ARR[i])) OUTCOME=failed REASON=lane-blocked SB=0 SW=0 SR=0 PART="" CLK=()
+    n=$((i + 1)) submit=$((T0 + ARR[i])) OUTCOME=failed REASON=lane-blocked SB=0 SW=0 SR=0 VB=0 VW=0 VR=0 PART="" CLK=()
     read -r kind size <<<"${MIX[i % ${#MIX[@]}]}"
     [[ -n $BLOCKED ]] || { REASON=""; order || BLOCKED=1; }
-    emit "{\"ev\":\"cmd\",\"run\":$run,\"n\":$n,\"kind\":\"$kind\",\"arrival\":${ARR[i]},\"submit\":$submit,\"outcome\":\"$OUTCOME\",\"reason\":\"$REASON\",\"bytes\":$SB,\"writes\":$SW,\"requests\":$SR,\"payloadSha256\":\"none\",\"payloadBytes\":0,\"before\":\"none\",\"after\":\"\",\"dbBytes\":0,\"txid\":\"\",\"lineage\":\"\",\"restoreTxid\":\"\",\"restoredSeq\":0,\"restoredPayloadSha256\":\"\",\"integrity\":\"\",\"casSeq\":0,\"casTxid\":\"\"$(clocks)}"
+    emit "{\"ev\":\"cmd\",\"run\":$run,\"n\":$n,\"kind\":\"$kind\",\"arrival\":${ARR[i]},\"submit\":$submit,\"outcome\":\"$OUTCOME\",\"reason\":\"$REASON\",\"bytes\":$SB,\"writes\":$SW,\"requests\":$SR,\"reservedBytes\":$VB,\"reservedWrites\":$VW,\"reservedRequests\":$VR,\"payloadSha256\":\"none\",\"payloadBytes\":0,\"before\":\"none\",\"after\":\"\",\"dbBytes\":0,\"txid\":\"\",\"lineage\":\"\",\"restoreTxid\":\"\",\"restoredSeq\":0,\"restoredPayloadSha256\":\"\",\"integrity\":\"\",\"casSeq\":0,\"casTxid\":\"\"$(clocks)}"
   done
 done
 report; trap - EXIT

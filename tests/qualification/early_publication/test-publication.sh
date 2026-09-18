@@ -2,10 +2,12 @@
 # Local proof for publication.sh with the fake probe and a placeholder manifest: no Litestream, R2, network,
 # credential or real run. Every completed trace is judged by fixture.go from the same tree (the runner execs
 # it), so a verdict line also proves the runner wrote fixture.go's grammar (a grammar break is exit 2). The
-# fixed P13 schedule runs on a virtual clock: PATH shims for date and sleep move a counter file, and a timeout
-# shim requires "-k 1 120" and execs the probe. Group "real" runs the real date, sleep and timeout over a copy
-# whose procedure is scaled to 4 commands and a 1 s step bound; fixture.go refuses that procedure (exit 2), so
-# its trace is checked directly. Each case asserts an exit code and a whole output line, or a jq condition.
+# fixed P13 schedule runs on a virtual clock: PATH shims for date and sleep move a counter file. Group "real"
+# runs the real date and sleep over a copy whose procedure is scaled to 4 commands and a 1 s step bound, with a
+# PATH "timeout" that keeps the real one's semantics and adds the 100 ms poll of uutils coreutils 0.8.0: the
+# runner bounds its own steps, so that shim must never run and the measured steps must not carry its floor.
+# fixture.go refuses that procedure (exit 2), so its trace is checked directly. Each case asserts an exit code
+# and a whole output line, or a jq condition.
 # EARLY may name a scratch copy of scripts/qualification/early with schemas/ three levels up (mutant pass);
 # ONLY may list the groups to run (envelope needs accept); MAN and PRB override the manifest and probe.
 # shellcheck disable=SC2016  # jq filters and shim bodies expand later
@@ -15,19 +17,19 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EARLY="${EARLY:-$HERE/../../../scripts/qualification/early}"
 work="$(mktemp -d "${TMPDIR:-/tmp}/prifly-early-publication.XXXXXX")"
 trap 'rm -rf -- "$work"' EXIT
-mkdir "$work/vclock" "$work/badclock"
+mkdir "$work/vclock" "$work/badclock" "$work/polled"
 printf '#!/usr/bin/env bash\n%s\n' 'read -r c <"$VCLOCK"; c=$((c + ${VSTEP:-7})); echo "$c" >"$VCLOCK"; printf "%d.%03d000000\n" $((c / 1000)) $((c % 1000))' >"$work/vclock/date"
 printf '#!/usr/bin/env bash\n%s\n' 'read -r c <"$VCLOCK"; s="${1/./}"; echo $((c + 10#$s)) >"$VCLOCK"' >"$work/vclock/sleep"
-printf '#!/usr/bin/env bash\n%s\n' '[[ "$1 $2 $3" == "-k 1 120" ]] || exit 125; shift 3; exec "$@"' >"$work/vclock/timeout"
 printf '#!/bin/sh\necho 1789634570348164755\n' >"$work/badclock/date"  # date +%%s%%3N on uutils coreutils 0.8.0
-chmod +x "$work"/vclock/* "$work/badclock/date"
+printf '#!/usr/bin/env bash\n%s\n' ': >"${0%/*}/called"; command -p timeout "$@"; rc=$?; sleep 0.105; exit $rc' >"$work/polled/timeout"
+chmod +x "$work"/vclock/* "$work/badclock/date" "$work/polled/timeout"
 EB=8589934592 fails=0
 PASS="VERDICT: every run meets the fixed publication thresholds; feasibility evidence only, not a Q13 PASS"
 MISS="VERDICT: a run misses a fixed publication threshold; feasibility evidence only"
 group() { [[ -z "${ONLY:-}" || " $ONLY " == *" $1 "* ]]; }
 runner() {  # group, ledger JSON ("" none), FAKE_MODE [, env assignments]: one runner invocation in $work/<group>, bounded by BOUND s
   local d="$work/$1" path="$work/vclock:$PATH"; mkdir -p "$d/state"; [[ -z "$2" ]] || echo "$2" >"$d/ledger.json"
-  echo 1789000000000 >"$d/clock"; [[ "${CLOCK:-}" == real ]] && path="$PATH"; [[ "${CLOCK:-}" == bad ]] && path="$work/badclock:$PATH"
+  echo 1789000000000 >"$d/clock"; [[ "${CLOCK:-}" == real ]] && path="${SHIM:+$SHIM:}$PATH"; [[ "${CLOCK:-}" == bad ]] && path="$work/badclock:$PATH"
   set +e; timeout -k 5 "${BOUND:-900}" env PATH="$path" VCLOCK="$d/clock" FAKE_STATE="$d/state" FAKE_MODE="$3" "${@:4}" bash "${RUNNER:-$EARLY}/publication.sh" \
     --manifest "${MAN:-$HERE/manifest.json}" --probe "${PRB:-$HERE/fake-probe.sh}" --ledger "$d/ledger.json" --work "$d/work" >"$d/out" 2>"$d/err"; echo $? >"$d/rc"; set -e
 }
@@ -82,11 +84,15 @@ fi
 if group real; then
   real="$work/scaled/scripts/qualification/early"; mkdir -p "$real" && cp -r "$EARLY/." "$real" && cp -r "$EARLY/../../../schemas" "$work/scaled/"
   jq '.runs = 1 | .warmupMs = 1000 | .durationMs = 2000 | .cadenceMs = 1000 | .burst = {atMs: 0, count: 1} | .stepTimeoutS = 1' "$EARLY/publication.json" >"$real/publication.json"
-  t0=$(($(date +%s%N) / 1000000)); CLOCK=real RUNNER="$real" runner real '{"bytes":0,"requests":0}' "hang@1:4"; t1=$(($(date +%s%N) / 1000000))
+  t0=$(($(date +%s%N) / 1000000)); SHIM="$work/polled" CLOCK=real RUNNER="$real" runner real '{"bytes":0,"requests":0}' "hang@1:4"; t1=$(($(date +%s%N) / 1000000))
   line "real clock run reaches the evaluator" real 2 "fixture: procedure is not the fixed P4/P12a/P12b/P13 procedure"
   holds "real clock: epoch-ms step clocks inside the run, in lane order" real "map(select(.ev == \"cmd\")) | length == 4 and all(.[]; .ticket > 0 and ($lane | map(select(. > 0)) | . == sort and all(.[]; . >= \$t0 and . <= \$t1)))" --argjson t0 "$t0" --argjson t1 "$t1"
   holds "real clock: burst CAS paced 1100 ms" real 'map(select(.ev == "cmd")) | .[2].casStart - .[1].casStart >= 1100'
-  holds "real timeout -k ends a TERM-ignoring step" real 'map(select(.ev == "cmd"))[3] | .reason == "sync-exit137" and .syncEnd - .syncStart < 2900'
+  holds "the step bound ends a TERM-ignoring step" real 'map(select(.ev == "cmd"))[3] | .reason == "sync-exit137" and .syncEnd - .syncStart < 2900'
+  holds "no step bound polls a finished probe: a measured step is under the 100 ms poll floor" real \
+    'map(select(.ev == "cmd" and .outcome == "published")) | [.[] | .commitEnd - .commitStart, .syncEnd - .syncStart, .restoreEnd - .restoreStart, .casEnd - .casStart]
+     | length == 12 and min < 100'
+  cond "the polling step bound on PATH is never called" test ! -e "$work/polled/called"
 fi
 if group accept; then
   runner accept '{"bytes":1000,"requests":10}' "heavy@1:10 bulk@2:4"
@@ -125,7 +131,11 @@ if group faults; then
   line "ambiguous CAS fails the command" faults 3 "FAILURE run 3 n 7 kind finding-review arrival 90000 reason cas-exit1"
   cond "tickets and plan calls in the ledger file before they are sent" awk '{split($NF, j, /[:,}]/)} $1 == "plan" {b = j[2]; r = j[4]}
     $1 == "artifact" {n++; if (j[2] != b + $6 || j[4] != r + $8) bad = 1} END {exit bad || !n}' "$work/faults/state/calls"  # declared plan use is its use here
-  holds "a failed command is charged its whole reservation" faults 'map(select(.reason == "cas-exit1"))[0] | .bytes == .payloadBytes + 65536 and .writes == 8 and .requests == 40'
+  holds "a failed command is charged its whole reservation" faults 'map(select(.reason == "cas-exit1"))[0] |
+    .bytes == .payloadBytes + 65536 and .writes == 8 and .requests == 40 and
+    [.bytes, .writes, .requests] == [.reservedBytes, .reservedWrites, .reservedRequests]'
+  holds "a published command settles under the reservation it was charged" accept 'map(select(.ev == "cmd" and .outcome == "published"))[0] |
+    .bytes < .reservedBytes and .writes < .reservedWrites and .requests < .reservedRequests'
   holds "a failed plan call is charged its declared use" checks4 'map(select(.ev == "plan" and .run == 3))[1].requests == 1'
   line "a plan call left without a ticket stops the run" checks3 1 "REJECT PLAN run 3 n 0: plan call serves no entry: after the run's last ticketed entry, or a second plan for it"
   cond "no plan call after the one left without a ticket" grep -q '^plan 3 finding-review ' <(grep '^plan 3 ' "$work/checks3/state/calls" | tail -n1)
@@ -142,8 +152,15 @@ if group faults; then
     echo "ok   no restore after a lineage mismatch and no successor after an ambiguous CAS"; else echo "FAIL no restore after a lineage mismatch and no successor after an ambiguous CAS"; fails=$((fails + 1)); fi
 fi
 if group renewals; then
-  runner renewals '{"bytes":0,"requests":0}' "heavy@1:10 cas-lost@1:1 heavy@2:10 exit1@2:4 heavy@3:10 greedy@3:attempt-result"
-  unsent=".outcome == \"failed\" and .ticket == 0 and .bytes == 0 and .writes == 0 and .requests == 0 and ($lane | all(. == 0))"
+  runner renewals '{"bytes":0,"requests":0}' "heavy@1:10 cas-lost@1:1 heavy@2:10 exit1@2:4 heavy@3:10 greedy@3:attempt-result" &
+  runner lost-renewal '{"bytes":0,"requests":0}' "heavy@1:10 cas-lost@1:1" & wait  # lost-renewal: run 1's renewal alone fails
+  line "a failed renewal is a failed run, not a rejected trace" lost-renewal 3 "$MISS"
+  line "the failed renewal is retained as the failure it is" lost-renewal 3 "FAILURE run 1 grant 1 kind renewal reason cas-exit1"
+  holds "the failed renewal opens no grant and blocks run 1's lane" lost-renewal \
+    'map(select(.run == 1)) | (map(select(.ev == "grant" and .outcome == "failed")) | length == 1 and all(.[]; .t == 0 and .deadline == 0))
+     and all(.[] | select(.ev == "cmd"); .outcome == "failed")'
+  unsent=".outcome == \"failed\" and .ticket == 0 and .bytes == 0 and .writes == 0 and .requests == 0 and
+    .reservedBytes == 0 and .reservedWrites == 0 and .reservedRequests == 0 and ($lane | all(. == 0))"
   holds "a failed renewal leaves the next command failed with no ticket, use or clock" renewals "map(select(.run == 1 and .n == 1))[0] | $unsent and .reason == \"renewal-cas-exit1\""
   holds "a command failing its plan after a published renewal is never published" renewals \
     "(map(select(.run == 3 and .ev == \"grant\"))[2].outcome == \"published\") and (map(select(.run == 3 and .n == 2))[0] | $unsent and .reason == \"plan-over-ticket\")"
