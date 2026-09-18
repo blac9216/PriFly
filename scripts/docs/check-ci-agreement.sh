@@ -693,6 +693,7 @@ def value_closes(value: str) -> bool:
     from each other and from the content by whitespace -- and those are written in front
     of the content without being it. They are dropped first. Neither indicator can begin
     a plain scalar in YAML, so dropping a leading ! or & token cannot swallow content.
+    A value that is only properties leaves nothing behind, which closes.
     Reading an indicator as the content answers "closed" for every tagged and anchored
     value there is; the header above records what that cost and how it was measured.
 

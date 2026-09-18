@@ -15,7 +15,7 @@
 # widens, and three more holding that rule to a skip rather than a refusal. The value that
 # does not close on its own line (#369) has a case per shape its rule reads, at both silent
 # indents and in both jobs, one per node property that may sit in front of the value and
-# per way of writing two of them, five holding that the rule refuses an unreadable value
+# per way of writing two of them, seven holding that the rule refuses an unreadable value
 # rather than a quote, a bracket or a property, and one holding the cost of refusing rather
 # than reading the value through.
 # All cases run; the script exits 1 if any failed.
@@ -802,15 +802,16 @@ check_case 'comment lines inside the go step list do not truncate it' 0 'workflo
 # to one indent: under every deletion below the two-space and three-space cases go red
 # together. The mutant that separates them has to add a lookahead rather than remove
 # anything -- refuse only when the very next line begins with exactly two spaces -- and
-# measured, that mutant leaves the clean tree exit 0 and 202 of the 204 cases green, the
+# measured, that mutant leaves the clean tree exit 0 and 203 of the 205 cases green, the
 # two red ones being the three-space pair here. So the second indent is not redundant, and
 # the pair is what #369 M4 asks for.
 #
 # Every rule of value_closes and of the refusal that calls it is listed here with the
 # number of cases the mutant of that rule alone turns red, each number read off a run of
 # that mutant rather than off this list. The first version of this list under-counted four
-# of its eight rows, which reads as a rule with one pin when it has several. No mutant
-# below survives, and the clean tree stays exit 0 under every one of them.
+# of its eight rows, which reads as a rule with one pin when it has several; the second
+# was missing the two rules review round 2 found unpinned. No mutant below survives, and
+# the clean tree stays exit 0 under every one of them.
 #   drop '"' from the first-character gate                -> 17
 #   drop "'" from it                                      ->  3
 #   drop '[' from it                                      ->  8
@@ -821,6 +822,8 @@ check_case 'comment lines inside the go step list do not truncate it' 0 'workflo
 #   stop tracking single quotes, keeping double ones      ->  2, one of them a closed value
 #   drop the flow depth from a closer                     ->  1
 #   drop the flow depth from the single-quote close       ->  1
+#   delete the flow closer branch outright                ->  1, a closed value below
+#   drop the bounds guard from the property strip         ->  1, a closed value below
 #   delete the node-property strip                        -> 13
 #   drop '!' from the strip                               -> 11
 #   drop '&' from it                                      ->  5
@@ -976,13 +979,24 @@ reset_fixture
 printf '%s\n' "        timeout-minutes: ['a]'," '  1]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
 check_case 'a bracket inside a single-quoted flow scalar does not close the sequence' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
 
-# And the values that do close, so this is a refusal of an unreadable value rather than of
-# a quote, a bracket or a property. The bracket case is the one a bracket count over the
-# whole value would reject: a closed double-quoted scalar that happens to contain a [. The
-# single-quoted one is the case that catches the half of a lost single-quote rule the
-# refusals above cannot see -- stop tracking single quotes and this value is refused
-# although it closes. The two properties are here because stripping them must not take
-# content with it: the tag leaves a closed quoted scalar behind and the anchor a plain 10.
+# And the seven values that do close, so this is a refusal of an unreadable value rather
+# than of a quote, a bracket or a property. Six of the seven are reached by a mutant of the
+# twenty, and which mutant reaches which was read off a run rather than reasoned about:
+#   "10"        -> quotes not tracked inside a flow collection
+#   [1, 0]      -> the flow closer branch deleted, which refuses a sequence that does close
+#   "1[0"       -> that mutant, and a bracket count over the whole value, which this case
+#                  exists to reject: a closed double-quoted scalar that happens to hold a [
+#   '10'        -> that mutant, and single quotes not tracked at all, which is the half of
+#                  a lost single-quote rule the refusals above cannot see
+#   !!str "10"  -> quotes not tracked inside a flow collection; stripping the tag has to
+#                  leave the closed quoted scalar behind
+#   !!str       -> the bounds guard dropped from the property strip, which is an IndexError
+#                  on a value that is only a property, because the split leaves one part
+# The seventh, &t 10, is reached by none of the twenty and cannot be by any mutant of this
+# function: under every mutant of the strip the value still begins with an ampersand, and
+# under the strip as written it is the plain 10, so both paths reach the same return. It is
+# here for symmetry with the tagged one, and this comment says so rather than implying a
+# mutant that does not exist.
 reset_fixture
 printf '%s\n' '        timeout-minutes: "10"' >>"$wf_docs"
 check_case 'a closed double-quoted timeout-minutes: changes nothing' 0 'workflow steps agree with their documented commands'
@@ -1001,6 +1015,9 @@ check_case 'a closed tagged timeout-minutes: changes nothing' 0 'workflow steps 
 reset_fixture
 printf '%s\n' '        timeout-minutes: &t 10' >>"$wf_docs"
 check_case 'a closed anchored timeout-minutes: changes nothing' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' '        timeout-minutes: !!str' >>"$wf_docs"
+check_case 'a value that is only a tag closes, with nothing behind it' 0 'workflow steps agree with their documented commands'
 
 # --- #361: an exempt step's position is declared -------------------------------------
 # Moving an exempt step changes none of its bytes, so the declared exempt content list
