@@ -6,8 +6,10 @@
 # exemption entry has a case that only that entry satisfies, so deleting any one entry
 # turns a named case red. Each mutation #347 and #348 name has a case too, including the
 # one #347 M3 records as a limit rather than a defect, and the three written lists those
-# two issues add are each proved to rot in both directions. All cases run; the script
-# exits 1 if any failed.
+# two issues add are each proved to rot in both directions. Each mutation #353 names has a
+# case as well -- one per scope above the step, one per exempt-step key that decides
+# whether it runs, and the two limits that issue records rather than closes. All cases
+# run; the script exits 1 if any failed.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -84,8 +86,33 @@ set_conditional() {
   checker="$fixture_dir/checker.sh"
 }
 
+# set_list NAME LITERAL: copy the checker with its `NAME = [...]` line replaced by the
+# Python list literal LITERAL, and point the next case at that copy. This is how a scope
+# key list is proved to rot: every entry of those names a key the tree carries.
+set_list() {
+  awk -v name="$1" -v literal="$2" '
+    index($0, name " = [") == 1 { print name " = " literal; next }
+    { print }
+  ' "$SCRIPT_DIR/check-ci-agreement.sh" >"$fixture_dir/checker.sh"
+  checker="$fixture_dir/checker.sh"
+}
+
+# set_declared_env LITERAL: copy the checker with its declared job environment dict
+# replaced by the Python dict literal LITERAL, and point the next case at that copy.
+set_declared_env() {
+  awk -v literal="$1" '
+    index($0, "DECLARED_JOB_ENV = {") == 1 { print "DECLARED_JOB_ENV = " literal; skipping = 1; next }
+    skipping && $0 == "}" { skipping = 0; next }
+    skipping { next }
+    { print }
+  ' "$SCRIPT_DIR/check-ci-agreement.sh" >"$fixture_dir/checker.sh"
+  checker="$fixture_dir/checker.sh"
+}
+
 reset_fixture
 check_case 'unmodified copies agree' 0 'workflow steps agree with their documented commands'
+also_expect 'unmodified copies account for every key of both scopes' '2 job scopes and 2 workflow scopes carry no unaccounted-for key'
+also_expect 'unmodified copies use the live job environment declaration' '2 job environment variables are declared and in use'
 also_expect 'unmodified copies use every exemption' 'exemptions are all in use'
 also_expect 'unmodified copies match the manifest CI list' "CI list of twelve matches"
 
@@ -297,6 +324,142 @@ check_case 'a conditional entry naming no step fails' 1 "entry 'No such step' na
 reset_fixture
 set_conditional '{".github/workflows/go-checks.yml": {"Check out the PR head commit (not the synthetic merge ref)": ["if"]}}'
 check_case 'a conditional entry naming an exempt step fails' 1 "entry 'Check out the PR head commit (not the synthetic merge ref)' names 0 paired steps"
+
+# --- #353 M1: a documented step switched off from the job mapping ---------------------
+reset_fixture
+sed -i 's@^  go:$@  go:\n    if: ${{ github.event_name == null }}@' "$wf_go"
+check_case 'a never-firing if on the go job fails' 1 "go-checks.yml job 'go' carries if: \${{ github.event_name == null }}"
+also_expect 'the job condition says what it decides' 'which decides whether the steps beneath it run or whether their failure blocks'
+also_expect 'the job condition names the documents it disagrees with' 'while docs/process/testing.md documents them as steps that run'
+
+reset_fixture
+sed -i 's@^  design-docs:$@  design-docs:\n    continue-on-error: true@' "$wf_docs"
+check_case 'continue-on-error on the design-docs job fails' 1 "docs-checks.yml job 'design-docs' carries continue-on-error: true"
+
+# The live job env block is legitimate, so it is declared rather than banned: the
+# declaration pins the value, and widening it is red.
+reset_fixture
+sed -i 's@^      GOFLAGS: -mod=readonly$@      GOFLAGS: -mod=readonly -tags=skip@' "$wf_go"
+check_case 'a widened job environment value fails' 1 "declared job environment entry 'GOFLAGS' of .github/workflows/go-checks.yml job 'go' declares '-mod=readonly'"
+also_expect 'the widened value says what the job now sets' "but the job sets '-mod=readonly -tags=skip'"
+
+reset_fixture
+sed -i 's@^      GOTOOLCHAIN: local$@      GOTOOLCHAIN: local\n      GOPROXY: off@' "$wf_go"
+check_case 'an undeclared job environment variable fails' 1 "job 'go' sets env GOPROXY: off"
+also_expect 'the undeclared variable says the list did not cover it' "no entry in the checker's declared job environment list covers it"
+
+# A variable line the reader cannot read is an error, not an absent variable: absent is
+# what a clean scope looks like, so dropping it would let a quoted name, an odd indent or a
+# merge key set a variable the declaration comparison never sees. Round 1 of review found
+# all three green, the quoted name overriding the very GOFLAGS value the list pins.
+reset_fixture
+sed -i 's@^      GOFLAGS: -mod=readonly$@      GOFLAGS: -mod=readonly\n      "GOFLAGS": -mod=mod@' "$wf_go"
+check_case 'a quoted variable name in the declared job env fails' 3 "go-checks.yml job 'go' holds a line under env: that this checker cannot read as a variable"
+also_expect 'the unreadable variable says why it is not skipped' 'so it cannot compare it with the list that says which variables the scope may set'
+also_expect 'the unreadable variable quotes the line' '"GOFLAGS": -mod=mod'
+
+reset_fixture
+sed -i 's@^  design-docs:$@  design-docs:\n    env:\n        PATH: /tmp/shim:/usr/bin:/bin@' "$wf_docs"
+check_case 'a job env variable at the wrong indent fails' 3 "docs-checks.yml job 'design-docs' holds a line under env: that this checker cannot read as a variable"
+
+reset_fixture
+sed -i 's@^permissions:$@env:\n  "GOPROXY": off\npermissions:@' "$wf_go"
+check_case 'a quoted variable name at workflow scope fails' 3 '.github/workflows/go-checks.yml workflow scope holds a line under env: that this checker cannot read as a variable'
+
+# --- #353 M1: and from the workflow mapping, which declares no environment ------------
+reset_fixture
+sed -i 's@^permissions:$@env:\n  GOPROXY: off\npermissions:@' "$wf_go"
+check_case 'a workflow-level env in go-checks fails' 1 '.github/workflows/go-checks.yml workflow scope sets env: GOPROXY: off'
+also_expect 'the workflow env says why no declaration covers it' 'this checker declares no environment at that scope'
+
+reset_fixture
+sed -i 's@^permissions:$@env:\n  GOFLAGS: -mod=mod\npermissions:@' "$wf_docs"
+check_case 'a workflow-level env in docs-checks fails' 1 '.github/workflows/docs-checks.yml workflow scope sets env: GOFLAGS: -mod=mod'
+
+# --- #353 M2: every key of the two mappings is accounted for, not just three ----------
+reset_fixture
+sed -i 's@^    timeout-minutes: 25$@    timeout-minutes: 25\n    defaults:\n      run:\n        working-directory: .@' "$wf_go"
+check_case 'an unrecognised job key fails' 3 "job 'go' carries defaults:, which this checker does not recognise at that scope"
+also_expect 'the unrecognised job key says it was not skipped' 'so it is not skipped'
+also_expect 'the unrecognised job key names both lists' 'neither permitted (runs-on, timeout-minutes, steps) nor load-bearing (if, continue-on-error, env)'
+
+reset_fixture
+sed -i 's@^    timeout-minutes: 10$@    timeout-minutes: 10\n    uses: ./.github/workflows/elsewhere.yml@' "$wf_docs"
+check_case 'a paired job turned into a reusable workflow call fails' 3 "job 'design-docs' carries uses:, which this checker does not recognise at that scope"
+
+reset_fixture
+sed -i 's@^permissions:$@concurrency: one-at-a-time\npermissions:@' "$wf_go"
+check_case 'an unrecognised workflow key fails' 3 'workflow scope carries concurrency:, which this checker does not recognise at that scope'
+
+# --- #353 M3: an exempt step is unpaired, not unread ----------------------------------
+reset_fixture
+sed -i 's@^      - name: Install pinned Go toolchain (verify SHA-256, then extract)$@      - name: Install pinned Go toolchain (verify SHA-256, then extract)\n        if: ${{ github.event_name == null }}@' "$wf_go"
+check_case 'a never-firing if on the exempt toolchain step fails' 1 "exempt step 'Install pinned Go toolchain (verify SHA-256, then extract)' carries if: \${{ github.event_name == null }}"
+also_expect 'the exempt condition says why an exempt step is still read' 'while the steps docs/process/testing.md documents run only because this one has'
+
+reset_fixture
+sed -i 's@^      - name: Restore Go module cache (keyed by go.sum)$@      - name: Restore Go module cache (keyed by go.sum)\n        continue-on-error: true@' "$wf_go"
+check_case 'continue-on-error on an exempt step fails' 1 "exempt step 'Restore Go module cache (keyed by go.sum)' carries continue-on-error: true"
+
+reset_fixture
+sed -i 's@^      - name: Check out the PR head commit (not the synthetic merge ref)$@      - name: Check out the PR head commit (not the synthetic merge ref)\n        shell: bash@' "$wf_docs"
+check_case 'an unrecognised key on an exempt step fails' 3 'exempt step '"'"'Check out the PR head commit (not the synthetic merge ref)'"'"' carries shell:, which this checker does not recognise on an exempt step'
+
+# The exempt toolchain step's own env: is permitted, because it reaches only that step's
+# unpaired command; the unmutated tree above proves it stays green with the block in place.
+# Its entry in the permitted list is live, so deleting it is red.
+reset_fixture
+set_list EXEMPT_PERMITTED '["name", "run", "uses", "with", "timeout-minutes"]'
+check_case 'dropping env from the exempt permitted list fails' 3 "exempt step 'Install pinned Go toolchain (verify SHA-256, then extract)' carries env:"
+
+# timeout-minutes is permitted on an exempt step for the reason it is permitted on a paired
+# one: it can only make the step fail sooner, never stop it running or stop it blocking.
+reset_fixture
+sed -i 's@^      - name: Restore Go module cache (keyed by go.sum)$@      - name: Restore Go module cache (keyed by go.sum)\n        timeout-minutes: 5@' "$wf_go"
+check_case 'timeout-minutes on an exempt step still passes' 0 'workflow steps agree with their documented commands'
+
+# --- #353: the declared job environment list is load-bearing in both directions -------
+reset_fixture
+sed -i '/^      GOTOOLCHAIN: local$/d' "$wf_go"
+check_case 'a declared variable the job no longer sets fails' 1 "declared job environment entry 'GOTOOLCHAIN' names a variable .github/workflows/go-checks.yml job 'go' does not set"
+reset_fixture
+sed -i '/^    env:$/,+2d' "$wf_go"
+check_case 'a declared job that drops its env block fails' 1 "declared job environment entry 'GOFLAGS' names .github/workflows/go-checks.yml job 'go', which sets no env: block"
+reset_fixture
+set_declared_env '{".github/workflows/go-checks.yml": {"absent": {"GOTOOLCHAIN": "local"}}}'
+check_case 'a declared environment entry naming an unpaired job fails' 3 'the declared job environment list names .github/workflows/go-checks.yml job absent, which this checker does not pair'
+
+# --- #353 F4: the scope key lists name live keys, so they rot in both directions ------
+# Every entry of both permitted lists names a key this tree carries, unlike the step-scope
+# attribute lists, whose if, continue-on-error, run and name entries name classes of
+# possible edit. Deleting a live entry is exit 3 with no other change to the tree.
+reset_fixture
+set_list JOB_PERMITTED '["timeout-minutes", "steps"]'
+check_case 'dropping runs-on from the job permitted list fails' 3 "job 'design-docs' carries runs-on:, which this checker does not recognise at that scope"
+reset_fixture
+set_list JOB_LOAD_BEARING '["if", "continue-on-error"]'
+check_case 'dropping env from the job load-bearing list fails' 3 "job 'go' carries env:, which this checker does not recognise at that scope"
+reset_fixture
+set_list WORKFLOW_PERMITTED '["name", "on", "permissions"]'
+check_case 'dropping jobs from the workflow permitted list fails' 3 'workflow scope carries jobs:, which this checker does not recognise at that scope'
+
+# The step-scope attribute lists rot only on a tree that carries the key, which is what the
+# header now says and what #353 F4 asked to be made exact: timeout-minutes occurs at job
+# scope only, so its entry is exercised only once a paired step carries it.
+reset_fixture
+sed -i 's@^        run: go vet ./...$@        timeout-minutes: 5\n        run: go vet ./...@' "$wf_go"
+set_list PERMITTED_ATTRIBUTES '["name", "run"]'
+check_case 'dropping timeout-minutes on a tree that carries it fails' 3 "step 'go vet' carries timeout-minutes:, which this checker does not recognise on a paired step"
+
+# --- #353 M4: the manifest limit, pinned rather than closed ---------------------------
+# Recorded in the header, not a defect: the check proves an entry's tokens appear in the
+# step's run: as whole path components, so an entry narrowed to a bare interpreter name
+# passes while one narrowed to a neighbouring script's name (above) fails. If a later
+# change starts proving the entry names the step's script, this case turns red and the
+# header is what has to be corrected with it.
+reset_fixture
+sed -i 's@^6. `test-check-links.sh`@6. `bash`@' "$manifest"
+check_case 'a manifest entry narrowed to a bare interpreter name passes, as the header records' 0 'workflow steps agree with their documented commands'
 
 reset_fixture
 echo "test-check-ci-agreement: $passed cases passed, $failed failed"

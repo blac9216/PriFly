@@ -30,7 +30,7 @@ the repository root, plus the Go suite that follows it:
 | Go digest checker regression tests | `bash scripts/docs/test-check-go-digest.sh` | Repository checkout; Bash, standard Unix tools; mutates only scratch copies of the two files. |
 | Readiness-checker regression tests | `bash scripts/process/test-check-readiness.sh` | Repository checkout; Bash, Python 3. |
 | Early-probe preflight self-test | `bash scripts/qualification/early/test-preflight.sh` | Repository checkout; Bash, Python 3; no network. Cases plus a mutant pass over scratch copies of `preflight.sh` and its schema under `${TMPDIR:-/tmp}`. |
-| Workflow/documentation agreement | `bash scripts/docs/check-ci-agreement.sh --root .` | Repository checkout; Bash, Python 3. Fails unless every step of `docs-checks.yml` and `go-checks.yml` pairs, in order, with its Commands-table row here or appears on the checker's own written exemption list, unless no paired step carries an `if:`, `continue-on-error:` or `env:` key of its own, and unless `doc-manifest.md`'s `## CI` list and its spelled-out count match this job's steps. |
+| Workflow/documentation agreement | `bash scripts/docs/check-ci-agreement.sh --root .` | Repository checkout; Bash, Python 3. Fails unless every step of `docs-checks.yml` and `go-checks.yml` pairs, in order, with its Commands-table row here or appears on the checker's own written exemption list, unless no paired step carries an `if:`, `continue-on-error:` or `env:` key of its own, unless the job and workflow mappings above those steps carry only keys the checker accounts for and the `go` job's `env:` block is the one it declares, unless no exempt step carries an `if:` or `continue-on-error:`, and unless `doc-manifest.md`'s `## CI` list and its spelled-out count match this job's steps. |
 | Agreement checker regression tests | `bash scripts/docs/test-check-ci-agreement.sh` | Repository checkout; Bash, Python 3; mutates only scratch copies of the four files it reads and of the checker itself. |
 | Sanitize scan | `gitleaks detect --source . --no-banner` | Repository checkout; `gitleaks` binary on `PATH`. Run before every push — this repository is **public**. |
 | Integration | No command exists until a runnable integration surface lands. | Not configured. |
@@ -168,10 +168,18 @@ from the Go suite table into the qualification table fails even though the two t
 read in sequence are unchanged. A paired step is more than its `run:` line: a step that
 carries an `if:`, a `continue-on-error:` or an `env:` key of its own fails, because these
 tables assert that every paired step runs and blocks, and nothing else in the repository
-reads those keys. The checker reads a step's own keys, not its job's. The checker's
-header records the exemption list, the rows allowed to document a `<placeholder>`, the
-steps whose condition the documents cover, the first step of each table, and the three
-classes of normalisation it applies between a table cell and a `run:` line; each of
-those lists is load-bearing in both directions, so none can decay into a way of waving a
-step through. It fails rather than skipping when it
-meets a cell, a step or a step attribute it cannot normalise.
+reads those keys. The scopes above the step decide the same thing, so the checker reads
+them too: the same three keys on the job, and an `env:` block at workflow level, fail in
+the same way, and a key it recognises at neither scope is an error naming the key rather
+than something skipped. The one such key that is live and legitimate, the `go` job's
+`env:` block, is declared in the checker with its exact values, so widening it fails. An
+exempt step has no documented command, but the paired steps run only because it did, so
+its `if:` and `continue-on-error:` are read as well; the rest of an exempt step is not.
+The checker's header records the exemption list, the rows allowed to document a
+`<placeholder>`, the steps whose condition the documents cover, the first step of each
+table, the keys each scope may carry, the environment the `go` job may set, and the three
+classes of normalisation it applies between a table cell and a `run:` line; each of those
+lists is load-bearing in both directions to the extent that its entries name something
+this tree carries, which the header states list by list, so none can decay into a way of
+waving a step through. It fails rather than skipping when it
+meets a cell, a step or a key it cannot normalise.

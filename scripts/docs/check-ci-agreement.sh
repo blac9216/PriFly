@@ -19,12 +19,63 @@
 # it runs, and a key the list does not recognise is an error rather than something
 # skipped.
 #
+# A step is also less than everything that decides whether it runs (#353). A never-firing
+# if: on the job skips every step inside it, continue-on-error: on the job stops the job
+# blocking, and an env: block at job or workflow level reaches every run: line beneath it,
+# so each of those closes a documented step from a scope outside the step. This checker
+# therefore reads three scopes, not one: the workflow mapping at the top of the file, the
+# mapping of each job it pairs, and that job's steps. The scope key lists below say which
+# keys are permitted at which scope, which are load-bearing there, and -- because a job
+# mapping is the one scope where a load-bearing key is live and legitimate -- which
+# environment variables a job may set. At every one of the three scopes a key no list
+# recognises is an error naming the key and the scope, not something skipped. That is what
+# makes the treatment cover the whole mapping rather than three named keys of it, and it is
+# why defaults: at job level is an error here rather than a pass. The same rule holds one
+# level down inside an env: block, whose variables are compared against a written list: a
+# line there that this reader cannot read as a variable is an error too, because an absent
+# variable is what a clean scope looks like. Round 1 of this change's review found that gap
+# open -- a quoted "GOFLAGS" name in the live block set -mod=mod with the checker green --
+# so the shape is the one the reader errors on rather than a precaution.
+#
+# An exempt step is unpaired, not unread (#353). The documents assert nothing about what an
+# exempt step's command is -- that is what exempting it means -- but the paired steps rely
+# on it having run: the toolchain install is what puts the pinned go on PATH for the
+# documented go commands. So an exempt step's keys are read for the two that decide whether
+# it runs and blocks, and for nothing else. Its uses:, with: and env: are permitted,
+# because a step's own env reaches only that step's own unpaired command, and what those
+# values must match is pinned elsewhere: check-go-digest.sh pins GO_ARCHIVE_SHA256 against
+# docs/reference/source-register.md, and the install step's own run: checks GO_ARCHIVE
+# against go.mod's go directive every time it runs.
+#
 # The exemption list below is load-bearing in both directions: a step or row that is
 # neither paired nor listed is an error, and an entry that names no step or row is an
 # error too, so the list cannot decay into a wildcard. A checker that instead skipped
-# what it could not pair would be worse than no checker. The three other written lists
-# here -- load-bearing attributes, documented placeholders and table boundaries -- are
-# load-bearing in both directions for the same reason and in the same way.
+# what it could not pair would be worse than no checker. The documented placeholder list,
+# the table boundary list and the declared job environment list are load-bearing in both
+# directions for the same reason and in the same way: every entry of each names something
+# this tree carries, so deleting an entry turns this checker red with no other edit. The
+# conditional step list is empty, having nothing to cover today, so its two directions are
+# proved by the self-test filling it instead.
+#
+# The key lists do not all rot that way, and the sentence they used to share with those
+# overstated it (#353 F4). Measured by deleting each entry with nothing else changed:
+#   Entries that name a key this tree carries, and so give exit 3 on their own -- every
+#   entry of the job permitted list (runs-on, timeout-minutes, steps) and of the workflow
+#   permitted list (name, on, permissions, jobs), env in the job load-bearing list, and
+#   uses, with and env in the exempt permitted list. Eleven of the twenty-five.
+#   Entries that name a class of possible edit rather than a live key, and so cost nothing
+#   to delete until a tree carries the key -- all three step load-bearing attributes, all
+#   three permitted step attributes, if and continue-on-error at job and exempt-step scope,
+#   env at workflow scope, and name, run and timeout-minutes in the exempt permitted list.
+#   These rot only on a tree that carries the key. The self-test proves that shape at the
+#   entry #353 F4 named: it adds timeout-minutes to a paired step, deletes the entry from
+#   the permitted list and requires exit 3. Every other class entry, run and name aside,
+#   has a case that adds the key to the tree and requires what its list says -- a named
+#   red for a load-bearing entry, green for a permitted one.
+# run and name are in the permitted lists to document what a step may carry rather than as
+# reachable control flow: run never reaches the attribute dictionary, because steps_of
+# consumes it on its own branch, and a second name: would need a duplicate eight-space key,
+# which is not valid YAML.
 #
 # Normalisation between a table cell and a run: line, written down because none of it is
 # byte-identity. It fails rather than skipping whenever it meets something it cannot
@@ -64,9 +115,30 @@
 # document-wide is the only thing that would catch it, and it is not this checker's to
 # impose.
 #
+# Two further limits, recorded here where its readers look rather than in a review comment
+# (#353 M4):
+#   1. The "## CI" manifest check proves that every whitespace token of an entry's code
+#      span appears in the paired step's run: as a whole path component. It does not prove
+#      that the entry names the step's script. Entry 6 narrowed from test-check-links.sh to
+#      the bare interpreter name bash is exit 0, because bash is a whole path component of
+#      that step's run:; narrowed to check-links.sh it is still exit 1 naming the entry and
+#      the position, which is the outcome #347 M1 asked for. An entry that has stopped
+#      naming a script at all is left to a human reader.
+#   2. Scopes outside the three above are not read. A reusable workflow (jobs.<id>.uses) and
+#      a composite action run steps this checker never sees; neither file uses one today,
+#      and a job it pairs that did would exit 3 on the unrecognised uses: key rather than
+#      pass. A job of these files that no pairing names is not read at all: it cannot switch
+#      off a documented step, but nothing here audits it. An exempt step's run:, uses: and
+#      with: are not read either, per the exempt-step paragraph above -- and that limit is
+#      wider than the env: reasoning there, because a run: line can write $GITHUB_ENV or
+#      $GITHUB_PATH, which do reach every step after it in the job. The install step already
+#      uses $GITHUB_PATH that way. So an exempt step's run: is a route to the job environment
+#      that this checker does not close; whether it should is filed rather than decided here.
+#
 # Fails closed. Exit 0 everything agrees; 1 a disagreement, reported one line per finding;
 # 2 usage error; 3 a file it reads is missing, unreadable or not UTF-8, a table it reads
-# has no rows, or it met something it cannot normalise.
+# has no rows, a key it does not recognise at one of the three scopes, or something else it
+# cannot normalise.
 set -euo pipefail
 
 ROOT=""
@@ -140,6 +212,81 @@ PERMITTED_ATTRIBUTES = ["name", "run", "timeout-minutes"]
 # so the list is empty and every load-bearing attribute is a failure.
 CONDITIONAL_STEPS: dict[str, dict[str, list[str]]] = {}
 # --- end of the load-bearing attribute list -----------------------------------------
+
+# --- the scope key lists (#353) -----------------------------------------------------
+# Keys of the workflow mapping, and of a paired job's mapping, classified the way a paired
+# step's keys are. Load-bearing means the key decides whether the documented steps beneath
+# it run, or whether their failure blocks; permitted means it cannot. A key in neither list
+# is unrecognised at that scope and exits 3 naming it, so these lists account for the whole
+# mapping rather than for three keys of it -- defaults: at job level is the worked example.
+# Job scope, load-bearing:
+#   if                 a condition that never fires skips every step of the job, the
+#                      file-mode enforcement probe (#341) among them, which is one level
+#                      above where #348 closed the same door.
+#   continue-on-error  the job still runs, and its failure stops blocking.
+#   env                reaches every run: line in the job, so it can change what a
+#                      documented command does while the command stays byte-identical. It
+#                      is the one load-bearing key that is live and legitimate here, so it
+#                      has the declaration list below rather than a ban.
+# Job scope, permitted, recorded here rather than left unsaid:
+#   runs-on            names the machine. A label no runner matches leaves the job queued,
+#                      so the required check never reports, rather than reporting green
+#                      with a documented step unrun.
+#   timeout-minutes    the same reason as at step scope: it can only make the job fail
+#                      sooner, never stop it running or stop it blocking.
+#   steps              the pairing above reads it.
+# Workflow scope, load-bearing:
+#   env                reaches every run: line of every job. Neither workflow file sets one
+#                      today, so it is banned outright rather than declared: there is
+#                      nothing live to accommodate. One that ever becomes legitimate needs
+#                      the declaration treatment job scope has, decided here.
+# Workflow scope, permitted:
+#   name, on           renaming the workflow or narrowing on: withholds the required check
+#                      rather than reporting it green, so branch protection blocks instead.
+#   permissions        can only take capability away from the token, which fails a step
+#                      loudly; it cannot stop one running or stop its failure blocking.
+#   jobs               holds the job mappings this checker reads.
+# Every "permitted" reason above about what GitHub does with a queued job, a renamed
+# workflow, a narrowed on: or a reduced token is read from the platform's documented
+# behaviour and from the required-check configuration, not from a live run made for this
+# checker: no run here has exercised them. What it proves about a permitted key is only
+# that the key is one the lists account for; the key's value is not read, so a changed
+# runs-on: or a narrowed on: is exit 0 here and is left to the reasons above.
+JOB_LOAD_BEARING = ["if", "continue-on-error", "env"]
+JOB_PERMITTED = ["runs-on", "timeout-minutes", "steps"]
+WORKFLOW_LOAD_BEARING = ["env"]
+WORKFLOW_PERMITTED = ["name", "on", "permissions", "jobs"]
+# The environment a job may set: workflow file, then job, then the exact variables and
+# values. Load-bearing in both directions like the exemption list, so a live block cannot
+# become a way to wave a job through: an entry naming a job with no env: block, or without
+# that variable, or setting another value, is an error, and a variable no entry names is an
+# error too. The two below are what go-checks.yml sets today, and testing.md's local Go
+# recipe exports exactly them, so the documented commands and the CI commands run under the
+# same environment.
+DECLARED_JOB_ENV = {
+    GO: {
+        "go": {
+            # No toolchain is fetched on demand: the archive pinned on the install step is
+            # the only Go, and a go.mod directive it does not satisfy is an error rather
+            # than a silent download.
+            "GOTOOLCHAIN": "local",
+            # go.mod and go.sum are inputs, never outputs, so no documented command can
+            # quietly rewrite them.
+            "GOFLAGS": "-mod=readonly",
+        },
+    },
+}
+# --- end of the scope key lists ------------------------------------------------------
+
+# --- the exempt step key list (#353) -------------------------------------------------
+# An exempt step has no documented command, so its keys are read only for whether it runs
+# and whether its failure blocks; the exempt-step paragraph in the header says why the rest
+# is permitted rather than banned. No exempt step carries either load-bearing key today and
+# there is no declaration shape for one: an exempt step that needs a condition is a decision
+# to take here, in this list, rather than in a workflow file.
+EXEMPT_LOAD_BEARING = ["if", "continue-on-error"]
+EXEMPT_PERMITTED = ["name", "run", "uses", "with", "env", "timeout-minutes"]
+# --- end of the exempt step key list --------------------------------------------------
 
 # --- the documented placeholder list (#347) -----------------------------------------
 # Rows whose Command cell may hold a <placeholder> token under normalisation 2 above.
@@ -279,6 +426,121 @@ def steps_of(relative: str, job: str) -> list[tuple[str, str | None, dict[str, s
     return steps
 
 
+def mapping_at(lines: list[str], start: int, indent: int, where: str,
+               read_through: tuple[str, ...] = ()) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+    """The keys of one YAML mapping, each with the one-level-deeper sub-map under it.
+
+    Reads the mapping whose keys sit at exactly `indent` spaces, from line `start` until
+    the file dedents out of it. A line at the mapping's own indent that is not a key is an
+    error rather than something skipped, so an unread shape cannot pass as an empty one.
+
+    Under a key named in `read_through` the same rule holds one level down, because the
+    caller compares that sub-map against a written list: a line there that this reader
+    cannot read as a variable is an error, not an absent variable. Absent is what a clean
+    scope looks like, so dropping an unreadable line would let a quoted name, an odd
+    indent or a merge key set a variable the comparison never sees. Under every other key
+    the sub-map is a census the caller does not compare, and deeper lines are that key's
+    own block -- a step list among them -- so they are not read here.
+    """
+    keys: dict[str, str] = {}
+    blocks: dict[str, dict[str, str]] = {}
+    key_re = re.compile(r"^%s([A-Za-z0-9_-]+):(.*)$" % (" " * indent))
+    sub_re = re.compile(r"^%s([A-Za-z0-9_-]+):(.*)$" % (" " * (indent + 2)))
+    current = ""
+    for line in lines[start:]:
+        if line.strip() == "" or line.lstrip(" ").startswith("#"):
+            continue
+        if indent and re.match(r"^ {0,%d}\S" % (indent - 1), line):
+            break
+        key = key_re.match(line)
+        if key:
+            current = key.group(1)
+            if current in keys:
+                unparsable("%s has more than one %s: key" % (where, current))
+            keys[current] = key.group(2).strip()
+            blocks[current] = {}
+            continue
+        sub = sub_re.match(line)
+        if sub and current:
+            blocks[current][sub.group(1)] = sub.group(2).strip()
+            continue
+        if current in read_through and line.startswith(" " * (indent + 1)):
+            unparsable("%s holds a line under %s: that this checker cannot read as a variable, so it cannot compare it "
+                       "with the list that says which variables the scope may set: %r" % (where, current, line))
+        if line.startswith(" " * (indent + 2)):
+            continue
+        unparsable("%s holds a line this checker cannot read as a key of that mapping: %r" % (where, line))
+    return keys, blocks
+
+
+def scopes_of(relative: str, job: str) -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
+    """The workflow mapping and the job mapping above a job's steps, each with its env."""
+    lines = read(relative).split("\n")
+    workflow_keys, workflow_blocks = mapping_at(lines, 0, 0, "%s workflow scope" % relative, ("env",))
+    try:
+        start = lines.index("  %s:" % job)
+    except ValueError:
+        unparsable("%s has no job named %s" % (relative, job))
+    job_keys, job_blocks = mapping_at(lines, start + 1, 4, "%s job %r" % (relative, job), ("env",))
+    return workflow_keys, workflow_blocks.get("env", {}), job_keys, job_blocks.get("env", {})
+
+
+def check_scope(where: str, keys: dict[str, str], env: dict[str, str],
+                permitted: list[str], load_bearing: list[str],
+                declared: dict[str, str] | None) -> None:
+    """Every key of a scope above the steps is permitted, declared, or an error naming it.
+
+    `declared` is the environment this scope may set, or None where the scope has no
+    declaration shape at all, which is workflow scope today.
+    """
+    for key in sorted(keys):
+        if key in permitted:
+            continue
+        if key not in load_bearing:
+            unparsable("%s carries %s:, which this checker does not recognise at that scope; "
+                       "it is neither permitted (%s) nor load-bearing (%s), so it is not skipped"
+                       % (where, key, ", ".join(permitted), ", ".join(load_bearing)))
+        if key != "env":
+            disagree("%s carries %s: %s, which decides whether the steps beneath it run or whether their failure blocks, "
+                     "while %s documents them as steps that run"
+                     % (where, key, keys[key] or "(a block)", TESTING))
+            continue
+        if keys[key]:
+            unparsable("%s writes env: as an inline mapping (%s), which this checker does not normalise" % (where, keys[key]))
+        if declared is None:
+            disagree("%s sets env: %s, which reaches every run: line beneath it and can change what a documented command does "
+                     "while the command stays byte-identical; this checker declares no environment at that scope"
+                     % (where, ", ".join("%s: %s" % (name, env[name]) for name in sorted(env)) or "(an empty block)"))
+            continue
+        for name in sorted(env):
+            if name not in declared:
+                disagree("%s sets env %s: %s, which reaches every run: line beneath it and can change what a documented command "
+                         "does while the command stays byte-identical; no entry in the checker's declared job environment list covers it"
+                         % (where, name, env[name]))
+            elif env[name] != declared[name]:
+                disagree("declared job environment entry %r of %s declares %r, but the job sets %r"
+                         % (name, where, declared[name], env[name]))
+    for name in sorted(declared or {}):
+        if "env" not in keys:
+            disagree("declared job environment entry %r names %s, which sets no env: block" % (name, where))
+        elif name not in env:
+            disagree("declared job environment entry %r names a variable %s does not set" % (name, where))
+
+
+def check_exempt_attributes(relative: str, name: str, attributes: dict[str, str]) -> None:
+    """An exempt step is unpaired, not unread: it must still run, and still block."""
+    for attribute in sorted(attributes):
+        if attribute in EXEMPT_PERMITTED:
+            continue
+        if attribute not in EXEMPT_LOAD_BEARING:
+            unparsable("%s exempt step %r carries %s:, which this checker does not recognise on an exempt step; "
+                       "it is neither permitted (%s) nor load-bearing (%s), so it is not skipped"
+                       % (relative, name, attribute, ", ".join(EXEMPT_PERMITTED), ", ".join(EXEMPT_LOAD_BEARING)))
+        disagree("%s exempt step %r carries %s: %s, which decides whether the step runs or whether its failure blocks, "
+                 "while the steps %s documents run only because this one has; no exempt step may carry it"
+                 % (relative, name, attribute, attributes[attribute] or "(a block)", TESTING))
+
+
 def command_of(relative: str, name: str, run: str | None) -> str:
     where = "%s step %r" % (relative, name)
     if run is None:
@@ -387,6 +649,11 @@ kept_steps: dict[str, list[tuple[str, str]]] = {}
 placeholder_rows_seen: set[tuple[str, str]] = set()
 
 for relative, job, table_names in PAIRINGS:
+    workflow_keys, workflow_env, job_keys, job_env = scopes_of(relative, job)
+    check_scope("%s workflow scope" % relative, workflow_keys, workflow_env,
+                WORKFLOW_PERMITTED, WORKFLOW_LOAD_BEARING, None)
+    check_scope("%s job %r" % (relative, job), job_keys, job_env,
+                JOB_PERMITTED, JOB_LOAD_BEARING, DECLARED_JOB_ENV.get(relative, {}).get(job, {}))
     steps = steps_of(relative, job)
     exempt = EXEMPT_STEPS[relative]
     names = [name for name, _, _ in steps]
@@ -396,6 +663,7 @@ for relative, job, table_names in PAIRINGS:
     live: list[tuple[str, str]] = []
     for name, run, attributes in steps:
         if name in exempt:
+            check_exempt_attributes(relative, name, attributes)
             continue
         command = command_of(relative, name, run)
         check_attributes(relative, name, attributes)
@@ -481,6 +749,12 @@ for table_name, declared_rows in PLACEHOLDER_ROWS.items():
         if (table_name, suite) not in placeholder_rows_seen:
             disagree("documented-placeholder entry %r names no paired row of the %s table" % (suite, table_name))
 
+for relative, declared_jobs in DECLARED_JOB_ENV.items():
+    paired_jobs = [job for path, job, _ in PAIRINGS if path == relative]
+    for job in declared_jobs:
+        if job not in paired_jobs:
+            unparsable("the declared job environment list names %s job %s, which this checker does not pair" % (relative, job))
+
 for relative, declared_steps in TABLE_FIRST_STEP.items():
     paired_tables = [names for path, _, names in PAIRINGS if path == relative]
     known = paired_tables[0] if paired_tables else []
@@ -559,11 +833,16 @@ if findings:
 
 print("check-ci-agreement: %d workflow steps agree with their documented commands (%s %d, %s %d), "
       "%d exemptions are all in use, %s and %s are declared and in use, "
-      "%s hold, and %s's CI list of %s matches"
+      "%s hold, %s and %s carry no unaccounted-for key and %s are declared and in use, "
+      "and %s's CI list of %s matches"
       % (paired_total, DOCS, step_counts[DOCS], GO, step_counts[GO],
          sum(len(v) for v in EXEMPT_STEPS.values()) + sum(len(v) for v in EXEMPT_ROWS.values()),
          plural(sum(len(v) for v in PLACEHOLDER_ROWS.values()), "placeholder row", "placeholder rows"),
          plural(sum(len(v) for v in CONDITIONAL_STEPS.values()), "conditional step", "conditional steps"),
          plural(sum(len(v) for v in TABLE_FIRST_STEP.values()), "table boundary", "table boundaries"),
+         plural(len(PAIRINGS), "job scope", "job scopes"),
+         plural(len(PAIRINGS), "workflow scope", "workflow scopes"),
+         plural(sum(len(variables) for jobs in DECLARED_JOB_ENV.values() for variables in jobs.values()),
+                "job environment variable", "job environment variables"),
          MANIFEST, count_word))
 PY
