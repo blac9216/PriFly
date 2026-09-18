@@ -1065,7 +1065,7 @@ func declaredNames(fset *token.FileSet, f *ast.File) map[string][]token.Position
 // it fails on a strconv quoting call that is not a ToASCII one, on a %q verb
 // — %q is strconv.Quote — anywhere but the one checker.add whose %q argument is
 // this package's Schema constant, which is not bundle text, and on a change to
-// the number of sites that render the package's text.
+// the number of fmt calls that render the package's text.
 //
 // It is the negative control for the call sites no bundle can reach. Thirteen of
 // the 24 Quote call sites render a value the checker has already validated into a
@@ -1078,19 +1078,21 @@ func declaredNames(fset *token.FileSet, f *ast.File) map[string][]token.Position
 // The call-site counts are asserted so the enumeration stays by occurrence and
 // not by line: two lines of bundle.go carry two Quote calls each. The fmt
 // spellings that render this package's text are counted the same way, and for a
-// reason the renderer counts cannot serve: a site that renders text without
-// reaching Quote or Member moves no count above and holds no quoting directive,
-// so nothing else here sees it. Which spellings are pinned, why no Fprint* row is
-// listed, and what a count does and does not prove are stated at their table.
+// reason the renderer counts cannot serve: a site that renders text through fmt
+// without reaching Quote or Member moves no count above and holds no quoting
+// directive, so nothing else here sees it. Which spellings are pinned, why no
+// Fprint* row is listed, what a count does and does not prove, and what renders
+// text outside fmt's reach are stated at their table.
 //
 // Its judgements fail closed against the spellings that could otherwise evade
 // them. A format whose verbs formatVerbs cannot map to their arguments is
 // reported rather than skipped, so no fmt syntax this control does not parse —
-// an explicit argument index above all — can carry a %q past it. The carve-out is refused outright, rather than applied by name, if
-// "Schema" ever names more than the package-level constant: this check reads
-// identifiers, so a second Schema in scope would make the whitelist a guess. And
-// an fmt spelling the count does not name is reported rather than passed over, so
-// the table pins the families it lists without assuming they are the only ones.
+// an explicit argument index above all — can carry a %q past it. The carve-out
+// is refused outright, rather than applied by name, if "Schema" ever names more
+// than the package-level constant: this check reads identifiers, so a second
+// Schema in scope would make the whitelist a guess. And an fmt spelling the count
+// does not name is reported rather than passed over, so the table pins the
+// families it lists without assuming they are the only ones.
 func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 	const pkg = "../../internal/bundle"
 	files, err := filepath.Glob(filepath.Join(pkg, "*.go"))
@@ -1233,11 +1235,11 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 		}
 	}
 	// The counts above are of the two renderers this package escapes text with;
-	// the count below is of the sites that render text at all, by the spelling of
-	// the fmt function each one uses. The two questions are different: a new site
-	// that renders operator-supplied text without reaching Quote or Member moves
-	// no count above and carries no quoting directive for the rules to read, so
-	// without this table it is invisible to every other judgement this control
+	// the count below is of the sites that render text through fmt, by the
+	// spelling each one uses. The two questions are different: a new site that
+	// renders operator-supplied text through fmt without reaching Quote or Member
+	// moves no count above and carries no quoting directive for the rules to read,
+	// so without this table it is invisible to every other judgement this control
 	// makes.
 	//
 	// The table names the three spellings live in the package today, and every
@@ -1256,6 +1258,15 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 	// that covers the new site. That limit is disclosed here rather than closed:
 	// closing it would take a rule about where a rendered value comes from, and
 	// every rule in this control reads the shape of the source instead.
+	//
+	// The other edge of the same disclosure: what is counted is fmt calls, not
+	// every way text is built. A site that renders with the + operator instead
+	// reaches no fmt call, moves no count here and carries no quoting directive,
+	// and is green in this package and in this control — measured, by appending a
+	// function returning "operator note: " + note and reverting it. Counting the
+	// fmt families is what closes the gap the renderer counts leave; concatenation
+	// is a further gap, named here so it is read off this comment rather than
+	// found.
 	counted := map[string]bool{}
 	for _, c := range []struct {
 		name string
@@ -1271,9 +1282,10 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 	}
 	for _, name := range slices.Sorted(maps.Keys(fmtSites)) {
 		if !counted[name] {
-			t.Errorf("%s renders text in %s (at %v) and is a spelling this count does not name, so it is reported "+
-				"rather than counted: give the site a case above driving a printable non-ASCII character through "+
-				"it, then give the spelling its own row in the table above", name, pkg, fmtSites[name])
+			t.Errorf("%s is used in %s (at %v) and is a spelling this count does not name, so it is reported "+
+				"rather than counted: if it renders text, give the site a case above driving a printable "+
+				"non-ASCII character through it; then give the spelling its own row in the table above",
+				name, pkg, fmtSites[name])
 		}
 	}
 }
