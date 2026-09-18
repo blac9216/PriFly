@@ -97,6 +97,37 @@ set_list() {
   checker="$fixture_dir/checker.sh"
 }
 
+# also_reject NAME TEXT: the mirror of also_expect, for a case whose point is that one
+# diagnostic is absent from the output a check_case above already required. The blank-line
+# case below is why: a reader that stopped at a blank line inside a block scalar would
+# report the right finding for the blank line and lose every step after it, so the case
+# has to require both the finding and the absence of the losses.
+also_reject() {
+  local name="$1" text="$2"
+  if grep -qF -- "$text" "$fixture_dir/output"; then
+    echo "FAIL: $name (the last output contains '$text')" >&2
+    cat "$fixture_dir/output" >&2
+    failed=$((failed + 1))
+    return 0
+  fi
+  echo "PASS: $name"
+  passed=$((passed + 1))
+}
+
+# set_declared_content LITERAL: copy the checker with its declared exempt content dict
+# replaced by the Python dict literal LITERAL, and point the next case at that copy. The
+# entry side of that list needs this, because a workflow file cannot express an entry
+# naming a step or a key it does not carry.
+set_declared_content() {
+  awk -v literal="$1" '
+    index($0, "DECLARED_EXEMPT_CONTENT: ") == 1 { print "DECLARED_EXEMPT_CONTENT = " literal; skipping = 1; next }
+    skipping && $0 == "}" { skipping = 0; next }
+    skipping { next }
+    { print }
+  ' "$SCRIPT_DIR/check-ci-agreement.sh" >"$fixture_dir/checker.sh"
+  checker="$fixture_dir/checker.sh"
+}
+
 # set_declared_env LITERAL: copy the checker with its declared job environment dict
 # replaced by the Python dict literal LITERAL, and point the next case at that copy.
 set_declared_env() {
@@ -405,18 +436,150 @@ reset_fixture
 sed -i 's@^      - name: Check out the PR head commit (not the synthetic merge ref)$@      - name: Check out the PR head commit (not the synthetic merge ref)\n        shell: bash@' "$wf_docs"
 check_case 'an unrecognised key on an exempt step fails' 3 'exempt step '"'"'Check out the PR head commit (not the synthetic merge ref)'"'"' carries shell:, which this checker does not recognise on an exempt step'
 
-# The exempt toolchain step's own env: is permitted, because it reaches only that step's
-# unpaired command; the unmutated tree above proves it stays green with the block in place.
-# Its entry in the permitted list is live, so deleting it is red.
+# The exempt toolchain step's own env: is declared by name; the unmutated tree above proves
+# it stays green with the block as written. Its entry in the declared list is live, so
+# deleting it is red.
 reset_fixture
-set_list EXEMPT_PERMITTED '["name", "run", "uses", "with", "timeout-minutes"]'
-check_case 'dropping env from the exempt permitted list fails' 3 "exempt step 'Install pinned Go toolchain (verify SHA-256, then extract)' carries env:"
+set_list EXEMPT_DECLARED '["uses", "with", "run"]'
+check_case 'dropping env from the exempt declared list fails' 3 "exempt step 'Install pinned Go toolchain (verify SHA-256, then extract)' carries env:"
 
 # timeout-minutes is permitted on an exempt step for the reason it is permitted on a paired
 # one: it can only make the step fail sooner, never stop it running or stop it blocking.
 reset_fixture
 sed -i 's@^      - name: Restore Go module cache (keyed by go.sum)$@      - name: Restore Go module cache (keyed by go.sum)\n        timeout-minutes: 5@' "$wf_go"
 check_case 'timeout-minutes on an exempt step still passes' 0 'workflow steps agree with their documented commands'
+
+# --- #358: an exempt step's uses:, with: and run: are declared, not permitted ---------
+# Each of the four mutations #358 measured as exit 0 with the summary line byte-identical
+# has a case here. A, C and D are lines of the toolchain install step's run:; B is the
+# checkout step's ref:, in both files.
+
+# C, the case no document, comment or sibling guard named: the pinned archive is still
+# downloaded, still checksummed and still extracted, and two appended lines then replace
+# the binary the checksum covered.
+reset_fixture
+sed -i 's@GITHUB_PATH"$@GITHUB_PATH"\n          echo "#!/bin/sh" > "$RUNNER_TEMP/go/bin/go"\n          echo "exit 0" >> "$RUNNER_TEMP/go/bin/go"@' "$wf_go"
+check_case 'a shim written over the extracted toolchain fails' 1 "exempt step 'Install pinned Go toolchain (verify SHA-256, then extract)' writes line 9 of run:"
+also_expect 'the shim finding names the line that replaces the extracted binary' 'go/bin/go"'
+also_expect 'the shim finding names the second appended line too' 'writes line 10 of run:'
+
+# A, the route the header recorded before this change and left undecided.
+reset_fixture
+sed -i 's@GITHUB_PATH"$@GITHUB_PATH"\n          echo "GOFLAGS=-mod=mod" >> "$GITHUB_ENV"@' "$wf_go"
+check_case 'a GITHUB_ENV write appended to the exempt install step fails' 1 "exempt step 'Install pinned Go toolchain (verify SHA-256, then extract)' writes line 9 of run:"
+also_expect 'the GITHUB_ENV finding names the appended write' 'GOFLAGS=-mod=mod'
+
+# D: the whole install replaced by a command that installs nothing, with the env: block
+# its sibling guard reads left in place.
+reset_fixture
+python3 - "$wf_go" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text().split("\n")
+start = lines.index("        run: |")
+end = start + 1
+while lines[end].startswith("          "):
+    end += 1
+path.write_text("\n".join(lines[:start] + ["        run: true"] + lines[end:]))
+PY
+check_case 'replacing the exempt install run: with a no-op fails' 1 "declared exempt content entry 'Install pinned Go toolchain (verify SHA-256, then extract)' of .github/workflows/go-checks.yml declares line 1 of run:"
+also_expect 'the no-op finding names a line the step no longer writes' 'which the step does not write'
+
+# B, in both files. docs-checks.yml is the file #146's second criterion governs, and its
+# step name asserts what this mutation defeats.
+reset_fixture
+sed -i 's@^          ref: .*$@          ref: main@' "$wf_docs"
+check_case 'a changed checkout ref in docs-checks.yml fails' 1 "declared exempt content entry 'Check out the PR head commit (not the synthetic merge ref)' of .github/workflows/docs-checks.yml declares with ref:"
+also_expect 'the changed ref finding names what the step sets instead' "but the step sets 'main'"
+
+reset_fixture
+sed -i 's@^          ref: .*$@          ref: main@' "$wf_go"
+check_case 'a changed checkout ref in go-checks.yml fails' 1 "declared exempt content entry 'Check out the PR head commit (not the synthetic merge ref)' of .github/workflows/go-checks.yml declares with ref:"
+
+# The rest of what a declared key covers: the action a step runs, the version comment
+# pinned beside it, a with: key added, and a with: key removed.
+reset_fixture
+sed -i 's|actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1|actions/checkout@0000000000000000000000000000000000000000|' "$wf_docs"
+check_case 'a changed checkout action SHA fails' 1 "declares uses:"
+reset_fixture
+sed -i 's|# v7.0.1|# v7.0.99|' "$wf_docs"
+check_case 'a changed version comment beside a pinned action fails' 1 "declares uses:"
+reset_fixture
+sed -i 's@^          persist-credentials: false$@          persist-credentials: false\n          fetch-depth: 0@' "$wf_docs"
+check_case 'a with: key no entry declares fails' 1 "sets with fetch-depth: 0, which no entry in the checker's declared exempt content list covers"
+reset_fixture
+sed -i '/^          persist-credentials: false$/d' "$wf_docs"
+check_case 'a declared with: key the step stops setting fails' 1 "declares with persist-credentials:, which the step does not set"
+
+# A line under with: that the reader cannot read as a key is an error, not an absent key,
+# for the reason the same rule holds under env:: absent is what declaring nothing looks
+# like, so a quoted key would otherwise set a value the comparison never sees.
+reset_fixture
+sed -i 's@^          persist-credentials: false$@          persist-credentials: false\n          "ref": main@' "$wf_docs"
+check_case 'an unreadable line under with: is an error' 3 "step 'Check out the PR head commit (not the synthetic merge ref)' holds a line under with: that this checker cannot read as a key"
+
+# An exempt step cannot gain a run: without the list moving.
+reset_fixture
+sed -i 's@^      - name: Restore Go module cache (keyed by go.sum)$@      - name: Restore Go module cache (keyed by go.sum)\n        run: true@' "$wf_go"
+check_case 'an exempt step that gains a run: no entry declares fails' 1 "exempt step 'Restore Go module cache (keyed by go.sum)' carries run:, which decides what the step installs"
+
+# A blank line inside a block scalar belongs to it. A reader that stopped there would
+# report this finding and lose every step after it, so the case requires both.
+reset_fixture
+sed -i 's@^          set -euo pipefail$@          set -euo pipefail\n@' "$wf_go"
+check_case 'a blank line inside the exempt block scalar fails' 1 "declares line 3 of run:"
+also_reject 'the blank line does not cost the reader the steps below it' 'has no step in .github/workflows/go-checks.yml'
+
+# Round 1 of this change's review: a name added to the exempt install step's env: block
+# changes which binaries its declared run: lines execute, and was exit 0 at every guard
+# under scripts/docs/ while that block was read as a census rather than against a list. The
+# names are declared now, so each of these is red.
+reset_fixture
+sed -i 's@^          GO_ARCHIVE_SHA256: .*$@&\n          PATH: /tmp/shims:/usr/local/bin:/usr/bin:/bin@' "$wf_go"
+check_case 'a PATH added to the exempt install env: fails' 1 "exempt step 'Install pinned Go toolchain (verify SHA-256, then extract)' sets env PATH:"
+also_expect 'the added-name finding says what an undeclared name reaches' "can change what the step's own commands see"
+reset_fixture
+sed -i 's@^          GO_ARCHIVE_SHA256: .*$@&\n          LD_PRELOAD: /tmp/shim.so@' "$wf_go"
+check_case 'an LD_PRELOAD added to the exempt install env: fails' 1 "exempt step 'Install pinned Go toolchain (verify SHA-256, then extract)' sets env LD_PRELOAD:"
+reset_fixture
+sed -i '/^          GO_ARCHIVE: go1/d' "$wf_go"
+check_case 'a declared env name the step stops setting fails' 1 "names env GO_ARCHIVE:, which the step does not set"
+
+# A name the reader cannot read is an error, not an absent name: the shape PR #355's round 1
+# found live at job scope, here at exempt-step scope, where the name list is what it would
+# evade.
+reset_fixture
+sed -i 's@^          GO_ARCHIVE_SHA256: .*$@&\n          "PATH": /tmp/shims@' "$wf_go"
+check_case 'an unreadable name under an exempt env: is an error' 3 "step 'Install pinned Go toolchain (verify SHA-256, then extract)' holds a line under env: that this checker cannot read as a key"
+
+# The entry side of the declared exempt content list, which no workflow file can express.
+reset_fixture
+set_declared_content '{".github/workflows/docs-checks.yml": {"Check out the PR head commit (not the synthetic merge ref)": {"run": "true"}}}'
+check_case 'an entry declaring a key the step does not carry fails' 1 "declares run:, which the step does not carry"
+reset_fixture
+set_declared_content '{".github/workflows/docs-checks.yml": {"Check out the PR head commit (not the synthetic merge ref)": {"shell": "bash"}}}'
+check_case 'an entry declaring a key outside the exempt declared list fails' 3 'the declared exempt content list declares shell: on .github/workflows/docs-checks.yml exempt step'
+reset_fixture
+set_declared_content '{".github/workflows/docs-checks.yml": {"Rationale-index pointers resolve": {"run": "true"}}}'
+check_case 'an entry naming a step that is not exempt fails' 3 "the declared exempt content list names .github/workflows/docs-checks.yml step 'Rationale-index pointers resolve', which is not on the exemption list"
+reset_fixture
+set_declared_content '{".github/workflows/go-checks.yml": {"Restore Go module cache (keyed by go.sum)": {"env": ["GO_ARCHIVE"]}}}'
+check_case 'an entry naming env variables on a step with no env: block fails' 1 "declares env:, which the step does not carry"
+reset_fixture
+set_declared_content '{".github/workflows/absent.yml": {}}'
+check_case 'an entry naming a file this checker does not pair fails' 3 'the declared exempt content list names .github/workflows/absent.yml, which this checker does not pair'
+
+# The exempt declared list itself rots in all three directions its entries have: uses and
+# with are keys the tree carries, and run is live through the entry side instead.
+reset_fixture
+set_list EXEMPT_DECLARED '["with", "run", "env"]'
+check_case 'dropping uses from the exempt declared list fails' 3 "exempt step 'Check out the PR head commit (not the synthetic merge ref)' carries uses:"
+reset_fixture
+set_list EXEMPT_DECLARED '["uses", "run", "env"]'
+check_case 'dropping with from the exempt declared list fails' 3 "exempt step 'Check out the PR head commit (not the synthetic merge ref)' carries with:"
+reset_fixture
+set_list EXEMPT_DECLARED '["uses", "with", "env"]'
+check_case 'dropping run from the exempt declared list fails' 3 'the declared exempt content list declares run: on .github/workflows/go-checks.yml exempt step'
 
 # --- #353: the declared job environment list is load-bearing in both directions -------
 reset_fixture

@@ -37,45 +37,81 @@
 # open -- a quoted "GOFLAGS" name in the live block set -mod=mod with the checker green --
 # so the shape is the one the reader errors on rather than a precaution.
 #
-# An exempt step is unpaired, not unread (#353). The documents assert nothing about what an
-# exempt step's command is -- that is what exempting it means -- but the paired steps rely
-# on it having run: the toolchain install is what puts the pinned go on PATH for the
-# documented go commands. So an exempt step's keys are read for the two that decide whether
-# it runs and blocks, and for nothing else. Its uses:, with: and env: are permitted,
-# because a step's own env reaches only that step's own unpaired command, and what those
-# values must match is pinned elsewhere: check-go-digest.sh pins GO_ARCHIVE_SHA256 against
-# docs/reference/source-register.md, and the install step's own run: checks GO_ARCHIVE
-# against go.mod's go directive every time it runs.
+# An exempt step is unpaired, not unread (#353, #358). The documents assert nothing about
+# what an exempt step's command is -- that is what exempting it means -- but the paired
+# steps run only because it ran, and they run on what it left behind: the toolchain install
+# is what puts the pinned go on PATH for the documented go commands, and the checkout is
+# what decides which tree those commands read. So an exempt step's keys are read three
+# ways, and the ground for each is given here, where the decision is made, rather than
+# corrected in the limits at the foot of this header:
+#   if: and continue-on-error: are load-bearing, for the reason they are on a paired step.
+#   A step the documents rely on must still run, and its failure must still block.
+#   uses:, with: and run: are declared rather than permitted (#358). They are compared
+#   against the declared exempt content list below, which is what an exempt step carries
+#   in place of a documented row. Until #358 they were permitted, on the env: reasoning
+#   given next, which does not cover them. A run: line reaches past its own step: by
+#   writing $GITHUB_ENV or $GITHUB_PATH, which the install step already does, and by
+#   writing files, which is the wider route -- two lines appended to that step overwrite
+#   the extracted go binary after the sha256sum -c that covers the archive has passed, and
+#   every guard under scripts/docs/ was exit 0 on that, check-go-digest.sh included,
+#   because the pinned archive is still downloaded, still checksummed and still extracted.
+#   A with: value is no narrower: the checkout step's ref: decides which tree every
+#   documented command below it runs against.
+#   env: is declared as well, by name and not by value. Which names the block sets decides
+#   what the step's own commands see: a PATH added to the install step's block decides which
+#   curl, sha256sum and tar its declared run: lines find, and an LD_PRELOAD decides what
+#   those binaries do once they run. Each of those, added alone, was exit 0 at all nine
+#   scripts under scripts/docs/ with this checker's summary line byte-identical, until this
+#   list read the names -- that much is measured here; what a runner does with either
+#   variable is the platform's documented behaviour and no run here has exercised it. Round 1
+#   of this change's review found it, and was right: the first draft of limit 3 below claimed
+#   the digest guard covered the case, and it does not, because nothing that guard or the
+#   declared run: text pins has to move for either name to be added.
+#   The values are left to the guards that do pin them, named here rather than restated:
+#   check-go-digest.sh pins GO_ARCHIVE_SHA256 against docs/reference/source-register.md, and
+#   the declared run: above checks GO_ARCHIVE against go.mod's go directive every time the
+#   step runs. Restating either value here would put it in a third file. This is what became
+#   of the env: reasoning that used to be offered for all six keys: a step's own env: does
+#   reach only that step's own unpaired command, and that was never the whole question,
+#   because that command is the install.
+#   name: and timeout-minutes: are permitted. timeout-minutes: can only make the step fail
+#   sooner, never stop it running or stop it blocking, so it cannot weaken what the documents
+#   assert; a second name: would need a duplicate eight-space key, which is not valid YAML.
 #
 # The exemption list below is load-bearing in both directions: a step or row that is
 # neither paired nor listed is an error, and an entry that names no step or row is an
 # error too, so the list cannot decay into a wildcard. A checker that instead skipped
 # what it could not pair would be worse than no checker. The documented placeholder list,
-# the table boundary list and the declared job environment list are load-bearing in both
-# directions for the same reason and in the same way: every entry of each names something
-# this tree carries, so deleting an entry turns this checker red with no other edit. The
+# the table boundary list, the declared job environment list and the declared exempt
+# content list are load-bearing in both directions for the same reason and in the same way:
+# every entry of each names something this tree carries, so deleting an entry turns this
+# checker red with no other edit -- measured for each, entry by entry, not asserted. The
 # conditional step list is empty, having nothing to cover today, so its two directions are
 # proved by the self-test filling it instead.
 #
 # The key lists do not all rot that way, and the sentence they used to share with those
 # overstated it (#353 F4). Measured by deleting each entry with nothing else changed:
 #   Entries that name a key this tree carries, and so give exit 3 on their own -- every
-#   entry of the job permitted list (runs-on, timeout-minutes, steps) and of the workflow
-#   permitted list (name, on, permissions, jobs), env in the job load-bearing list, and
-#   uses, with and env in the exempt permitted list. Eleven of the twenty-five.
+#   entry of the job permitted list (runs-on, timeout-minutes, steps), of the workflow
+#   permitted list (name, on, permissions, jobs) and of the exempt declared list (uses,
+#   with, run, env), and env in the job load-bearing list. Twelve of the twenty-five,
+#   re-measured entry by entry for #358 and again when env moved into the declared list.
 #   Entries that name a class of possible edit rather than a live key, and so cost nothing
 #   to delete until a tree carries the key -- all three step load-bearing attributes, all
 #   three permitted step attributes, if and continue-on-error at job and exempt-step scope,
-#   env at workflow scope, and name, run and timeout-minutes in the exempt permitted list.
+#   env at workflow scope, and name and timeout-minutes in the exempt permitted list.
 #   These rot only on a tree that carries the key. The self-test proves that shape at the
 #   entry #353 F4 named: it adds timeout-minutes to a paired step, deletes the entry from
 #   the permitted list and requires exit 3. Every other class entry, run and name aside,
 #   has a case that adds the key to the tree and requires what its list says -- a named
 #   red for a load-bearing entry, green for a permitted one.
-# run and name are in the permitted lists to document what a step may carry rather than as
-# reachable control flow: run never reaches the attribute dictionary, because steps_of
-# consumes it on its own branch, and a second name: would need a duplicate eight-space key,
-# which is not valid YAML.
+# run and name are in the permitted attribute list to document what a paired step may carry
+# rather than as reachable control flow: run never reaches the attribute dictionary, because
+# steps_of consumes it on its own branch, and a second name: would need a duplicate
+# eight-space key, which is not valid YAML. run in the exempt declared list is live all the
+# same, and not through that dictionary: the declared exempt content list declares run: on
+# the install step, and an entry declaring a key the exempt declared list does not name is
+# exit 3, so deleting the entry is red with nothing else changed.
 #
 # Normalisation between a table cell and a run: line, written down because none of it is
 # byte-identity. It fails rather than skipping whenever it meets something it cannot
@@ -115,8 +151,8 @@
 # document-wide is the only thing that would catch it, and it is not this checker's to
 # impose.
 #
-# Two further limits, recorded here where its readers look rather than in a review comment
-# (#353 M4):
+# Three further limits, recorded here where its readers look rather than in a review
+# comment (#353 M4, #358):
 #   1. The "## CI" manifest check proves that every whitespace token of an entry's code
 #      span appears in the paired step's run: as a whole path component. It does not prove
 #      that the entry names the step's script. Entry 6 narrowed from test-check-links.sh to
@@ -128,12 +164,40 @@
 #      a composite action run steps this checker never sees; neither file uses one today,
 #      and a job it pairs that did would exit 3 on the unrecognised uses: key rather than
 #      pass. A job of these files that no pairing names is not read at all: it cannot switch
-#      off a documented step, but nothing here audits it. An exempt step's run:, uses: and
-#      with: are not read either, per the exempt-step paragraph above -- and that limit is
-#      wider than the env: reasoning there, because a run: line can write $GITHUB_ENV or
-#      $GITHUB_PATH, which do reach every step after it in the job. The install step already
-#      uses $GITHUB_PATH that way. So an exempt step's run: is a route to the job environment
-#      that this checker does not close; whether it should is filed rather than decided here.
+#      off a documented step, but nothing here audits it.
+#   3. What the declared exempt content list (#358) does and does not prove. Where this
+#      limit used to say that an exempt step's run: was a route to the job environment
+#      that the checker did not close, and that whether it should was filed rather than
+#      decided, the filing was #358 and this is what it decided: those keys are compared
+#      against declared text, and env: against declared names, so an appended $GITHUB_ENV
+#      write, an appended line overwriting the extracted toolchain, a changed checkout ref:,
+#      and a PATH or LD_PRELOAD added to the install step's env: are each exit 1 naming the
+#      step and the key. Each of those five is measured at this checker; what a runner would
+#      do with the edit is separate, and marked below where it is not measured. What the comparison proves is that the text has not changed, not
+#      what the text does. Nothing here reads what a shell command does, and
+#      that general shell analysis is deliberately out of reach of a line-shaped checker.
+#      Four things the declaration therefore does not reach, each recorded rather than
+#      claimed closed:
+#        - whether a value written to $GITHUB_ENV overrides a job-level env: of the same
+#          name on a hosted runner is read from the platform's documentation and has never
+#          been measured here. The pin makes the question moot for these files rather than
+#          answering it.
+#        - a with: value is compared as text, so what an expression such as
+#          ${{ github.event.pull_request.head.sha || github.sha }} evaluates to on a runner
+#          is platform behaviour this checker does not see. It proves the expression is the
+#          one declared, which is what #146's second criterion asks of the file.
+#        - a uses: value pins the action's ref as written, including the version comment
+#          beside it. That the ref names the code GitHub runs is the SHA pin's claim, not
+#          this checker's.
+#        - an exempt step's env: block is compared by name and not by value, so what the two
+#          declared names are set to is not read here. Both values are pinned outside this
+#          checker: check-go-digest.sh pins GO_ARCHIVE_SHA256 against source-register.md, and
+#          the declared run: text checks GO_ARCHIVE against go.mod, which fails when the step
+#          runs rather than here. A toolchain bump moves the workflow and the register
+#          together and passes, which is the intended path; a value changed on its own is
+#          caught by one of those two guards, not by this list. Declaring the values here as
+#          well would put GO_ARCHIVE_SHA256 in a third file, so a bump would be three edits
+#          rather than two; that cost is recorded here rather than paid.
 #
 # Fails closed. Exit 0 everything agrees; 1 a disagreement, reported one line per finding;
 # 2 usage error; 3 a file it reads is missing, unreadable or not UTF-8, a table it reads
@@ -156,6 +220,7 @@ ROOT="$(cd "$ROOT" && pwd)"
 python3 - "$ROOT" <<'PY'
 from __future__ import annotations
 import pathlib, re, sys
+from typing import NamedTuple
 
 root = pathlib.Path(sys.argv[1])
 
@@ -278,14 +343,89 @@ DECLARED_JOB_ENV = {
 }
 # --- end of the scope key lists ------------------------------------------------------
 
-# --- the exempt step key list (#353) -------------------------------------------------
-# An exempt step has no documented command, so its keys are read only for whether it runs
-# and whether its failure blocks; the exempt-step paragraph in the header says why the rest
-# is permitted rather than banned. No exempt step carries either load-bearing key today and
-# there is no declaration shape for one: an exempt step that needs a condition is a decision
-# to take here, in this list, rather than in a workflow file.
+# --- the exempt step key list (#353, #358) -------------------------------------------
+# An exempt step has no documented command, so its keys are read for whether it runs, for
+# whether its failure blocks, and -- since #358 -- for what it installs and which tree it
+# leaves the documented commands to run on; the exempt-step paragraph in the header gives
+# the ground for each of the three treatments. No exempt step carries either load-bearing
+# key today and there is no declaration shape for one: an exempt step that needs a
+# condition is a decision to take here, in this list, rather than in a workflow file.
 EXEMPT_LOAD_BEARING = ["if", "continue-on-error"]
-EXEMPT_PERMITTED = ["name", "run", "uses", "with", "env", "timeout-minutes"]
+EXEMPT_PERMITTED = ["name", "timeout-minutes"]
+EXEMPT_DECLARED = ["uses", "with", "run", "env"]
+# The content of an exempt step: workflow file, then step name, then what each
+# EXEMPT_DECLARED key it carries may be. Three shapes, one per kind of key:
+#   a string  the key's exact text. run: is the scalar on the key line and the lines of its
+#             block beneath it, joined by newlines and written here exactly as the file
+#             writes them; uses: is the value as written, version comment included.
+#   a mapping the key's exact sub-map, name by name and value by value, which is what with:
+#             gets, because a with: value is what the action does.
+#   a list    the names the key's sub-map may set, with the values left to the guards named
+#             for them. env: gets this, and only this, for the reason given in the
+#             exempt-step paragraph above.
+# Load-bearing in both directions, like the exemption list: an entry naming a step that is
+# absent or not exempt is an error, an entry declaring a key the step does not carry is an
+# error, an entry declaring a key EXEMPT_DECLARED does not name is an error, and one of
+# those keys on an exempt step that no entry declares is an error. So the list cannot
+# decay into a wildcard, and an exempt step cannot gain a run: without this list moving.
+DECLARED_EXEMPT_CONTENT: dict[str, dict[str, dict[str, object]]] = {
+    DOCS: {
+        "Check out the PR head commit (not the synthetic merge ref)": {
+            "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+            # #146's second criterion: the tested ref is chosen explicitly rather than
+            # taken from the synthetic merge commit. Declared here so changing it to a
+            # branch name, which reads the tip of that branch instead of the tree under
+            # review, is a finding rather than a step name that still claims otherwise.
+            "with": {
+                "ref": "${{ github.event.pull_request.head.sha || github.sha }}",
+                "persist-credentials": "false",
+            },
+        },
+    },
+    GO: {
+        "Check out the PR head commit (not the synthetic merge ref)": {
+            "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+            "with": {
+                "ref": "${{ github.event.pull_request.head.sha || github.sha }}",
+                "persist-credentials": "false",
+            },
+        },
+        "Install pinned Go toolchain (verify SHA-256, then extract)": {
+            # Every line of the install is declared, not just the download: the checksum
+            # covers the archive at the moment it is verified, and a line after the
+            # extraction can replace what was extracted with the digest still matching.
+            # A line added, removed or changed anywhere in this block is a finding naming
+            # the line. The leading and trailing newlines below frame the literal and are
+            # stripped; nothing else about either side is normalised.
+            # A name here, not a value. Which names the step sets decides what its own
+            # commands see -- a PATH or an LD_PRELOAD added to this block changes which
+            # curl, sha256sum and tar the lines below run, with the digest and the run:
+            # text both untouched, which is exit 0 at every guard under scripts/docs/ and
+            # was until this list read the names (round 1 of this change's review). The two
+            # values are pinned outside this checker, so restating them here would put
+            # GO_ARCHIVE_SHA256 in a third file; the exempt-step paragraph says which guard
+            # pins which.
+            "env": ["GO_ARCHIVE", "GO_ARCHIVE_SHA256"],
+            "run": r"""
+|
+          set -euo pipefail
+          test "$(uname -s)-$(uname -m)" = Linux-x86_64
+          test "$GO_ARCHIVE" = "go$(awk '$1 == "go" { print $2 }' go.mod).linux-amd64.tar.gz"
+          curl -fsSL --proto '=https' --proto-redir '=https' -o "$RUNNER_TEMP/$GO_ARCHIVE" "https://go.dev/dl/$GO_ARCHIVE"
+          (cd "$RUNNER_TEMP" && echo "$GO_ARCHIVE_SHA256  $GO_ARCHIVE" | sha256sum -c -)
+          tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/$GO_ARCHIVE"
+          echo "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
+""".strip("\n"),
+        },
+        "Restore Go module cache (keyed by go.sum)": {
+            "uses": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0",
+            "with": {
+                "path": "~/go/pkg/mod",
+                "key": "go-mod-${{ runner.os }}-${{ hashFiles('go.sum') }}",
+            },
+        },
+    },
+}
 # --- end of the exempt step key list --------------------------------------------------
 
 # --- the documented placeholder list (#347) -----------------------------------------
@@ -371,9 +511,38 @@ def read(relative: str) -> str:
 # --- workflow steps -----------------------------------------------------------------
 STEP_RE = re.compile(r"^      - name: (\S.*)$")
 KEY_RE = re.compile(r"^        ([A-Za-z0-9_-]+):(.*)$")
+SUB_RE = re.compile(r"^          ([A-Za-z0-9_-]+):(.*)$")
+# The sub-map of these step keys is compared against the declared exempt content list
+# above, so a line under one of them that this reader cannot read as a key is an error
+# rather than an absent key -- the rule mapping_at applies under env:, for the same reason:
+# absent is what a step that declares nothing there looks like, so a quoted key or an odd
+# indent would otherwise set a variable the comparison never sees. That is not a precaution:
+# round 1 of PR #355 found exactly that shape live at job scope. Under every other step key
+# the sub-map is a census the caller does not compare.
+STEP_READ_THROUGH = ("with", "env")
 
 
-def steps_of(relative: str, job: str) -> list[tuple[str, str | None, dict[str, str]]]:
+class Step(NamedTuple):
+    """One step of a job: its name, its run:, and the keys and sub-maps beside it.
+
+    `run` is the scalar on the run: key, so it is "|" for a block scalar, and `body` holds
+    that block's lines exactly as the file writes them, indentation included. `attributes`
+    holds the step's other keys at their own indent and `blocks` the mapping one level
+    under each of them, which is empty for a key whose value is a scalar.
+    """
+    name: str
+    run: str | None
+    body: list[str]
+    attributes: dict[str, str]
+    blocks: dict[str, dict[str, str]]
+
+
+def written_run(step: Step) -> str:
+    """A step's run: as the file writes it: the scalar, then its block's lines."""
+    return "\n".join([step.run or ""] + step.body)
+
+
+def steps_of(relative: str, job: str) -> list[Step]:
     lines = read(relative).split("\n")
     try:
         start = lines.index("  %s:" % job)
@@ -388,38 +557,67 @@ def steps_of(relative: str, job: str) -> list[tuple[str, str | None, dict[str, s
         index = len(lines)
     if index >= len(lines) or lines[index] != "    steps:":
         unparsable("%s job %s has no steps: block" % (relative, job))
-    steps: list[tuple[str, str | None, dict[str, str]]] = []
+    steps: list[Step] = []
+    current = ""            # the step key whose sub-map is being read
+    body: list[str] | None = None   # the block scalar being read, or None outside one
+    pending: list[str] = []         # blank lines held until the block resumes
     for line in lines[index + 1:]:
+        if body is not None:
+            # A block scalar's lines are more indented than the run: key that opens it, and
+            # a blank line inside one belongs to it. Blanks are held rather than appended
+            # so that the blank line ending the steps block does not join the last one.
+            if line.strip() == "":
+                pending.append(line)
+                continue
+            if line.startswith(" " * 9):
+                body.extend(pending)
+                body.append(line)
+                pending = []
+                continue
+            body = None
+            pending = []
         if line.strip() == "":
             break
         if not line.startswith("      "):
             break
         named = STEP_RE.match(line)
         if named:
-            steps.append((named.group(1).strip(), None, {}))
+            steps.append(Step(named.group(1).strip(), None, [], {}, {}))
+            current = ""
             continue
         if line.startswith("      - "):
             unparsable("%s job %s has a step whose first key is not name:: %r" % (relative, job, line))
         key = KEY_RE.match(line)
-        if not key:
-            continue
-        if key.group(1) == "run":
+        if key:
+            current = key.group(1)
+            value = key.group(2).strip()
             if not steps:
-                unparsable("%s job %s has a run: before any step name" % (relative, job))
-            name, existing, attributes = steps[-1]
-            if existing is not None:
-                unparsable("%s job %s step %r has more than one run:" % (relative, job, name))
-            steps[-1] = (name, key.group(2).strip(), attributes)
+                unparsable("%s job %s has a %s: before any step name" % (relative, job, current))
+            if current == "run":
+                if steps[-1].run is not None:
+                    unparsable("%s job %s step %r has more than one run:" % (relative, job, steps[-1].name))
+                if value[:1] in ("|", ">"):
+                    body = []
+                    steps[-1] = steps[-1]._replace(run=value, body=body)
+                else:
+                    steps[-1] = steps[-1]._replace(run=value)
+                continue
+            if current in steps[-1].attributes:
+                unparsable("%s job %s step %r has more than one %s:" % (relative, job, steps[-1].name, current))
+            steps[-1].attributes[current] = value
+            steps[-1].blocks[current] = {}
             continue
-        if not steps:
-            unparsable("%s job %s has a %s: before any step name" % (relative, job, key.group(1)))
-        name, _, attributes = steps[-1]
-        if key.group(1) in attributes:
-            unparsable("%s job %s step %r has more than one %s:" % (relative, job, name, key.group(1)))
-        attributes[key.group(1)] = key.group(2).strip()
+        sub = SUB_RE.match(line)
+        if sub and current and steps:
+            steps[-1].blocks[current][sub.group(1)] = sub.group(2).strip()
+            continue
+        if current in STEP_READ_THROUGH and steps and line.startswith(" " * 9):
+            unparsable("%s job %s step %r holds a line under %s: that this checker cannot read as a key, so it cannot "
+                       "compare it with the list that declares what the step may carry there: %r"
+                       % (relative, job, steps[-1].name, current, line))
     if not steps:
         unparsable("%s job %s has no steps" % (relative, job))
-    names = [name for name, _, _ in steps]
+    names = [step.name for step in steps]
     for name in names:
         if names.count(name) > 1:
             unparsable("%s job %s has more than one step named %r" % (relative, job, name))
@@ -530,15 +728,111 @@ def check_scope(where: str, keys: dict[str, str], env: dict[str, str],
 def check_exempt_attributes(relative: str, name: str, attributes: dict[str, str]) -> None:
     """An exempt step is unpaired, not unread: it must still run, and still block."""
     for attribute in sorted(attributes):
-        if attribute in EXEMPT_PERMITTED:
+        if attribute in EXEMPT_PERMITTED or attribute in EXEMPT_DECLARED:
             continue
         if attribute not in EXEMPT_LOAD_BEARING:
             unparsable("%s exempt step %r carries %s:, which this checker does not recognise on an exempt step; "
-                       "it is neither permitted (%s) nor load-bearing (%s), so it is not skipped"
-                       % (relative, name, attribute, ", ".join(EXEMPT_PERMITTED), ", ".join(EXEMPT_LOAD_BEARING)))
+                       "it is neither permitted (%s), declared (%s) nor load-bearing (%s), so it is not skipped"
+                       % (relative, name, attribute, ", ".join(EXEMPT_PERMITTED), ", ".join(EXEMPT_DECLARED),
+                          ", ".join(EXEMPT_LOAD_BEARING)))
         disagree("%s exempt step %r carries %s: %s, which decides whether the step runs or whether its failure blocks, "
                  "while the steps %s documents run only because this one has; no exempt step may carry it"
                  % (relative, name, attribute, attributes[attribute] or "(a block)", TESTING))
+
+
+def carried_content(step: Step) -> dict[str, object]:
+    """The EXEMPT_DECLARED keys this step carries, each as the value to compare.
+
+    A key written as a block is carried as the mapping under it, a key written as a scalar
+    as that scalar, and run: as the text the file writes for it. run: is fetched from the
+    step's own field rather than from its attributes, because steps_of consumes it on its
+    own branch; every other declared key is a key beside it.
+    """
+    carried: dict[str, object] = {}
+    for key in EXEMPT_DECLARED:
+        if key == "run":
+            if step.run is not None:
+                carried[key] = written_run(step)
+            continue
+        if key not in step.attributes:
+            continue
+        carried[key] = step.blocks.get(key, {}) if step.attributes[key] == "" else step.attributes[key]
+    return carried
+
+
+def check_exempt_content(relative: str, step: Step) -> None:
+    """What an exempt step installs, and which tree it leaves behind, is declared (#358).
+
+    The declared exempt content list is what an exempt step carries in place of a
+    documented row, so it is compared in both directions: a declared key the step no longer
+    carries is a finding, and a declared key the list does not cover is one too.
+    """
+    declared = DECLARED_EXEMPT_CONTENT.get(relative, {}).get(step.name, {})
+    carried = carried_content(step)
+    where = "%s exempt step %r" % (relative, step.name)
+    for key in sorted(carried):
+        if key not in declared:
+            disagree("%s carries %s:, which decides what the step installs or which tree the documented commands below "
+                     "it run on, and no entry in the checker's declared exempt content list covers it" % (where, key))
+    for key in sorted(declared):
+        if key not in EXEMPT_DECLARED:
+            unparsable("the declared exempt content list declares %s: on %s, which is not one of the keys it declares (%s)"
+                       % (key, where, ", ".join(EXEMPT_DECLARED)))
+        if key not in carried:
+            disagree("declared exempt content entry %r of %s declares %s:, which the step does not carry"
+                     % (step.name, relative, key))
+            continue
+        want, got = declared[key], carried[key]
+        if isinstance(want, list):
+            if not isinstance(got, dict):
+                disagree("declared exempt content entry %r of %s declares the names %s: may set, but the step writes it "
+                         "as a scalar this checker cannot read as a mapping of names" % (step.name, relative, key))
+                continue
+            for name in sorted(got):
+                if name not in want:
+                    disagree("%s sets %s %s: %s, which no entry in the checker's declared exempt content list names; a "
+                             "name it does not declare can change what the step's own commands see without moving any "
+                             "value those commands are pinned against" % (where, key, name, got[name]))
+            for name in want:
+                if name not in got:
+                    disagree("declared exempt content entry %r of %s names %s %s:, which the step does not set"
+                             % (step.name, relative, key, name))
+            continue
+        if isinstance(want, dict) != isinstance(got, dict):
+            disagree("declared exempt content entry %r of %s declares %s: as %s, but the step writes it as %s"
+                     % (step.name, relative, key, "a block" if isinstance(want, dict) else "a scalar",
+                        "a block" if isinstance(got, dict) else "a scalar"))
+            continue
+        if isinstance(want, dict):
+            for name in sorted(got):
+                if name not in want:
+                    disagree("%s sets %s %s: %s, which no entry in the checker's declared exempt content list covers"
+                             % (where, key, name, got[name]))
+            for name in sorted(want):
+                if name not in got:
+                    disagree("declared exempt content entry %r of %s declares %s %s:, which the step does not set"
+                             % (step.name, relative, key, name))
+                elif got[name] != want[name]:
+                    disagree("declared exempt content entry %r of %s declares %s %s: %r, but the step sets %r"
+                             % (step.name, relative, key, name, want[name], got[name]))
+            continue
+        want_lines, got_lines = str(want).split("\n"), str(got).split("\n")
+        if len(want_lines) == 1 and len(got_lines) == 1:
+            # A one-line value is reported whole; only a block is worth naming by line.
+            if want_lines != got_lines:
+                disagree("declared exempt content entry %r of %s declares %s: %r, but the step writes %r"
+                         % (step.name, relative, key, want_lines[0], got_lines[0]))
+            continue
+        for position in range(max(len(want_lines), len(got_lines))):
+            if position >= len(got_lines):
+                disagree("declared exempt content entry %r of %s declares line %d of %s: as %r, which the step does not write"
+                         % (step.name, relative, position + 1, key, want_lines[position]))
+            elif position >= len(want_lines):
+                disagree("%s writes line %d of %s:, %r, which no entry in the checker's declared exempt content list covers"
+                         % (where, position + 1, key, got_lines[position]))
+            elif got_lines[position] != want_lines[position]:
+                disagree("declared exempt content entry %r of %s declares line %d of %s: as %r, but the step writes %r"
+                         % (step.name, relative, position + 1, key, want_lines[position], got_lines[position]))
 
 
 def command_of(relative: str, name: str, run: str | None) -> str:
@@ -656,18 +950,19 @@ for relative, job, table_names in PAIRINGS:
                 JOB_PERMITTED, JOB_LOAD_BEARING, DECLARED_JOB_ENV.get(relative, {}).get(job, {}))
     steps = steps_of(relative, job)
     exempt = EXEMPT_STEPS[relative]
-    names = [name for name, _, _ in steps]
+    names = [step.name for step in steps]
     for entry in exempt:
         if names.count(entry) != 1:
             disagree("exemption entry %r names %d steps of %s, not exactly one" % (entry, names.count(entry), relative))
     live: list[tuple[str, str]] = []
-    for name, run, attributes in steps:
-        if name in exempt:
-            check_exempt_attributes(relative, name, attributes)
+    for step in steps:
+        if step.name in exempt:
+            check_exempt_attributes(relative, step.name, step.attributes)
+            check_exempt_content(relative, step)
             continue
-        command = command_of(relative, name, run)
-        check_attributes(relative, name, attributes)
-        live.append((name, command))
+        command = command_of(relative, step.name, step.run)
+        check_attributes(relative, step.name, step.attributes)
+        live.append((step.name, command))
     kept_steps[relative] = live
     step_counts[relative] = len(live)
     live_names = [name for name, _ in live]
@@ -675,7 +970,7 @@ for relative, job, table_names in PAIRINGS:
         if live_names.count(entry) != 1:
             disagree("conditional-step entry %r names %d paired steps of %s, not exactly one" % (entry, live_names.count(entry), relative))
             continue
-        carried = dict(steps[names.index(entry)][2])
+        carried = dict(steps[names.index(entry)].attributes)
         for attribute in declared:
             if attribute not in carried:
                 disagree("conditional-step entry %r declares %s:, which %s step %r does not carry" % (entry, attribute, relative, entry))
@@ -748,6 +1043,17 @@ for table_name, declared_rows in PLACEHOLDER_ROWS.items():
     for suite in declared_rows:
         if (table_name, suite) not in placeholder_rows_seen:
             disagree("documented-placeholder entry %r names no paired row of the %s table" % (suite, table_name))
+
+# Checked here rather than beside the pairing so that a dropped exemption entry still
+# reports the unpaired step it left behind, which is that entry's own case, before this
+# list reports the same edit from its side.
+for relative, declared_steps in DECLARED_EXEMPT_CONTENT.items():
+    if relative not in [path for path, _, _ in PAIRINGS]:
+        unparsable("the declared exempt content list names %s, which this checker does not pair" % relative)
+    for entry in declared_steps:
+        if entry not in EXEMPT_STEPS[relative]:
+            unparsable("the declared exempt content list names %s step %r, which is not on the exemption list"
+                       % (relative, entry))
 
 for relative, declared_jobs in DECLARED_JOB_ENV.items():
     paired_jobs = [job for path, job, _ in PAIRINGS if path == relative]
@@ -832,11 +1138,15 @@ if findings:
     raise SystemExit(1)
 
 print("check-ci-agreement: %d workflow steps agree with their documented commands (%s %d, %s %d), "
-      "%d exemptions are all in use, %s and %s are declared and in use, "
+      "%d exemptions are all in use, %s on %s agree with what those steps carry, "
+      "%s and %s are declared and in use, "
       "%s hold, %s and %s carry no unaccounted-for key and %s are declared and in use, "
       "and %s's CI list of %s matches"
       % (paired_total, DOCS, step_counts[DOCS], GO, step_counts[GO],
          sum(len(v) for v in EXEMPT_STEPS.values()) + sum(len(v) for v in EXEMPT_ROWS.values()),
+         plural(sum(len(keys) for entries in DECLARED_EXEMPT_CONTENT.values() for keys in entries.values()),
+                "declared key", "declared keys"),
+         plural(sum(len(entries) for entries in DECLARED_EXEMPT_CONTENT.values()), "exempt step", "exempt steps"),
          plural(sum(len(v) for v in PLACEHOLDER_ROWS.values()), "placeholder row", "placeholder rows"),
          plural(sum(len(v) for v in CONDITIONAL_STEPS.values()), "conditional step", "conditional steps"),
          plural(sum(len(v) for v in TABLE_FIRST_STEP.values()), "table boundary", "table boundaries"),
