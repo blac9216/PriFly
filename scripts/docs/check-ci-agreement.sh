@@ -35,9 +35,9 @@
 #   this checker's self-test, and it goes red for the reason #361 gives for row C rather than
 #   for the comment: the docs-fixture appends this change adds land after the same comment
 #   line in their own copy of the file and go unread too. Five FAIL lines, naming those cases
-#   and a fixture step, 'Undocumented new step', that is in no repository file; none names the
-#   comment line or the step appended to the repository's docs-checks.yml, and the one mention
-#   of that path is inside a case's expected text about its own fixture. So this change gives
+#   and a fixture step, 'Undocumented new step', that is in no repository file. Two of the five
+#   do name docs-checks.yml, each inside its own case's expected text; none names the comment
+#   line, and none names the step appended to the repository's file. So this change gives
 #   the docs fixture the accidental detection the go fixture already had, and it is worth no
 #   more here than it was there. #361 scoped its outcomes to a blank line and put a YAML parser
 #   out of scope, so this is recorded here by its case rather than closed, and raised for
