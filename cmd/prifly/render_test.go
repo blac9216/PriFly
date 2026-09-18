@@ -665,9 +665,12 @@ func streamNames(f *ast.File, imports map[string]string) map[string]bool {
 // this name was added: io.Copy(os.Stdin, ...) left the package green and put
 // "prifly: " then the bytes d0 b0 — U+0430 — on the terminal. The cost is a false
 // red on a legitimate read of standard input made outside an fmt call, such as
-// io.ReadAll(os.Stdin); nothing in this package names os.Stdin today, and an
-// fmt.Fscan-shaped read would be admitted by the first-argument rule and move
-// that count.
+// io.ReadAll(os.Stdin); nothing in this package names os.Stdin today. A read
+// made through fmt with os.Stdin first is admitted instead, and moves the fmt
+// count: the first-argument rule reads the package a selector resolves to and
+// not the member's name, so fmt.Fscan(os.Stdin, ...) is admitted the way a write
+// is — measured with fmt.Fprintln(os.Stdin, ...), which that rule reads the
+// same, at 11 against a want of 10.
 func streamExpr(e ast.Expr, imports map[string]string, streams map[string]bool) string {
 	switch e := e.(type) {
 	case *ast.Ident:
