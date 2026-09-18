@@ -6,11 +6,11 @@
 // 1: rejected, one "REJECT <CODE> <harness>: <reason>" line per finding; 2: usage error,
 // unreadable or over-long line, or a trace outside this grammar. Every line is exactly one
 // flat JSON object with nothing after it, no duplicate key and exactly its event's keys
-// (fields below); t, live and observe_ms are integers >= 0, every other value a non-empty
-// string; target, outcome and writer take the listed values. Line 1, and no other, is the
-// early-trace/v1 header. Each launch is a declared candidate at its exact version, at most
-// once per candidate and per run; every other event except a result names a run launched
-// on an earlier line. Per run, stop follows launch, observed follows stop and inventory
+// (fields below); t, live and observe_ms are integers >= 0, step_deadline_ms an integer in
+// 1..99999999 (the runner's accepted range), every other value a non-empty string; target, outcome and writer take the listed values. Line 1, and
+// no other, is the early-trace/v2 header. Each launch is a declared candidate at its exact
+// version, at most once per candidate and per run; every other event except a result names
+// a run launched on an earlier line. Per run, stop follows launch, observed follows stop and inventory
 // follows observed, each at most once, access at most once per target and before the run's
 // stop line, and none is stamped before that predecessor; each writer's sentinel stamps
 // strictly increase line by line. A missing candidate launch, a result for a run not
@@ -32,6 +32,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"slices"
 	"strconv"
@@ -44,7 +45,7 @@ type event struct {
 }
 
 var candidates = []string{"codex-cli 0.154.0", "claude-code 2.1.268"}
-var fields = map[string]string{"trace": "ev schema observe_ms", "launch": "ev harness version run t",
+var fields = map[string]string{"trace": "ev schema observe_ms step_deadline_ms", "launch": "ev harness version run t",
 	"access": "ev run target outcome", "result": "ev run schema status t", "stop": "ev run t",
 	"observed": "ev run t", "inventory": "ev run live", "sentinel": "ev run writer t"}
 var after = map[string]string{"access": "launch", "result": "launch", "stop": "launch", "observed": "stop",
@@ -88,18 +89,22 @@ func parse(line []byte) (e event, err error) {
 	}
 	str := map[string]*string{"ev": &e.Ev, "schema": &e.Schema, "harness": &e.Harness, "version": &e.Version,
 		"run": &e.Run, "target": &e.Target, "outcome": &e.Outcome, "status": &e.Status, "writer": &e.Writer}
-	num := map[string]*int64{"t": &e.T, "live": &e.Live, "observe_ms": &e.ObserveMS}
+	num := map[string]*int64{"t": &e.T, "live": &e.Live, "observe_ms": &e.ObserveMS, "step_deadline_ms": new(int64)}
 	for _, k := range want {
 		s, _ := got[k].(string)
 		n, _ := got[k].(json.Number)
 		i, perr := strconv.ParseInt(string(n), 10, 64)
+		lo, hi, kind := int64(0), int64(math.MaxInt64), "an integer >= 0"
+		if k == "step_deadline_ms" {
+			lo, hi, kind = 1, 99999999, "an integer in 1..99999999"
+		}
 		switch {
-		case num[k] != nil && perr == nil && i >= 0:
+		case num[k] != nil && perr == nil && i >= lo && i <= hi:
 			*num[k] = i
 		case str[k] != nil && s != "":
 			*str[k] = s
 		default:
-			return e, fmt.Errorf("%s: %s is not %s", ev, k, map[bool]string{true: "an integer >= 0", false: "a non-empty string"}[num[k] != nil])
+			return e, fmt.Errorf("%s: %s is not %s", ev, k, map[bool]string{true: kind, false: "a non-empty string"}[num[k] != nil])
 		}
 	}
 	return e, nil
@@ -122,7 +127,7 @@ func main() {
 		case err != nil:
 		case e.Ev == "trace" && n != 1:
 			err = errors.New("trace header after line 1")
-		case e.Ev == "trace" && e.Schema != "prifly/qualification/early-trace/v1":
+		case e.Ev == "trace" && e.Schema != "prifly/qualification/early-trace/v2":
 			err = fmt.Errorf("unknown trace schema %s", e.Schema)
 		case e.Ev == "trace":
 			observeMS = e.ObserveMS

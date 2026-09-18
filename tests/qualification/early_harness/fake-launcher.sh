@@ -1,26 +1,44 @@
 #!/usr/bin/env bash
 # Local fake launcher for test-harness.sh: no harness, provider, network, engine or R2.
 # FAKE_MODE: ok | stop-only | stop-only-slow | engine | herdr | other-workspace | stale |
-# untyped | no-detached | garbage | stop-fails-once | signal-term | signal-int | signal-hup |
-# signal-twice | signal-group | signal-group-twice; a mode named like a probe target leaks
-# that target. Access probes run in a private user+mount namespace that hides the target
-# unless the mode leaks it; if unshare or mount fails the probe exits non-zero,
-# never "denied". Writers are real local processes (the "docker" one is a labelled
-# stand-in, no engine); their pids go to $FAKE_STATE/<run>.pids so the test kills exactly
-# what it started. stop-only stops only the loop writer; -slow writes every 20s, so the
-# warm-up times out; signal-sig sends SIG to the runner once the writers run; signal-twice
-# sends TERM there, then its stop sends INT and HUP to the runner (only while that pid is
-# still the runner) and takes 3s before stopping. signal-group[-twice] sends TERM there, then
-# its stop sends INT once [twice] to its own process group, the runner's (refused unless the
-# runner leads that group, so the suite is never hit), 1.5s apart. Every call appends its pid to
-# $FAKE_STATE/launchers so the test can find a launcher left behind.
+# untyped | no-detached | garbage | stop-fails-once | signal-term | signal-int |
+# signal-hup | signal-twice | signal-group | signal-group-twice | KIND-VERB (KIND below, VERB
+# any launcher verb); a mode named like a probe target leaks that
+# target. Each probe appends "<target> <path>" to $FAKE_STATE/probes. Access probes run in a
+# private user+mount namespace that hides the target unless the mode leaks it; if unshare or
+# mount fails the probe exits non-zero, never "denied". Writers are real local processes
+# (the "docker" one is a labelled stand-in, no engine), each leading its own session; their
+# pids go to $FAKE_STATE/<run>.pids, and stop kills each writer's whole process group, its
+# sleep too. stop-only stops only the loop writer; -slow writes every 20s, so the warm-up
+# times out; signal-sig sends SIG to the runner (this call's nearest ancestor whose argv
+# holds --launcher; none refuses the call) once the writers run; signal-twice sends TERM
+# there, then its stop sends INT and HUP to the runner (only while that pid is still the
+# runner) and takes 3s before stopping. signal-group[-twice] sends TERM there, then its stop
+# and its inventory each send INT and HUP once [twice] to the runner's process group
+# (refused unless the runner leads that group, so the suite is never hit), 1.5s apart.
+# KIND-VERB, for KIND hang | hangterm | zombie | zombieheld | stray, does that call's work; then
+# the case's first such call (stray aside) starts a sleep 20 in its own session holding this
+# call's stdout (added to the run's pids, so stop kills it), and the call writes its process
+# group to $FAKE_STATE/hungpg and creates $FAKE_STATE/hung. hang ignores TERM and waits on a
+# sleep 20 child that inherits that and outlives 2D in the call's group (timeout exit 137).
+# hangterm starts a TERM-ignoring sleep 20 child and waits on a sleep 20 of its own, so the
+# launcher dies on TERM and timeout exits 124 while its child outlives 2D in the group.
+# zombie and zombieheld first start a holder that leads a new group of the same session (so a
+# KILL of the call's group misses it; its pid goes to the run's pids for stop) and whose child
+# rejoins the call's group and exits there, a zombie; then they hang as hang does. zombie's
+# holder reaps it 300ms after the launcher is gone; zombieheld's only after 20s. stray leaves a
+# sleep 20 in its group and returns 0. Once hungpg exists, every call first appends "<verb>
+# <processes in that group>" to $FAKE_STATE/overlap. Every call appends its pid to
+# $FAKE_STATE/launchers and "<verb> <epoch-ms>" to $FAKE_STATE/t.
 # shellcheck disable=SC2016  # the sh -c bodies expand inside the child shell
 set -euo pipefail
 st="$FAKE_STATE" mode="$FAKE_MODE" verb="$1"
-echo "$verb" >>"$st/calls"; echo $$ >>"$st/launchers"
+echo "$verb" >>"$st/calls"; echo $$ >>"$st/launchers"; echo "$verb $(($(date +%s%N) / 1000000))" >>"$st/t"
+[[ ! -e "$st/hungpg" ]] || echo "$verb $(ps -eo pgid= | awk -v g="$(cat "$st/hungpg")" '$1 == g' | wc -l)" >>"$st/overlap"
 case "$verb" in
   launch) echo "$5" >"$st/$4.ws" ;;
   probe)
+    echo "$3 $4" >>"$st/probes"
     if [[ "$mode" == "$3" ]]; then
       test -e "$4" && echo allowed || echo denied
     else
@@ -36,30 +54,58 @@ case "$verb" in
     [[ "$mode" == garbage ]] && echo "loop 12x" >>"$ws/sentinel"
     for w in loop detached docker; do
       [[ "$mode" == no-detached && "$w" == detached ]] && continue
-      launch=(); [[ "$w" == loop ]] || launch=(setsid)
-      "${launch[@]}" sh -c 'while :; do echo "$1 $(($(date +%s%N) / 1000000))" >>"$2/sentinel"; sleep "$3"; done' _ "$w" "$ws" "$gap" </dev/null >/dev/null 2>&1 &
+      setsid sh -c 'while :; do echo "$1 $(($(date +%s%N) / 1000000))" >>"$2/sentinel"; sleep "$3"; done' _ "$w" "$ws" "$gap" </dev/null >/dev/null 2>&1 &
       echo $! >>"$st/$2.pids"
     done
     sig="${mode#signal-}"; [[ "$sig" == twice || "$sig" == group* ]] && sig=term
-    if [[ "$mode" == signal-* ]]; then echo "$PPID" >"$st/runner"; kill -"${sig^^}" "$PPID"; fi ;;
+    if [[ "$mode" == signal-* ]]; then
+      p=$$; until [[ "$(tr '\0' ' ' <"/proc/$p/cmdline")" == *" --launcher "* ]]; do p="$(ps -o ppid= -p "$p" | tr -d ' ')"; ((p > 1)) || exit 9; done; echo "$p" >"$st/runner"
+      kill -"${sig^^}" "$(cat "$st/runner")"
+    fi ;;
   stop|inventory)
     [[ "$mode$verb" == stop-fails-oncestop && ! -e "$st/stop-failed" ]] && { : >"$st/stop-failed"; exit 7; }
     if [[ "$mode$verb" == signal-twicestop ]]; then
       for sig in INT HUP; do
-        grep -qs harness "/proc/$(cat "$st/runner")/cmdline" && kill -"$sig" "$(cat "$st/runner")"
+        [[ "$(tr '\0' ' ' <"/proc/$(cat "$st/runner")/cmdline" 2>/dev/null)" == *" --launcher "* ]] && kill -"$sig" "$(cat "$st/runner")"
         for _ in $(seq 15); do sleep 0.1; done
       done
     fi
-    if [[ "$mode$verb" == signal-group*stop ]]; then
+    if [[ "$mode" == signal-group* ]]; then
       [[ "$(ps -o pgid= -p "$(cat "$st/runner")" | tr -d ' ')" == "$(cat "$st/runner")" ]] || exit 9
-      for _ in $([[ "$mode" == *twice ]] && echo 1 2 || echo 1); do kill -INT 0; for _ in $(seq 15); do sleep 0.1; done; done
+      for _ in $([[ "$mode" == *twice ]] && echo 1 2 || echo 1); do kill -INT -- "-$(cat "$st/runner")"; kill -HUP -- "-$(cat "$st/runner")"; for _ in $(seq 15); do sleep 0.1; done; done
     fi
     mapfile -t pids <"$st/$2.pids"
     [[ "$mode" == stop-only* ]] && pids=("${pids[0]}")
     if [[ "$verb" == stop ]]; then
-      kill "${pids[@]}" 2>/dev/null || true
+      kill -- "${pids[@]/#/-}" 2>/dev/null || true
       for _ in $(seq 20); do alive=0; for p in "${pids[@]}"; do [[ -d /proc/$p ]] && alive=1; done; ((alive)) || break; sleep 0.05; done
     else
       n=0; for p in "${pids[@]}"; do [[ -d /proc/$p ]] && n=$((n + 1)); done; echo "$n"
     fi ;;
 esac
+run="$2" kind="${mode%-"$verb"}"; [[ "$verb" == launch ]] && run="$4"
+if [[ "$mode" == *-"$verb" && " hang hangterm zombie zombieheld stray " == *" $kind "* ]]; then
+  [[ -e "$st/holder" || "$kind" == stray ]] || { setsid sleep 20 2>/dev/null </dev/null & echo $! >>"$st/$run.pids"; : >"$st/holder"; }
+  [[ "$kind" != zombie* ]] || python3 -c 'import os, sys, time
+st, run, kind, launcher = sys.argv[1:]
+g = os.getpgid(0)
+if os.fork():
+    sys.exit()
+os.setpgid(0, 0)
+with open(f"{st}/{run}.pids", "a") as f:
+    f.write(f"{os.getpid()}\n")
+if os.fork() == 0:
+    os.setpgid(0, g)
+    os._exit(0)
+end = time.time() + 20
+while (kind == "zombieheld" or os.path.exists(f"/proc/{launcher}")) and time.time() < end:
+    time.sleep(0.05)
+time.sleep(0.3)
+os.wait()' "$st" "$run" "$kind" $$ </dev/null
+  ps -o pgid= -p $$ | tr -d ' ' >"$st/hungpg"; : >"$st/hung"
+  case "$kind" in
+    stray) sleep 20 & ;;
+    hangterm) sh -c 'trap "" TERM; exec sleep 20' </dev/null & sleep 20 ;;
+    *) trap '' TERM; sleep 20 ;;
+  esac
+fi

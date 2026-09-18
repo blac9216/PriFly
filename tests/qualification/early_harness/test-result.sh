@@ -15,7 +15,7 @@ trap 'rm -rf -- "$work"' EXIT
 go build -o "$work/result" "$RESULT"
 fails=0
 {  # success: codex-cli run a1 (lines 2-15) and claude-code run b2 (lines 16-29), writers every 100ms, 300ms window, 400ms observed
-  echo '{"ev":"trace","schema":"prifly/qualification/early-trace/v1","observe_ms":300}'
+  echo '{"ev":"trace","schema":"prifly/qualification/early-trace/v2","observe_ms":300,"step_deadline_ms":10000}'
   for c in "codex-cli 0.154.0 a1 1000" "claude-code 2.1.268 b2 5000"; do
     read -r h v r t <<<"$c"
     echo "{\"ev\":\"launch\",\"harness\":\"$h\",\"version\":\"$v\",\"run\":\"$r\",\"t\":$t}"
@@ -99,6 +99,12 @@ case_ "empty trace" empty 2 "result: missing trace header with observe_ms"
 case_ "missing trace header" 'select(.ev != "trace")' 2 "result: missing trace header with observe_ms"
 case_ "trace header not first" . 2 "result: line 29: malformed event: trace header after line 1" '1{h;d};$G'
 case_ "second trace header" 'if .ev == "trace" then ., .observe_ms = 0 else . end' 2 "result: line 2: malformed event: trace header after line 1"
+case_ "trace header without step_deadline_ms" 'del(.step_deadline_ms)' 2 'result: line 1: malformed event: event "trace" wants exactly the keys ["ev" "schema" "observe_ms" "step_deadline_ms"]'
+case_ "string step_deadline_ms" 'if .ev == "trace" then .step_deadline_ms |= tostring else . end' 2 "result: line 1: malformed event: trace: step_deadline_ms is not an integer in 1..99999999"
+for c in 0:2 1:0 99999999:0 100000000:2; do  # the runner's accepted range, 1..99999999, and one past each end
+  case_ "step_deadline_ms ${c%:*}" "if .ev == \"trace\" then .step_deadline_ms = ${c%:*} else . end" "${c#*:}" "$([[ ${c#*:} == 0 ]] && echo "VERDICT: expected observations for both candidates (local trace only; not a live PASS)" || echo "result: line 1: malformed event: trace: step_deadline_ms is not an integer in 1..99999999")"
+done
+case_ "trace header with the v1 schema id" 'if .ev == "trace" then .schema = "prifly/qualification/early-trace/v1" else . end' 2 "result: line 1: malformed event: unknown trace schema prifly/qualification/early-trace/v1"
 case_ "trace header with another schema" 'if .ev == "trace" then .schema = "prifly/qualification/early-trace/v0" else . end' 2 "result: line 1: malformed event: unknown trace schema prifly/qualification/early-trace/v0"
 case_ "second JSON value on a line" . 2 "result: line 23: malformed event: content after the JSON object" '23s/$/{"ev":"sentinel","run":"b2","writer":"detached","t":9999}/'
 case_ "array line" "if $A1 \"stop\" then [.] else . end" 2 "result: line 7: malformed event: not a JSON object"
