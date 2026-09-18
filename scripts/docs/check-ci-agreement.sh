@@ -64,11 +64,14 @@
 #   timeout a contributor would plausibly write. timeout-minutes: was the only key silent
 #   that way, being the one step key permitted on a paired step and compared against
 #   nothing; every other key of the surface was already exit 1 or exit 3, and #369's PR
-#   body tables both the key surface and the indent sweep before and after.
+#   body tables both the key surface and the indent sweep before and after. Thirteen is
+#   the count of what was measured there and not of what exists: review round 1 added
+#   fourteen further values silent at 4b6076c, twelve of them behind a tag or an anchor.
 #   So a step key whose value does not close on the line that opens it is now refused by
-#   name, in value_closes below, before the break can be reached. Refusing is a choice with
-#   a cost, stated here where the choice is made: this repository now rejects a step layout
-#   GitHub accepts, and rejects it whether or not a step is hidden behind it -- a continued
+#   name, in value_closes below, before the break can be reached, whether the value is
+#   written bare or behind a tag or an anchor. Refusing is a choice with a cost, stated
+#   here where the choice is made: this repository now rejects a step layout GitHub
+#   accepts, and rejects it whether or not a step is hidden behind it -- a continued
 #   value with nothing written after it hides nothing and is refused all the same, which is
 #   a case in the self-test rather than a sentence here. The alternative was to read the
 #   value through to its close, which would keep that layout and would hold this reader's
@@ -79,16 +82,28 @@
 #   is the one taken.
 #   What the rule reads is as narrow as it is written, and each exclusion below was
 #   measured on this tree rather than reasoned about. It reads the value on a step key at
-#   eight spaces, run: included, and only where that value's first character is a double
-#   quote, a single quote, a [ or a { -- which is where YAML itself decides a value may
-#   continue onto another line. A plain scalar continues only on a line more indented than
-#   its own key, so an under-indented plain continuation is not a continuation at all and
-#   neither yaml.safe_load nor psych will parse the file. A block indicator, | or >, is the
-#   other value that runs on past its own line, and it is deliberately not in that set: a
-#   block scalar's content has to be more indented than its key, so it stays inside the
+#   eight spaces, run: included. A YAML node may carry properties in front of its content
+#   -- a tag and an anchor, in either order -- so those are dropped before anything is
+#   decided, and the rule then fires where what is left begins with a double quote, a
+#   single quote, a [ or a {. Dropping them is safe in the one direction that matters
+#   here: neither ! nor & can begin a plain scalar in YAML, so a leading token of either
+#   is a property and never content. #369 review round 1 found that rule reading the
+#   property as the content instead, and twelve tagged and anchored shapes were exit 0
+#   with the summary line byte-identical and a step hidden behind them, the worst of them
+#   an !!int "1 ending in a backslash and continued two spaces in as 0", which both
+#   loaders read as a well-formed ten-minute timeout. Those four first characters are
+#   where this reader treats a value as able to continue, on the argument that a quoted
+#   scalar and a flow collection may close on a line less indented than their own key
+#   while nothing else may: a plain scalar continues only on a line more indented than its
+#   key, so an under-indented plain continuation is not a continuation at all and neither
+#   yaml.safe_load nor psych will parse the file. A block indicator, | or >, is the other
+#   value that runs on past its own line, and it is deliberately not in that set: a block
+#   scalar's content has to be more indented than its key, so it stays inside the
 #   six-space band this reader reads through -- measured with a block scalar on a step's
 #   timeout-minutes: at ten spaces and a step behind it, exit 1 at the manifest count both
-#   before this change and after it, with the whole step list read.
+#   before this change and after it, with the whole step list read. That argument is how
+#   the set was chosen and how round 1's gap was found; it is not a proof that the set is
+#   exhaustive, and this header does not claim one.
 #   It does not read a step's own - name: line, which STEP_RE takes first: an open name:
 #   leaves the step without a run:, which is exit 3, measured at a middle step of job
 #   design-docs and at the last one. It does not read a sub-key under with: or env:; the
@@ -674,16 +689,26 @@ def written_run(step: Step) -> str:
 def value_closes(value: str) -> bool:
     """Whether a step attribute's value is finished on the line that opens it (#369).
 
-    YAML decides that on the value's first character. A double or single quote opens a
-    quoted scalar and a [ or { opens a flow collection; either may close on a later line
-    at any indentation, and a loader reads on through it. Anything else is a plain scalar,
-    which continues only on a line more indented than its own key, so a plain scalar
-    written under six spaces is not a continuation at all and neither yaml.safe_load nor
-    psych will parse the file.
+    A YAML node may carry properties -- a tag and an anchor, in either order, separated
+    from each other and from the content by whitespace -- and those are written in front
+    of the content without being it. They are dropped first. Neither indicator can begin
+    a plain scalar in YAML, so dropping a leading ! or & token cannot swallow content.
+    Reading an indicator as the content answers "closed" for every tagged and anchored
+    value there is; the header above records what that cost and how it was measured.
+
+    What is left decides on its first character. A double or single quote opens a quoted
+    scalar and a [ or { opens a flow collection; either may close on a later line at any
+    indentation, and a loader reads on through it. Anything else -- a plain scalar, a
+    block indicator, an alias -- either ends on this line or continues only on a line
+    more indented than its own key, so an under-indented continuation of one is not a
+    continuation at all and neither yaml.safe_load nor psych will parse the file.
     Quotes are tracked inside a flow collection too, so a bracket written inside one of
     its scalars is text rather than nesting, and a backslash escape inside a double-quoted
     scalar and a doubled quote inside a single-quoted one do not close it.
     """
+    while value[:1] in ("!", "&"):
+        parts = value.split(None, 1)
+        value = parts[1] if len(parts) > 1 else ""
     if value[:1] not in ('"', "'", "[", "{"):
         return True
     depth = 0
