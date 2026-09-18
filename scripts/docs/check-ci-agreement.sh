@@ -46,19 +46,57 @@
 # scripts/docs/ exit 0 with the summary line byte-identical at each of those four indents,
 # so this is a skip and not a refusal of a comment.
 #   What still ends the list is stated here rather than in the limits at the foot of this
-#   header (#353 M3, #358 M2, #365 M3). It is the break below: the first line that is
-#   neither blank nor a comment and does not begin with six spaces. That is not the same as
-#   the dedent that ends the block, and this header does not claim it is -- that exact
-#   over-claim was #362 review round 1's C2. A multi-line double-quoted scalar and a
-#   multi-line flow collection both keep the block open across a continuation line written
-#   under six spaces, and yaml.safe_load reads the steps after one where this reader stops.
-#   Four such shapes were measured on this tree, each appended to job design-docs with a
-#   further step behind it: a quoted run: scalar continued at column 0, at two and at four
-#   spaces, and a flow with: mapping continued at two spaces. In every one this checker is
-#   exit 3, refusing the file by name -- at the workflow scope, at the job scope, on the
-#   quoted run: it does not normalise, or on the step left with no run: -- so none of them
-#   reports agreement the way a comment line did. That is four shapes measured, not a proof
-#   that no silent one exists; a YAML parser is out of scope here as it was in #361.
+#   header (#353 M3, #358 M2, #365 M3, #369 M3). It is still the break below: the first
+#   line that is neither blank nor a comment and does not begin with six spaces. That is
+#   not the same as the dedent that ends the block, and this header does not claim it is --
+#   that exact over-claim was #362 review round 1's C2. What #369 changed is what this
+#   reader does before it can reach that break. A YAML value may close on a later line at
+#   any indentation when it opens with a quote or with a flow indicator, and a loader reads
+#   the steps written after such a continuation where this reader stopped at it. Until #369
+#   a step attribute written that way carried the step list away with it: thirteen shapes
+#   were measured silent at 4b6076c, quoted scalars and flow collections alike, each a
+#   timeout-minutes: closing two or three spaces in with a further step behind it, on job
+#   design-docs and on job go, every one of them exit 0 at all nine scripts under
+#   scripts/docs/ but this checker's own self-test, with this checker's summary line
+#   byte-identical and its step count one short of yaml.safe_load's. One of the thirteen
+#   ends its first line in a backslash, which suppresses the fold, so the value is the
+#   string 10 to yaml.safe_load and to psych alike and the hidden step arrives beside a
+#   timeout a contributor would plausibly write. timeout-minutes: was the only key silent
+#   that way, being the one step key permitted on a paired step and compared against
+#   nothing; every other key of the surface was already exit 1 or exit 3, and #369's PR
+#   body tables both the key surface and the indent sweep before and after.
+#   So a step key whose value does not close on the line that opens it is now refused by
+#   name, in value_closes below, before the break can be reached. Refusing is a choice with
+#   a cost, stated here where the choice is made: this repository now rejects a step layout
+#   GitHub accepts, and rejects it whether or not a step is hidden behind it -- a continued
+#   value with nothing written after it hides nothing and is refused all the same, which is
+#   a case in the self-test rather than a sentence here. The alternative was to read the
+#   value through to its close, which would keep that layout and would hold this reader's
+#   step count equal to a loader's. It was not taken: resuming after a value needs this
+#   reader to know exactly where that value ends, and a resume one character out re-opens
+#   the same silence, while a refusal only needs to know the value might not have ended.
+#   #369 M2 rules out a YAML parser, so the treatment that needs less parsing to be correct
+#   is the one taken.
+#   What the rule reads is as narrow as it is written, and each exclusion below was
+#   measured on this tree rather than reasoned about. It reads the value on a step key at
+#   eight spaces, run: included, and only where that value's first character is a double
+#   quote, a single quote, a [ or a { -- which is where YAML itself decides a value may
+#   continue onto another line. A plain scalar continues only on a line more indented than
+#   its own key, so an under-indented plain continuation is not a continuation at all and
+#   neither yaml.safe_load nor psych will parse the file. A block indicator, | or >, is the
+#   other value that runs on past its own line, and it is deliberately not in that set: a
+#   block scalar's content has to be more indented than its key, so it stays inside the
+#   six-space band this reader reads through -- measured with a block scalar on a step's
+#   timeout-minutes: at ten spaces and a step behind it, exit 1 at the manifest count both
+#   before this change and after it, with the whole step list read.
+#   It does not read a step's own - name: line, which STEP_RE takes first: an open name:
+#   leaves the step without a run:, which is exit 3, measured at a middle step of job
+#   design-docs and at the last one. It does not read a sub-key under with: or env:; the
+#   three such shapes this tree can carry -- a paired step's env:, an exempt step's with:,
+#   an exempt step's env: -- are each exit 1 at the comparisons that read those sub-maps.
+#   It does not read the two scopes above the steps, whose own outcomes are in #369's
+#   key-surface table. That is the shapes measured, not a proof that no silent one exists;
+#   a YAML parser is out of scope here as it was in #361.
 #
 # A step is more than its run: line. Which of its other keys decide whether it runs at
 # all, and whether its failure blocks, is written down in the load-bearing attribute list
@@ -633,6 +671,54 @@ def written_run(step: Step) -> str:
     return "\n".join([step.run or ""] + step.body)
 
 
+def value_closes(value: str) -> bool:
+    """Whether a step attribute's value is finished on the line that opens it (#369).
+
+    YAML decides that on the value's first character. A double or single quote opens a
+    quoted scalar and a [ or { opens a flow collection; either may close on a later line
+    at any indentation, and a loader reads on through it. Anything else is a plain scalar,
+    which continues only on a line more indented than its own key, so a plain scalar
+    written under six spaces is not a continuation at all and neither yaml.safe_load nor
+    psych will parse the file.
+    Quotes are tracked inside a flow collection too, so a bracket written inside one of
+    its scalars is text rather than nesting, and a backslash escape inside a double-quoted
+    scalar and a doubled quote inside a single-quoted one do not close it.
+    """
+    if value[:1] not in ('"', "'", "[", "{"):
+        return True
+    depth = 0
+    quote = ""
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if quote == '"':
+            if char == "\\":
+                index += 2
+                continue
+            if char == '"':
+                quote = ""
+                if not depth:
+                    return True
+        elif quote == "'":
+            if char == "'":
+                if value[index + 1:index + 2] == "'":
+                    index += 2
+                    continue
+                quote = ""
+                if not depth:
+                    return True
+        elif char in ('"', "'"):
+            quote = char
+        elif char in "[{":
+            depth += 1
+        elif char in "]}":
+            depth -= 1
+            if not depth:
+                return True
+        index += 1
+    return False
+
+
 def steps_of(relative: str, job: str) -> list[Step]:
     lines = read(relative).split("\n")
     try:
@@ -692,6 +778,11 @@ def steps_of(relative: str, job: str) -> list[Step]:
             value = key.group(2).strip()
             if not steps:
                 unparsable("%s job %s has a %s: before any step name" % (relative, job, current))
+            if not value_closes(value):
+                unparsable("%s job %s step %r has a %s: whose value does not close on the line that opens it, so this "
+                           "reader would stop at the continuation line and miss every step written below it while a "
+                           "YAML loader ran them: %r"
+                           % (relative, job, steps[-1].name, current, value))
             if current == "run":
                 if steps[-1].run is not None:
                     unparsable("%s job %s step %r has more than one run:" % (relative, job, steps[-1].name))

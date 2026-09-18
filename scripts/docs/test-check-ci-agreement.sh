@@ -12,7 +12,11 @@
 # #361 names has a case too: one per tail of each job's step list, and one per exempt step
 # whose position moved, with the list that issue adds proved to rot in both directions. The
 # one mutation #365 names has a case at each of the two indents that reach the rule it
-# widens, and three more holding that rule to a skip rather than a refusal.
+# widens, and three more holding that rule to a skip rather than a refusal. The value that
+# does not close on its own line (#369) has a case per shape its rule reads, at both silent
+# indents and in both jobs, three more holding that the rule refuses an unreadable value
+# rather than a quote or a bracket, and one holding the cost of refusing rather than
+# reading the value through.
 # All cases run; the script exits 1 if any failed.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -782,6 +786,111 @@ check_case 'a bare trailing two-space comment in the docs job changes nothing' 0
 reset_fixture
 awk '/^      - name: go build$/ { print "# a comment"; print "  # a comment" } { print }' "$wf_go" >"$wf_go.hash" && mv "$wf_go.hash" "$wf_go"
 check_case 'comment lines inside the go step list do not truncate it' 0 'workflow steps agree with their documented commands'
+
+# --- #369: a step attribute's value that does not close on its own line ---------------
+# The two rules above skip a line that carries no value. This one is the opposite shape:
+# a line that carries a value the reader cannot see the end of. YAML lets a value close on
+# a later line at any indentation when it opens with a quote or with a flow indicator, and
+# a loader reads the steps after it; this reader stopped at the continuation line, so until
+# #369 a step written below one ran with this checker exit 0 and its summary line
+# byte-identical. timeout-minutes: is the key it was silent on, being the one step key
+# permitted on a paired step and compared against nothing.
+#
+# The rule reads the line that opens the value, not the line that closes it, so the
+# continuation's indentation is not a dimension of it and no deletion can narrow the rule
+# to one indent: under every deletion below the two-space and three-space cases go red
+# together. The mutant that separates them has to add a lookahead rather than remove
+# anything -- refuse only when the very next line begins with exactly two spaces -- and
+# measured, that mutant leaves the clean tree exit 0 and 184 of the 186 cases green, the
+# two red ones being the three-space pair here. So the second indent is not redundant, and
+# the pair is what #369 M4 asks for.
+#
+# Each case names the mutant of value_closes it kills, and the PR body states the suite
+# result under each:
+#   drop '"' from the first-character gate -> the four double-quoted cases
+#   drop "'" from it                       -> the single-quoted case
+#   drop '[' from it                       -> the two flow-sequence cases
+#   drop '{' from it                       -> the flow-mapping case
+#   delete the backslash-escape branch     -> the escaped-quote case
+#   delete the doubled-quote branch        -> the doubled-quote case
+#   delete the quote tracking inside a flow collection -> the two flow-scalar cases
+#   count brackets over the whole value instead of gating on the first character
+#                                          -> the closed 1[0 case below, which goes red
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a double-quoted value continued at two spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+also_expect 'the refusal names the file, job and step' ".github/workflows/docs-checks.yml job design-docs step 'CI agreement checker regression tests'"
+also_expect 'the refusal says what it would otherwise have missed' 'miss every step written below it while a YAML loader ran them'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1' '   0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a double-quoted value continued at three spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' "        timeout-minutes: '1" "  0'" '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a single-quoted value continued at two spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: [1,' '  0]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a flow sequence continued at two spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: [1,' '   0]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a flow sequence continued at three spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: {a: 1,' '  b: 2}' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a flow mapping continued at two spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# The value a contributor could plausibly have meant: a double-quoted scalar whose first
+# line ends in a backslash suppresses the fold, so this one is the string 10 to both
+# yaml.safe_load and psych, and the step below it runs.
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1\' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a value folded to 10 by a trailing backslash is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# The three shapes a first-and-last-character test would call closed.
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1\"' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a backslash-escaped quote does not close a double-quoted value' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' "        timeout-minutes: '1''" "  0'" '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a doubled quote does not close a single-quoted value' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: ["a]",' '  1]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a bracket inside a flow scalar does not close the sequence' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+reset_fixture
+printf '%s\n' '        timeout-minutes: {"a}": 1,' '  b: 2}' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a brace inside a flow scalar does not close the mapping' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# The same shape in the other job and the other file, because the reader is the same one.
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_go"
+check_case 'a continued value in the go job is refused' 3 ".github/workflows/go-checks.yml job go step 'Early publication runner local proof (fake probe, virtual clock)'"
+
+# The cost of refusing rather than reading the value through, pinned rather than left to
+# prose: a continued value with no step written after it hides nothing, and this checker
+# rejects it all the same, because it refuses the shape it cannot read and not the
+# concealment. #369 M2 requires that be stated as a cost; this is the case that holds it.
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1' '  0"' >>"$wf_docs"
+check_case 'a continued value with no step after it is refused too' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# And the values that do close, so this is a refusal of an unreadable value rather than of
+# a quote or a bracket. The last is the one a bracket count over the whole value would
+# reject: it is a closed double-quoted scalar that happens to contain a [.
+reset_fixture
+printf '%s\n' '        timeout-minutes: "10"' >>"$wf_docs"
+check_case 'a closed double-quoted timeout-minutes: changes nothing' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' '        timeout-minutes: [1, 0]' >>"$wf_docs"
+check_case 'a closed flow timeout-minutes: changes nothing' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' '        timeout-minutes: "1[0"' >>"$wf_docs"
+check_case 'a bracket inside a closed quoted value changes nothing' 0 'workflow steps agree with their documented commands'
 
 # --- #361: an exempt step's position is declared -------------------------------------
 # Moving an exempt step changes none of its bytes, so the declared exempt content list
