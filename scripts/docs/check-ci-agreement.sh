@@ -16,14 +16,28 @@
 # Neither a blank line nor a comment line inside a job's steps: block ends its step list
 # (#361, #365). Neither ends a block in YAML, so this reader skips both and carries on.
 # Until #361 it broke on a blank line and until #365 on a comment, so a step written after
-# either was never read. Appended to job design-docs in docs-checks.yml each was exit 0 at
-# all nine scripts under scripts/docs/ with this checker's summary line byte-identical;
-# after a blank line in job go it was exit 0 here too, and was caught only because the
-# self-test's own fixture append lands after the same blank line, so what went red named a
-# fixture step rather than the workflow. The predicate is now the one mapping_at applies at
-# the two scopes above, at both scopes and here; a comment more indented than the run: key
-# that opens a block scalar is that scalar's own text and is taken as such before the
-# predicate is reached. Measured after the change: the step list this reader takes for job
+# either was never read. Which guards saw it depends on the tree, so name one. Appended to
+# job design-docs in docs-checks.yml at 056bdf0, before #362, a blank line and a comment
+# alike were exit 0 at all nine scripts under scripts/docs/ with this checker's summary line
+# byte-identical. At c1ab0dc, this change's base, #362 has closed the blank line and added
+# its own docs-fixture appends, and on that same append the comment is eight of nine: the
+# ninth is this checker's self-test, red for the reason #361 gives for its row C rather than
+# for the comment, naming a fixture step and neither the comment nor the step appended to
+# the repository's file. That is the vector the issue tables. After a blank line in job go it
+# was exit 0 here too at 056bdf0, and was caught only because the self-test's own fixture
+# append lands after the same blank line, so what went red named a fixture step rather than
+# the workflow.
+#   The predicate is now the one mapping_at applies at the two scopes above, at both scopes
+#   and here. A comment does not reach it while a block scalar is open, because the branch
+#   above takes the line first -- but on this reader's boundary, which is not a loader's.
+#   This reader takes any line of nine spaces or more as the open scalar's; a loader takes
+#   the scalar's own content indentation, ten in the one block scalar either workflow has,
+#   go-checks.yml's toolchain install. So the two part company at exactly nine: yaml.safe_load
+#   ends the scalar there and reads a comment, while this reader keeps the line and reports
+#   the step as writing it, exit 1, "writes line 9 of run:". At ten and deeper they agree,
+#   which is the case measured below. That gap is this reader's own and predates #365 -- the
+#   same diagnostic reproduces at c1ab0dc -- so it is recorded here, not closed here.
+# Measured after the change: the step list this reader takes for job
 # go and for job design-docs is the list yaml.safe_load takes for the same job, name for
 # name, on the unmutated tree, under a blank-line append to each job, and under a comment
 # append to job design-docs at column 0, at two, at six and at eight spaces -- 14 against
@@ -658,9 +672,10 @@ def steps_of(relative: str, job: str) -> list[Step]:
             # line at any indentation (#365). Neither ends a block, so neither ends this list;
             # the break below is what ends it. Breaking on either left a step written after
             # one unread while a YAML loader still ran it. This is the predicate mapping_at
-            # applies at the workflow and job scopes, now applied here too; a comment more
-            # indented than the run: key that opens a block scalar belongs to that scalar
-            # and is taken above, before this line is reached.
+            # applies at the workflow and job scopes, now applied here too. A comment does
+            # not reach this line while a block scalar is open: the branch above takes any
+            # line of nine spaces or more as that scalar's. Nine is this reader's boundary,
+            # not a loader's, and the header says where the two part company.
             continue
         if not line.startswith("      "):
             break
