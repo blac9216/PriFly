@@ -348,6 +348,24 @@ sed -i 's@^      GOTOOLCHAIN: local$@      GOTOOLCHAIN: local\n      GOPROXY: of
 check_case 'an undeclared job environment variable fails' 1 "job 'go' sets env GOPROXY: off"
 also_expect 'the undeclared variable says the list did not cover it' "no entry in the checker's declared job environment list covers it"
 
+# A variable line the reader cannot read is an error, not an absent variable: absent is
+# what a clean scope looks like, so dropping it would let a quoted name, an odd indent or a
+# merge key set a variable the declaration comparison never sees. Round 1 of review found
+# all three green, the quoted name overriding the very GOFLAGS value the list pins.
+reset_fixture
+sed -i 's@^      GOFLAGS: -mod=readonly$@      GOFLAGS: -mod=readonly\n      "GOFLAGS": -mod=mod@' "$wf_go"
+check_case 'a quoted variable name in the declared job env fails' 3 "go-checks.yml job 'go' holds a line under env: that this checker cannot read as a variable"
+also_expect 'the unreadable variable says why it is not skipped' 'so it cannot compare it with the list that says which variables the scope may set'
+also_expect 'the unreadable variable quotes the line' '"GOFLAGS": -mod=mod'
+
+reset_fixture
+sed -i 's@^  design-docs:$@  design-docs:\n    env:\n        PATH: /tmp/shim:/usr/bin:/bin@' "$wf_docs"
+check_case 'a job env variable at the wrong indent fails' 3 "docs-checks.yml job 'design-docs' holds a line under env: that this checker cannot read as a variable"
+
+reset_fixture
+sed -i 's@^permissions:$@env:\n  "GOPROXY": off\npermissions:@' "$wf_go"
+check_case 'a quoted variable name at workflow scope fails' 3 '.github/workflows/go-checks.yml workflow scope holds a line under env: that this checker cannot read as a variable'
+
 # --- #353 M1: and from the workflow mapping, which declares no environment ------------
 reset_fixture
 sed -i 's@^permissions:$@env:\n  GOPROXY: off\npermissions:@' "$wf_go"

@@ -30,7 +30,12 @@
 # environment variables a job may set. At every one of the three scopes a key no list
 # recognises is an error naming the key and the scope, not something skipped. That is what
 # makes the treatment cover the whole mapping rather than three named keys of it, and it is
-# why defaults: at job level is an error here rather than a pass.
+# why defaults: at job level is an error here rather than a pass. The same rule holds one
+# level down inside an env: block, whose variables are compared against a written list: a
+# line there that this reader cannot read as a variable is an error too, because an absent
+# variable is what a clean scope looks like. Round 1 of this change's review found that gap
+# open -- a quoted "GOFLAGS" name in the live block set -mod=mod with the checker green --
+# so the shape is the one the reader errors on rather than a precaution.
 #
 # An exempt step is unpaired, not unread (#353). The documents assert nothing about what an
 # exempt step's command is -- that is what exempting it means -- but the paired steps rely
@@ -124,7 +129,11 @@
 #      and a job it pairs that did would exit 3 on the unrecognised uses: key rather than
 #      pass. A job of these files that no pairing names is not read at all: it cannot switch
 #      off a documented step, but nothing here audits it. An exempt step's run:, uses: and
-#      with: are not read either, per the exempt-step paragraph above.
+#      with: are not read either, per the exempt-step paragraph above -- and that limit is
+#      wider than the env: reasoning there, because a run: line can write $GITHUB_ENV or
+#      $GITHUB_PATH, which do reach every step after it in the job. The install step already
+#      uses $GITHUB_PATH that way. So an exempt step's run: is a route to the job environment
+#      that this checker does not close; whether it should is filed rather than decided here.
 #
 # Fails closed. Exit 0 everything agrees; 1 a disagreement, reported one line per finding;
 # 2 usage error; 3 a file it reads is missing, unreadable or not UTF-8, a table it reads
@@ -417,13 +426,21 @@ def steps_of(relative: str, job: str) -> list[tuple[str, str | None, dict[str, s
     return steps
 
 
-def mapping_at(lines: list[str], start: int, indent: int, where: str) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+def mapping_at(lines: list[str], start: int, indent: int, where: str,
+               read_through: tuple[str, ...] = ()) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
     """The keys of one YAML mapping, each with the one-level-deeper sub-map under it.
 
     Reads the mapping whose keys sit at exactly `indent` spaces, from line `start` until
-    the file dedents out of it. Lines deeper than the sub-map belong to a key's own block
-    and are not read here; a line at the mapping's own indent that is not a key is an
+    the file dedents out of it. A line at the mapping's own indent that is not a key is an
     error rather than something skipped, so an unread shape cannot pass as an empty one.
+
+    Under a key named in `read_through` the same rule holds one level down, because the
+    caller compares that sub-map against a written list: a line there that this reader
+    cannot read as a variable is an error, not an absent variable. Absent is what a clean
+    scope looks like, so dropping an unreadable line would let a quoted name, an odd
+    indent or a merge key set a variable the comparison never sees. Under every other key
+    the sub-map is a census the caller does not compare, and deeper lines are that key's
+    own block -- a step list among them -- so they are not read here.
     """
     keys: dict[str, str] = {}
     blocks: dict[str, dict[str, str]] = {}
@@ -447,6 +464,9 @@ def mapping_at(lines: list[str], start: int, indent: int, where: str) -> tuple[d
         if sub and current:
             blocks[current][sub.group(1)] = sub.group(2).strip()
             continue
+        if current in read_through and line.startswith(" " * (indent + 1)):
+            unparsable("%s holds a line under %s: that this checker cannot read as a variable, so it cannot compare it "
+                       "with the list that says which variables the scope may set: %r" % (where, current, line))
         if line.startswith(" " * (indent + 2)):
             continue
         unparsable("%s holds a line this checker cannot read as a key of that mapping: %r" % (where, line))
@@ -456,12 +476,12 @@ def mapping_at(lines: list[str], start: int, indent: int, where: str) -> tuple[d
 def scopes_of(relative: str, job: str) -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
     """The workflow mapping and the job mapping above a job's steps, each with its env."""
     lines = read(relative).split("\n")
-    workflow_keys, workflow_blocks = mapping_at(lines, 0, 0, "%s workflow scope" % relative)
+    workflow_keys, workflow_blocks = mapping_at(lines, 0, 0, "%s workflow scope" % relative, ("env",))
     try:
         start = lines.index("  %s:" % job)
     except ValueError:
         unparsable("%s has no job named %s" % (relative, job))
-    job_keys, job_blocks = mapping_at(lines, start + 1, 4, "%s job %r" % (relative, job))
+    job_keys, job_blocks = mapping_at(lines, start + 1, 4, "%s job %r" % (relative, job), ("env",))
     return workflow_keys, workflow_blocks.get("env", {}), job_keys, job_blocks.get("env", {})
 
 
