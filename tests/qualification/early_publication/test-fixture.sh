@@ -138,6 +138,15 @@ edit "failed entry reached the remote without use" 1 "REJECT LEDGER run 1 n 5: $
 edit "failed entry held to one byte, write and request" 1 "REJECT LEDGER run 1 n 5: $FAILUSE" "$(at 1 5 "$reached | $one") | $chain5"
 edit "failed entry only reserved its ticket" 1 "REJECT LEDGER run 1 n 5: $FAILUSE" "$(at 1 5 "$ticketed | $zero") | $chain5"
 edit "failed entry only reserved its ticket, held to one unit" 1 "REJECT LEDGER run 1 n 5: $FAILUSE" "$(at 1 5 "$ticketed | $one") | $chain5"
+# A ticket is finite and non-zero in all three, so the equality above must not let a failure settle at nothing
+# by reserving nothing: #333 strengthens #330's floor (#297's zero-use case) rather than replacing it.
+FLOOR="ticketed entry records no reservation"
+nores='.reservedBytes = 0 | .reservedWrites = 0 | .reservedRequests = 0'
+for f in bytes writes requests; do
+  edit "failed entry charged no $f" 1 "REJECT LEDGER run 1 n 5: $FLOOR" "$(at 1 5 "$reached | .$f = 0 | .reserved${f^} = 0") | $chain5"
+done
+edit "failed entry charged nothing" 1 "REJECT LEDGER run 1 n 5: $FLOOR" "$(at 1 5 "$reached | $zero | $nores") | $chain5"
+edit "published entry reserved nothing" 1 "REJECT LEDGER run 1 n 5: $FLOOR" "$(at 1 5 "$nores")"
 edit "failed renewal without use" 1 "REJECT LEDGER run 1 n 0: $FAILUSE" \
   "$renewal"'.outcome = "failed" | .reason = "cas-conflict" | .t = 0 | .deadline = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0 | '"$zero"' else . end)'
 edit "failed renewal held to one byte, write and request" 1 "REJECT LEDGER run 1 n 0: $FAILUSE" \
@@ -153,7 +162,7 @@ edit "renewal reserved after expiry" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not
 edit "renewal reserved before the grant it renews" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.ticket = 999999 else . end)'
 # A renewal may fail (#309). It opens no grant, blocks the lane and makes its run miss, but the trace is an
 # honest failed run rather than a forgery. failren appends one to run 3 after its last command, where nothing
-# follows it; blockren inserts one before run 3's last command, which then must not be published.
+# follows it; blockren inserts one after a named command of run 3, and no entry after it may publish.
 failren() {  # jq filter further applied to the appended renewal
   echo '(map(select(.ev == "grant" and .run == 3)) | last) as $g | (map(select(.ev == "cmd" and .run == 3)) | max_by(.ticket)) as $c
     | . + [{ev: "plan", run: 3, t: ($c.ack + 50), grant: 3, bytes: 0, writes: 0, requests: 1},
@@ -161,19 +170,26 @@ failren() {  # jq filter further applied to the appended renewal
         restoreStart: 0, restoreEnd: 0, casStart: 0, casEnd: 0, ack: 0, t: 0, deadline: 0, outcome: "failed", reason: "cas-conflict"}
        | '"$charged"' | '"${1:-.}"')]'
 }
-blockren="$(cmd 3 149).ack as \$a | (map(select(.ev == \"grant\" and .run == 3)) | last) as \$g
+blockren() {  # N: a failed renewal inserted after run 3's command N, with the sequences of the entries after it shifted
+  echo "$(cmd 3 "$1").ack as \$a | (map(select(.ev == \"grant\" and .run == 3)) | last) as \$g
   | map(if .run == 3 and (.ev == \"cmd\" or .ticket) and .ticket > \$a then .restoredSeq += 1 | .casSeq += 1 else . end)
-  | map(if .ev == \"cmd\" and .run == 3 and .n == 149 then ., {ev: \"plan\", run: 3, t: (\$a + 50), grant: 3, bytes: 0, writes: 0, requests: 1},
+  | map(if .ev == \"cmd\" and .run == 3 and .n == $1 then ., {ev: \"plan\", run: 3, t: (\$a + 50), grant: 3, bytes: 0, writes: 0, requests: 1},
       (\$g + {ticket: (\$a + 100), commitStart: (\$a + 200), commitEnd: (\$a + 300), syncStart: (\$a + 300), syncEnd: (\$a + 400),
         restoreStart: 0, restoreEnd: 0, casStart: 0, casEnd: 0, ack: 0, t: 0, deadline: 0, outcome: \"failed\", reason: \"cas-conflict\"} | $charged)
     else . end)"
+}
 edit "failed renewal is a failed run, not a rejected trace" 3 "$MISS" "$(failren)"
 edit "failed renewal is retained as the failure it is" 3 "FAILURE run 3 grant 4 kind renewal reason cas-conflict" "$(failren)"
 edit "failed renewal alone misses its run" 3 "RUN 3 measured 130 failures 0 p95 6600 max 13200 burst 13200 meets false" "$(failren)"
 edit "failed renewal opening a grant" 1 "REJECT RENEWAL run 3 n 0: grant 4: a failed renewal opens no grant" "$(failren '.t = .syncEnd | .deadline = .syncEnd + 600000')"
 edit "failed renewal reserved after the grant it renews" 1 "REJECT RENEWAL run 3 n 0: grant 4 is not a ticketed publication reserved inside the grant it renews" \
   "$(failren '.ticket = $g.deadline + 1')"
-edit "publication after a failed renewal" 1 "REJECT RENEWAL run 3 n 150: entry published after a failed renewal blocked the lane" "$blockren"
+BLOCKED="REJECT RENEWAL run 3 n 150: entry published after a failed renewal blocked the lane"
+edit "publication after a failed renewal" 1 "$BLOCKED" "$(blockren 149)"
+# The lane stays blocked for the whole run, not just for the entry that follows the renewal: here command 149
+# fails between the two, so command 150 is the second entry after the renewal and still must not publish.
+edit "publication two entries after a failed renewal" 1 "$BLOCKED" \
+  "$(blockren 148) | $(at 3 149 "$failed") | $(at 3 150 '.before = "s148"')"
 edit "grant active before its renewal ack" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.t = .ack - 1 | .deadline -= 1 else . end)'
 GRANT0="REJECT LEDGER run 1 n 0: grant 0 ticket and plan use exceeds the P12b control/recovery grant maxima"
 grant() {  # field, maximum, excess, plan share[, fixture use]: run 1's fixture step, commands 1-40, renewal and grant-0 plan calls (the renewal's holding the share) sum to maximum + excess

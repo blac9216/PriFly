@@ -15,34 +15,35 @@
 // reason is empty and a failed entry leaves its reason non-empty and may leave its result strings
 // (results below) empty; outcome is published or failed. Line 1, and no other, is the trace header; an
 // empty trace or a blank line is malformed.
-// Semantics. Grants are in time order: the first a plain grant, every later one a renewal, a ticketed
-// entry reserved inside the grant it renews, carrying a command's synced T, lineage and integrity when
-// it published. A renewal may fail: it then opens no grant (t and deadline 0) and blocks the lane, so
-// no entry after it publishes, and it is a failure of an honest run, not a rejected trace.
+// Semantics. Grants are in time order: the first a plain grant, every later one a renewal, a ticketed entry
+// reserved inside the grant it renews, carrying a command's synced T, lineage and integrity when it published. A
+// renewal may fail: it then opens no grant (t and deadline 0) and blocks the lane for the rest of the run, so no
+// entry after it publishes, and it is a failure of an honest run, not a rejected trace.
 // Lane clocks (ms, one clock, 0 = step not reached): ticket ≤ commitStart ≤ … ≤ casEnd ≤ ack. Commands
 // and renewals share one lane in ticket order: each ticket is at or after the previous entry's ack; commands
 // enter in schedule order; a renewal is a published command in the same sequence space (C3), so a published
 // command n restores and CASes sequence n plus the renewals before it, and a renewal the sequence after the
 // entry before it (the frontier never moves backwards, C3 step 2); a failed entry records no clock after its
 // first 0; and no published step lasts over stepTimeoutS. No minimum step duration is set (no cited doc
-// names one). Use: a ticketed entry records the reservation charged before its first step, within the ticket
-// maxima, and the bytes, writes and requests it then used, each ≥1 when it published. A failure keeps the
-// whole charge (already precharged finite tickets are resolved or charged fully unknown, P12b L75), so a
-// failed ticketed entry records exactly its reservation; an entry outside a ticket records neither use nor
-// reservation. Grant lines are the control/recovery grants of #252 ruling 5714969372: each lasts at most
-// grant.ms and has its own P12b control maxima, never reused or refilled (item 2); a ticket, or a plan call at
-// its clock t, is charged to the last grant live at that clock. The fixture step is a run's first ticketed
-// entry, with t0 as its ticket (ruling 5716255116 item 1): the run line names the last grant live at t0, and
-// its use is held to the ticket maxima and charged to that grant and to P12a. It records no reservation,
-// because it can never be recorded failed: a fixture step that fails ends the run with no trace. A plan line
-// names its grant (index in the run's grant order, 0 the plain grant), records no writes, and its bytes and
-// requests count in that grant's maxima and in P12a (5714969372 item 1). Each ticketed entry has one plan call
-// of its own (5714969372 item 4) inside its window (5716255116 item 2): from the previous entry's ack (a
-// failed entry's last clock; t0 for the fixture step and the first lane entry) up to its ticket, both
-// inclusive. Plans pair with entries in clock order, so a plan before its entry's window, or a second plan for
-// one entry, serves no entry, and entries sharing one plan leave one without. A failed command keeps its
-// sequence number n (5714969372 item 3). Sums saturate, so the P12a envelope (the header's prior cumulative
-// usage, plan calls, fixture steps, commands, renewals) and the per-grant maxima cannot wrap.
+// names one). Use: a ticketed entry records the reservation charged before its first step — bytes, writes and
+// requests, each ≥1, within the ticket maxima — and the bytes, writes and requests it then used, each ≥1 when it
+// published. A failure keeps the whole charge (already precharged finite tickets are resolved or charged fully
+// unknown, P12b L75), so a failed ticketed entry records exactly its reservation, and is held to ≥1 apiece by
+// that floor; an entry outside a ticket records neither use nor reservation. Grant lines are the
+// control/recovery grants of #252 ruling 5714969372: each lasts at most grant.ms and has its own P12b control
+// maxima, never reused or refilled (item 2); a ticket, or a plan call at its clock t, is charged to the last
+// grant live at that clock. The fixture step is a run's first ticketed entry, with t0 as its ticket (ruling
+// 5716255116 item 1): the run line names the last grant live at t0, and its use is held to the ticket maxima and
+// charged to that grant and to P12a. It records no reservation, because it can never be recorded failed: a
+// fixture step that fails ends the run with no trace. A plan line names its grant (index in the run's grant
+// order, 0 the plain grant), records no writes, and its bytes and requests count in that grant's maxima and in
+// P12a (5714969372 item 1). Each ticketed entry has one plan call of its own (5714969372 item 4) inside its
+// window (5716255116 item 2): from the previous entry's ack (a failed entry's last clock; t0 for the fixture
+// step and the first lane entry) up to its ticket, both inclusive. Plans pair with entries in clock order, so a
+// plan before its entry's window, or a second plan for one entry, serves no entry, and entries sharing one plan
+// leave one without. A failed command keeps its sequence number n (5714969372 item 3). Sums saturate, so the
+// P12a envelope (the header's prior cumulative usage, plan calls, fixture steps, commands, renewals) and the
+// per-grant maxima cannot wrap.
 package main
 
 import (
@@ -425,6 +426,8 @@ func main() {
 			check(e.ReservedBytes > p.Ticket.Bytes || e.ReservedWrites > p.Ticket.Writes || e.ReservedRequests > p.Ticket.Requests,
 				"LEDGER", r, e.N, "reservation exceeds the pre-send ticket")
 			check(published && (e.Bytes < 1 || e.Writes < 1 || e.Requests < 1), "LEDGER", r, e.N, "publication records no remote use")
+			check(e.Ticket != 0 && (e.ReservedBytes < 1 || e.ReservedWrites < 1 || e.ReservedRequests < 1),
+				"LEDGER", r, e.N, "ticketed entry records no reservation")
 			check(!published && e.Ticket != 0 && (e.Bytes != e.ReservedBytes || e.Writes != e.ReservedWrites || e.Requests != e.ReservedRequests),
 				"LEDGER", r, e.N, "failed ticketed entry does not record its reservation, which is charged in full")
 			u := &use[e.grant]
