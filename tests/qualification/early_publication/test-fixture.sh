@@ -28,13 +28,15 @@ $p[0] as $p | [range(0; $p.warmupMs + $p.durationMs; $p.cadenceMs) as $a
     {ev: "grant", run: $r, t: 1000000, deadline: 1600000},
     foreach range($arr | length) as $i ({free: 0, deadline: 1600000, k: 0};
       ([1000000 + $arr[$i], .free] | max) as $t | (.out = []) | .t = $t
-      | if $t + 5000 > .deadline then .k += 1 | (lane($t) + {ev: "grant", run: $r, bytes: 65536, writes: 3, requests: 25, restoredSeq: ($i + .k), casSeq: ($i + .k),
+      | if $t + 5000 > .deadline then .k += 1 | (lane($t) + {ev: "grant", run: $r, bytes: 65536, writes: 3, requests: 25,
+          reason: "", reservedBytes: 66560, reservedWrites: 4, reservedRequests: 28, restoredSeq: ($i + .k), casSeq: ($i + .k),
           txid: "r\(.k)", lineage: "lineage-\($r)", restoreTxid: "r\(.k)", integrity: "ok", casTxid: "r\(.k)"}) as $g
           | .out = [{ev: "plan", run: $r, t: $t, grant: (.k - 1), bytes: 0, writes: 0, requests: 1}, $g + {t: $g.ack, deadline: ($g.ack + $p.grant.ms)}] | .t = $g.ack | .deadline = $g.ack + $p.grant.ms
         else . end
       | ($i + 1) as $n | $p.mix[$i % ($p.mix | length)] as $m | lane(.t) as $c | .free = $c.ack
       | .out += [{ev: "plan", run: $r, t: .t, grant: .k, bytes: 0, writes: 0, requests: 1}, $c + {ev: "cmd", run: $r, n: $n, kind: $m.kind, arrival: $arr[$i], submit: (1000000 + $arr[$i]),
-          reason: "", bytes: ($m.payloadBytes + 66048), writes: 4, requests: 27, payloadSha256: hx("\($n)"),
+          reason: "", bytes: ($m.payloadBytes + 66048), writes: 4, requests: 27,
+          reservedBytes: ($m.payloadBytes + 67072), reservedWrites: 5, reservedRequests: 30, payloadSha256: hx("\($n)"),
           payloadBytes: $m.payloadBytes, before: "s\($n - 1)", after: "s\($n)", dbBytes: (52428800 + $n * 4096),
           txid: "t\($n)", lineage: "lineage-\($r)", restoreTxid: "t\($n)", restoredSeq: ($n + .k), restoredPayloadSha256: hx("\($n)"),
           integrity: "ok", casSeq: ($n + .k), casTxid: "t\($n)"}]; .out[]))
@@ -52,8 +54,9 @@ runfield() { echo "map(if .ev == \"run\" and .run == $1 then $2 else . end)"; }
 renewal='(map(select(.ev == "grant" and .run == 1))[1]) as $g | map(if . == $g then '
 shift='with_entries(if (.key | test("Start$|End$|^ticket$|^ack$")) then .value += $d else . end)'
 cmd() { echo "(map(select(.ev == \"cmd\" and .run == $1 and .n == $2))[0])"; }
-unticketed='.ticket = 0 | .commitStart = 0 | .commitEnd = 0 | .syncStart = 0 | .syncEnd = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0 | .outcome = "failed" | .reason = "no-ticket" | .bytes = 0 | .writes = 0 | .requests = 0'
-failed='.outcome = "failed" | .reason = "cas-conflict"'
+unticketed='.ticket = 0 | .commitStart = 0 | .commitEnd = 0 | .syncStart = 0 | .syncEnd = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0 | .outcome = "failed" | .reason = "no-ticket" | .bytes = 0 | .writes = 0 | .requests = 0 | .reservedBytes = 0 | .reservedWrites = 0 | .reservedRequests = 0'
+charged='.reservedBytes = .bytes | .reservedWrites = .writes | .reservedRequests = .requests'  # a failure keeps its whole charge
+failed='.outcome = "failed" | .reason = "cas-conflict" | '"$charged"
 PASS="VERDICT: every run meets the fixed publication thresholds; feasibility evidence only, not a Q13 PASS"
 MISS="VERDICT: a run misses a fixed publication threshold; feasibility evidence only"
 edit "valid trace" 0 "$PASS" '.'
@@ -72,9 +75,9 @@ edit "ticket before the previous ack" 1 "REJECT LANE run 1 n 31: step clock out 
 edit "step clock 1 ms early" 1 "REJECT LANE run 1 n 30: step clock out of lane order; commands run one at a time" "$(at 1 30 '.commitStart = .ticket - 1')"
 edit "published step not reached" 1 "REJECT LANE run 1 n 30: step clock out of lane order; commands run one at a time" "$(at 1 30 '.casEnd = 0')"
 edit "failed entry clock after a step not reached" 1 "REJECT LANE run 2 n 150: step clock out of lane order; commands run one at a time" \
-  "$(at 2 150 '.outcome = "failed" | .reason = "restore-exit1" | .restoreEnd = 0')"
+  "$(at 2 150 '.outcome = "failed" | .reason = "restore-exit1" | .restoreEnd = 0 | '"$charged")"
 edit "ticket inside a failed predecessor step" 1 "REJECT LANE run 1 n 6: step clock out of lane order; commands run one at a time" \
-  "$(at 1 5 '.outcome = "failed" | .reason = "sync-exit1" | .syncStart = 1080000 | .syncEnd = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0')"
+  "$(at 1 5 '.outcome = "failed" | .reason = "sync-exit1" | .syncStart = 1080000 | .syncEnd = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0 | '"$charged")"
 edit "commands swapped across a renewal" 1 "REJECT OLD-FRONTIER run 1 n 40: command entered the lane after command 41; the frontier moved backwards" \
   "($(cmd 1 41).ticket - $(cmd 1 40).ticket) as \$d | $(at 1 40 "$shift") | (-\$d) as \$d | $(at 1 41 "$shift")"
 edit "renewal CAS not numbered as a published command" 1 "REJECT OLD-FRONTIER run 1 n 0: restore or frontier at sequence 40" "$renewal"'.casSeq = 40 else . end)'
@@ -98,7 +101,7 @@ edit "renewal CAS paced after a command" 1 "REJECT PACING run 1 n 0: CAS write u
 edit "published step over the step timeout" 1 "REJECT STEP-TIMEOUT run 3 n 150: a published step lasted over 120s" "$(at 3 150 '.syncEnd += 119701 | .restoreStart += 119701 | .restoreEnd += 119701 | .casStart += 119701 | .casEnd += 119701 | .ack += 119701')"
 edit "published step of exactly the step timeout" 3 "$MISS" "$(at 3 150 '.syncEnd += 119700 | .restoreStart += 119700 | .restoreEnd += 119700 | .casStart += 119700 | .casEnd += 119700 | .ack += 119700')"
 edit "timeout retained as failure" 3 "FAILURE run 2 n 150 kind attempt-result arrival 2085000 reason sync-exit124" \
-  "$(at 2 150 '.outcome = "failed" | .reason = "sync-exit124" | .syncEnd += 125000 | .after = "" | .txid = "" | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0')"
+  "$(at 2 150 '.outcome = "failed" | .reason = "sync-exit124" | .syncEnd += 125000 | .after = "" | .txid = "" | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0 | '"$charged")"
 # Permits, renewals and the P12a/P12b ledger
 edit "expired permit without renewal" 1 "REJECT EXPIRED-PERMIT run 1 n 41: remote use or publication without a ticket inside a live grant of at most 600000ms" 'map(select(.ev != "grant" or .run != 1 or .ticket == null))'
 edit "over-long grant" 1 "REJECT EXPIRED-PERMIT run 1 n 0: grant 0 ends before it starts or lasts over 600000ms" 'map(if .ev == "grant" and .ticket == null then .deadline += 1 else . end)'
@@ -107,30 +110,47 @@ edit "ticket at clock zero" 1 "REJECT EXPIRED-PERMIT run 1 n 1: remote use or pu
   'map(if .run == 1 then with_entries(if (.key | test("^(t0|t|deadline|submit|ticket|ack)$|Start$|End$")) then .value -= 1000000 else . end) else . end)'
 edit "unticketed publication" 1 "REJECT EXPIRED-PERMIT run 1 n 43: remote use or publication without a ticket inside a live grant of at most 600000ms" "$(at 1 43 "$unticketed"' | .outcome = "published" | .reason = ""')"
 edit "unticketed clock" 1 "REJECT EXPIRED-PERMIT run 1 n 44: remote use or publication without a ticket inside a live grant of at most 600000ms" "$(at 1 44 "$unticketed"' | .casStart = 1650000')"
-for f in bytes writes requests; do
+for f in bytes writes requests reservedBytes reservedWrites reservedRequests; do
   edit "unticketed $f" 1 "REJECT EXPIRED-PERMIT run 1 n 44: remote use or publication without a ticket inside a live grant of at most 600000ms" "$(at 1 44 "$unticketed | .$f = 1")"
+  [[ $f == reserved* ]] && continue
   edit "publication without $f" 1 "REJECT LEDGER run 1 n 45: publication records no remote use" "$(at 1 45 ".$f = 0")"
   edit "fixture step without $f" 1 "REJECT LEDGER run 2 n 0: fixture step records no remote use" "$(runfield 2 ".$f = 0")"
 done
 edit "renewal without use" 1 "REJECT LEDGER run 1 n 0: publication records no remote use" "$renewal"'.writes = 0 else . end)'
 # A ticket is charged in full before the first step and a failure keeps that charge (P12b L75), so a failed
-# entry that took a ticket never records zero use, whether or not its clocks show it reached the remote.
-# Command 5 is a warm-up command, so its failure alone leaves the run meeting the thresholds: with the use
-# rule removed each case below is the trace of #297, which passes. chain5 re-chains command 6 over it, the
-# one check a failure does drop, so the recorded use is the only rule these cases rest on.
-FAILUSE="failed ticketed entry records no remote use; its reservation is charged in full"
+# entry that took a ticket records that reservation exactly, whether or not its clocks show it reached the
+# remote. Command 5 is a warm-up command, so its failure alone leaves the run meeting the thresholds: with
+# the reservation rule removed each case below is the trace of #333, which passes at ≥1 unit apiece. chain5
+# re-chains command 6 over it, the one check a failure does drop, so the recorded use is the only rule these
+# cases rest on.
+FAILUSE="failed ticketed entry does not record its reservation, which is charged in full"
 chain5="$(at 1 6 '.before = "s4"')"
-reached='.outcome = "failed" | .reason = "sync-exit1" | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0'
-ticketed='.outcome = "failed" | .reason = "artifact-exit1" | .commitStart = 0 | .commitEnd = 0 | .syncStart = 0 | .syncEnd = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0'
+reached='.outcome = "failed" | .reason = "sync-exit1" | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0 | '"$charged"
+ticketed='.outcome = "failed" | .reason = "artifact-exit1" | .commitStart = 0 | .commitEnd = 0 | .syncStart = 0 | .syncEnd = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0 | '"$charged"
 zero='.bytes = 0 | .writes = 0 | .requests = 0'
+one='.bytes = 1 | .writes = 1 | .requests = 1'
 edit "failed entry charged its reservation" 0 "$PASS" "$(at 1 5 "$reached") | $chain5"
 for f in bytes writes requests; do
   edit "failed entry reached the remote without $f" 1 "REJECT LEDGER run 1 n 5: $FAILUSE" "$(at 1 5 "$reached | .$f = 0") | $chain5"
+  edit "failed entry short of its reservation ($f)" 1 "REJECT LEDGER run 1 n 5: $FAILUSE" "$(at 1 5 "$reached | .$f -= 1") | $chain5"
 done
 edit "failed entry reached the remote without use" 1 "REJECT LEDGER run 1 n 5: $FAILUSE" "$(at 1 5 "$reached | $zero") | $chain5"
+edit "failed entry held to one byte, write and request" 1 "REJECT LEDGER run 1 n 5: $FAILUSE" "$(at 1 5 "$reached | $one") | $chain5"
 edit "failed entry only reserved its ticket" 1 "REJECT LEDGER run 1 n 5: $FAILUSE" "$(at 1 5 "$ticketed | $zero") | $chain5"
+edit "failed entry only reserved its ticket, held to one unit" 1 "REJECT LEDGER run 1 n 5: $FAILUSE" "$(at 1 5 "$ticketed | $one") | $chain5"
+# A ticket is finite and non-zero in all three, so the equality above must not let a failure settle at nothing
+# by reserving nothing: #333 strengthens #330's floor (#297's zero-use case) rather than replacing it.
+FLOOR="ticketed entry records no reservation"
+nores='.reservedBytes = 0 | .reservedWrites = 0 | .reservedRequests = 0'
+for f in bytes writes requests; do
+  edit "failed entry charged no $f" 1 "REJECT LEDGER run 1 n 5: $FLOOR" "$(at 1 5 "$reached | .$f = 0 | .reserved${f^} = 0") | $chain5"
+done
+edit "failed entry charged nothing" 1 "REJECT LEDGER run 1 n 5: $FLOOR" "$(at 1 5 "$reached | $zero | $nores") | $chain5"
+edit "published entry reserved nothing" 1 "REJECT LEDGER run 1 n 5: $FLOOR" "$(at 1 5 "$nores")"
 edit "failed renewal without use" 1 "REJECT LEDGER run 1 n 0: $FAILUSE" \
-  "$renewal"'.outcome = "failed" | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0 | '"$zero"' else . end)'
+  "$renewal"'.outcome = "failed" | .reason = "cas-conflict" | .t = 0 | .deadline = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0 | '"$zero"' else . end)'
+edit "failed renewal held to one byte, write and request" 1 "REJECT LEDGER run 1 n 0: $FAILUSE" \
+  "$renewal"'.outcome = "failed" | .reason = "cas-conflict" | .t = 0 | .deadline = 0 | .restoreStart = 0 | .restoreEnd = 0 | .casStart = 0 | .casEnd = 0 | .ack = 0 | '"$one"' else . end)'
 # An entry that never took a ticket records none, so the rule above must not reach it: command 6 fails
 # before its ticket, its plan call goes with it, and command 7 chains over it.
 edit "unticketed failure records no use" 0 "$PASS" \
@@ -140,7 +160,36 @@ edit "first grant is a renewal" 1 "REJECT RENEWAL run 2 n 0: grant 0: only a gra
 edit "renewal not a ticketed publication" 1 "REJECT RENEWAL run 1 n 0: grant 1: only a grant after the first is a renewal" "$renewal"'{ev, run, t, deadline} else . end)'
 edit "renewal reserved after expiry" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.ticket = 1600001 else . end)'
 edit "renewal reserved before the grant it renews" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.ticket = 999999 else . end)'
-edit "renewal failed" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.outcome = "failed" else . end)'
+# A renewal may fail (#309). It opens no grant, blocks the lane and makes its run miss, but the trace is an
+# honest failed run rather than a forgery. failren appends one to run 3 after its last command, where nothing
+# follows it; blockren inserts one after a named command of run 3, and no entry after it may publish.
+failren() {  # jq filter further applied to the appended renewal
+  echo '(map(select(.ev == "grant" and .run == 3)) | last) as $g | (map(select(.ev == "cmd" and .run == 3)) | max_by(.ticket)) as $c
+    | . + [{ev: "plan", run: 3, t: ($c.ack + 50), grant: 3, bytes: 0, writes: 0, requests: 1},
+      ($g + {ticket: ($c.ack + 100), commitStart: ($c.ack + 200), commitEnd: ($c.ack + 300), syncStart: ($c.ack + 300), syncEnd: ($c.ack + 400),
+        restoreStart: 0, restoreEnd: 0, casStart: 0, casEnd: 0, ack: 0, t: 0, deadline: 0, outcome: "failed", reason: "cas-conflict"}
+       | '"$charged"' | '"${1:-.}"')]'
+}
+blockren() {  # N: a failed renewal inserted after run 3's command N, with the sequences of the entries after it shifted
+  echo "$(cmd 3 "$1").ack as \$a | (map(select(.ev == \"grant\" and .run == 3)) | last) as \$g
+  | map(if .run == 3 and (.ev == \"cmd\" or .ticket) and .ticket > \$a then .restoredSeq += 1 | .casSeq += 1 else . end)
+  | map(if .ev == \"cmd\" and .run == 3 and .n == $1 then ., {ev: \"plan\", run: 3, t: (\$a + 50), grant: 3, bytes: 0, writes: 0, requests: 1},
+      (\$g + {ticket: (\$a + 100), commitStart: (\$a + 200), commitEnd: (\$a + 300), syncStart: (\$a + 300), syncEnd: (\$a + 400),
+        restoreStart: 0, restoreEnd: 0, casStart: 0, casEnd: 0, ack: 0, t: 0, deadline: 0, outcome: \"failed\", reason: \"cas-conflict\"} | $charged)
+    else . end)"
+}
+edit "failed renewal is a failed run, not a rejected trace" 3 "$MISS" "$(failren)"
+edit "failed renewal is retained as the failure it is" 3 "FAILURE run 3 grant 4 kind renewal reason cas-conflict" "$(failren)"
+edit "failed renewal alone misses its run" 3 "RUN 3 measured 130 failures 0 p95 6600 max 13200 burst 13200 meets false" "$(failren)"
+edit "failed renewal opening a grant" 1 "REJECT RENEWAL run 3 n 0: grant 4: a failed renewal opens no grant" "$(failren '.t = .syncEnd | .deadline = .syncEnd + 600000')"
+edit "failed renewal reserved after the grant it renews" 1 "REJECT RENEWAL run 3 n 0: grant 4 is not a ticketed publication reserved inside the grant it renews" \
+  "$(failren '.ticket = $g.deadline + 1')"
+BLOCKED="REJECT RENEWAL run 3 n 150: entry published after a failed renewal blocked the lane"
+edit "publication after a failed renewal" 1 "$BLOCKED" "$(blockren 149)"
+# The lane stays blocked for the whole run, not just for the entry that follows the renewal: here command 149
+# fails between the two, so command 150 is the second entry after the renewal and still must not publish.
+edit "publication two entries after a failed renewal" 1 "$BLOCKED" \
+  "$(blockren 148) | $(at 3 149 "$failed") | $(at 3 150 '.before = "s148"')"
 edit "grant active before its renewal ack" 1 "REJECT RENEWAL run 1 n 0: grant 1 is not a ticketed publication reserved inside the grant it renews" "$renewal"'.t = .ack - 1 | .deadline -= 1 else . end)'
 GRANT0="REJECT LEDGER run 1 n 0: grant 0 ticket and plan use exceeds the P12b control/recovery grant maxima"
 grant() {  # field, maximum, excess, plan share[, fixture use]: run 1's fixture step, commands 1-40, renewal and grant-0 plan calls (the renewal's holding the share) sum to maximum + excess
@@ -206,10 +255,14 @@ edit "fixture step's plan call after t0" 1 "REJECT PLAN run 1 n 0: $NOPLAN" \
 # the fixture plan and command 1's share clock t0, so the one left serves the fixture step and command 1 has none
 edit "fixture step without a plan call" 1 "REJECT PLAN run 2 n 1: $NOPLAN" '(map(.ev == "plan" and .run == 2) | index(true)) as $i | del(.[$i])'
 for f in bytes:268435457 writes:1025 requests:8193; do
-  edit "ticket exceeded (${f%:*})" 1 "REJECT LEDGER run 1 n 3: remote use exceeds the pre-send ticket" "$(at 1 3 ".${f%:*} = ${f#*:}")"
+  k="${f%:*}"
+  edit "ticket exceeded ($k)" 1 "REJECT LEDGER run 1 n 3: remote use exceeds the pre-send ticket" "$(at 1 3 ".$k = ${f#*:}")"
+  edit "reservation at the ticket maximum ($k)" 0 "$PASS" "$(at 1 3 ".reserved${k^} = $((${f#*:} - 1))")"
+  edit "reservation over the ticket ($k)" 1 "REJECT LEDGER run 1 n 3: reservation exceeds the pre-send ticket" "$(at 1 3 ".reserved${k^} = ${f#*:}")"
 done
 edit "renewal use counts in grant maxima" 1 "$GRANT0" "$renewal"'.writes = 33 else . end) | map(if .ev == "cmd" and .run == 1 and .n <= 40 then .writes = 76 else . end)'
 edit "renewal ticket exceeded" 1 "REJECT LEDGER run 1 n 0: remote use exceeds the pre-send ticket" "$renewal"'.bytes = 268435457 else . end)'
+edit "renewal reservation over the ticket" 1 "REJECT LEDGER run 1 n 0: reservation exceeds the pre-send ticket" "$renewal"'.reservedBytes = 268435457 else . end)'
 P12A="REJECT LEDGER run 0 n 0: trace exceeds the P12a envelope (prior use, plan calls, fixture steps, commands and renewals)"
 envelope() { echo "(map(.$1 // 0) | add) as \$s | map(if .ev == \"trace\" then .prior${1^} = $2 - \$s else . end) | $(at 2 1 ".$1 += $3")"; }  # field, limit, excess: prior use fills the rest
 for f in bytes:8589934592 requests:100000; do
