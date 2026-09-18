@@ -721,9 +721,25 @@ check_case 'a step appended after a blank line in the docs job is read' 1 "step 
 also_expect 'the appended docs step names its file and job' '.github/workflows/docs-checks.yml job design-docs step'
 also_expect 'the appended docs step moves the manifest count' "runs 13 after checkout"
 
+# Two spaces, not six. The width is the case: steps_of drops a six-space line that matches
+# no step, key or sub-key pattern further down, for a reason that has nothing to do with the
+# blank-line rule, so a six-space fixture line is read past whether that rule exists or not.
+# At two spaces the line is narrower than a step's indent, so only the rule reaches it, and
+# narrowing the rule from line.strip() == "" to line == "" turns this case red. Round 1 of
+# this change's review found the six-space version green under exactly that mutant, with the
+# whole suite green with it.
 reset_fixture
-printf '%s\n' '      ' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+printf '%s\n' '  ' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
 check_case 'a step appended after a whitespace-only line in the docs job is read' 1 "step 'Undocumented new step'"
+
+# The limit the header records rather than closes (#361, round 1 of this change's review): a
+# comment line, unlike a blank one, still ends the step list when it is indented under a
+# step's six spaces. This case pins that state so a later change that closes it turns red
+# here and the header is what has to be corrected with it -- the shape the manifest limit
+# case at the foot of this file already uses.
+reset_fixture
+printf '%s\n' '# a comment' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a step appended after a column-0 comment is unread, as the header records' 0 'workflow steps agree with their documented commands'
 
 reset_fixture
 printf '%s\n' '' >>"$wf_go"

@@ -13,17 +13,36 @@
 # boundary between two tables paired against one job is order-bearing too: see the table
 # boundary list below.
 #
-# A job's step list is the whole of its steps: block. A blank line inside that block is
-# insignificant YAML, so this reader skips it and carries on to the dedent that ends the
-# block, which is the rule mapping_at already applies at the two scopes above. Until #361
-# it broke there instead, so a step written after a blank line was never read. Appended to
-# job design-docs in docs-checks.yml that was exit 0 at all nine scripts under
-# scripts/docs/ with this checker's summary line byte-identical; appended to job go it was
-# exit 0 here too, and was caught only because the self-test's own fixture append lands
-# after the same blank line, so what went red named a fixture step rather than the
-# workflow. Measured after the change: the step list this reader takes for job go and for
-# job design-docs is the list yaml.safe_load takes for the same job, name for name, on the
-# unmutated tree and under each of those two appends.
+# A blank line inside a job's steps: block does not end its step list (#361). A blank line
+# there is insignificant YAML, so this reader skips it and carries on. Until #361 it broke
+# there instead, so a step written after a blank line was never read. Appended to job
+# design-docs in docs-checks.yml that was exit 0 at all nine scripts under scripts/docs/
+# with this checker's summary line byte-identical; appended to job go it was exit 0 here
+# too, and was caught only because the self-test's own fixture append lands after the same
+# blank line, so what went red named a fixture step rather than the workflow. Measured
+# after the change: the step list this reader takes for job go and for job design-docs is
+# the list yaml.safe_load takes for the same job, name for name, on the unmutated tree and
+# under each of those two appends.
+#   A blank line is the whole of what this reaches, and the reach is stated here rather than
+#   corrected in the limits at the foot of this header (#353 M3, #358 M2). Skipping a blank
+#   line is one half of the rule mapping_at applies at the two scopes above; the other half,
+#   which skips a comment line too, is not here, so a comment line indented fewer than six
+#   spaces still ends the step list. Measured on this tree, a comment line and then a
+#   two-line step appended to job design-docs in docs-checks.yml: at column 0 and at two
+#   spaces this checker is exit 0 with its summary line byte-identical, reading 13 steps
+#   where yaml.safe_load reads 14; at six and at eight spaces it is exit 1 and both read 14.
+#   Eight of the nine scripts under scripts/docs/ are exit 0 on the silent case. The ninth is
+#   this checker's self-test, and it goes red for the reason #361 gives for row C rather than
+#   for the comment: the docs-fixture appends this change adds land after the same comment
+#   line in their own copy of the file and go unread too. Five FAIL lines, naming those cases
+#   and a fixture step, 'Undocumented new step', that is in no repository file; none names the
+#   comment line or the step appended to the repository's docs-checks.yml, and the one mention
+#   of that path is inside a case's expected text about its own fixture. So this change gives
+#   the docs fixture the accidental detection the go fixture already had, and it is worth no
+#   more here than it was there. #361 scoped its outcomes to a blank line and put a YAML parser
+#   out of scope, so this is recorded here by its case rather than closed, and raised for
+#   triage. What the change above proves is that a blank line no longer ends the list, not
+#   that nothing else does.
 #
 # A step is more than its run: line. Which of its other keys decide whether it runs at
 # all, and whether its failure blocks, is written down in the load-bearing attribute list
