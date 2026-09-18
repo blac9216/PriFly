@@ -333,9 +333,9 @@ func TestCommandRendersASCII(t *testing.T) {
 	}
 }
 
-// TestCommandStreamsAreWrittenThroughFmt reads where this package's output
-// streams go, and refuses the two builtins that write to one of them while
-// naming none. It is the control standing behind the fmt tables in
+// TestCommandStreamsAreWrittenThroughFmt reads where this package's streams go,
+// and refuses the two builtins that write to one of them while naming none,
+// however the call to them is parenthesised. It is the control standing behind the fmt tables in
 // TestCommandRendersASCII, which need an fmt call to have anything to read: a
 // write that makes none carries no format string for the directive rule, no
 // strconv selector for the leak rule and no fmt selector for the tables, so it
@@ -377,8 +377,11 @@ func TestCommandRendersASCII(t *testing.T) {
 // A stream expression is one of two things, and the second is a list of names.
 // It is an identifier the file declares with the type io.Writer, resolved
 // through the file's imports so an alias changes nothing; or it is the selector
-// os.Stdout or os.Stderr, the two values os binds to this process's output,
-// matched by name, with os itself resolved through the imports as well.
+// os.Stdin, os.Stdout or os.Stderr, the three values os binds to this process's
+// standard descriptors, matched by name, with os itself resolved through the
+// imports as well. Standard input is one of the three because an interactive
+// operator's three descriptors are one terminal, and the reason is at streamExpr
+// with the measurement.
 //
 // What the rule does not reach, stated rather than left to be found:
 //
@@ -390,9 +393,9 @@ func TestCommandRendersASCII(t *testing.T) {
 //     TestBundleImportsNoNetworkOrProcess; os.NewFile and os.Open are not on
 //     that list, though os.Open opens read-only, so a copy to what it returns
 //     puts nothing on the terminal — measured, green here and stderr empty.
-//     This is what remains of the class the two builtins were part of, and it
-//     stays open because a handle can be got in unboundedly many ways while
-//     println and print are two names the language fixes.
+//     It stays open because a handle can be got in unboundedly many ways, where
+//     println and print are two names the language fixes and os binds its three
+//     descriptors to three.
 //   - Anything outside this package's own non-test source. This reads one hop
 //     and has no type information, the limit quotesRaw records. internal/bundle
 //     needs no rule of this kind: it declares no io.Writer and names no os.Std*
@@ -402,6 +405,12 @@ func TestCommandRendersASCII(t *testing.T) {
 //   - What a permitted write puts on the stream. That a site reaches fmt is all
 //     this says; whether its text is escaped is the subject of the rules in
 //     TestCommandRendersASCII, and their own limits stand unchanged.
+//
+// That list is what has been measured, not a proof that nothing else reaches an
+// operator's terminal. Two of its entries were found by someone attacking a
+// sentence claiming more than the tree carried: the builtins, which are refused
+// here now, and a write to os.Stdin, which is a stream expression here now. A
+// route not on the list is not a route this control has ruled out.
 //
 // Where the rule cannot decide, it reports. A parameter list it cannot flatten
 // to positions — a variadic io.Writer, which nothing here has — makes those
@@ -474,17 +483,21 @@ func TestCommandStreamsAreWrittenThroughFmt(t *testing.T) {
 				// Recorded before the walk reaches the arguments, which are this
 				// node's own children: ast.Inspect visits a node before them, so
 				// the report below reads what was admitted here.
-				switch fun := n.Fun.(type) {
-				case *ast.SelectorExpr:
-					// fmt's writing functions take the stream first, and a stream
-					// anywhere else in an fmt call is being rendered as a value
-					// rather than written to, which is not a write this control
-					// has a rule for. So only the first argument is admitted.
-					if x, isName := fun.X.(*ast.Ident); isName && imports[x.Name] == "fmt" &&
-						len(n.Args) > 0 && isStream(n.Args[0]) {
-						permitted[n.Args[0]] = "as an fmt call's first argument"
-					}
-				case *ast.Ident:
+				//
+				// The builtin check reads through parentheses and the two arms
+				// after it do not. Both directions are the fail-closed one, which
+				// is why they differ. (println)("x") is a call to the builtin
+				// whatever the parentheses say, and a call node's Fun is then an
+				// ast.ParenExpr, which matches neither arm below: that spelling
+				// was green before ast.Unparen was put here, measured with U+0430
+				// raw on the terminal and the package passing. The arms below
+				// admit a stream; a parenthesised call is a shape they do not
+				// read, so its streams stay unadmitted and are reported, which is
+				// what should happen to a shape a rule cannot decide about.
+				// Measured: (fmt.Fprint)(stderr, usage) is red at the report and
+				// at the fmt count, and (runBundle)(args[1:], stdout, stderr) is
+				// red at two reports and the handoff count.
+				if callee, isName := ast.Unparen(n.Fun).(*ast.Ident); isName {
 					// println and print write text to standard error without
 					// naming a stream: a call to one carries no argument for
 					// the rule below to judge, no import for the allowlist in
@@ -500,16 +513,33 @@ func TestCommandStreamsAreWrittenThroughFmt(t *testing.T) {
 					// list of writer names is that it is open-ended by
 					// construction; these two are closed by the language
 					// specification, so naming them ends a class rather than
-					// starting a list. A name this package declares itself is
-					// not the builtin and is left alone.
-					isPrintBuiltin := fun.Name == "println" || fun.Name == "print"
-					if _, declaredHere := writerArgs[fun.Name]; isPrintBuiltin && !declaredHere {
+					// starting a list. A package-level function of that name
+					// this package declares is not the builtin and is left
+					// alone; the carve-out reads this package's function
+					// declarations, so a package-level var or a local holding a
+					// func value and named println is reported instead —
+					// measured, both of them, and a false red in the safe
+					// direction rather than a hole.
+					isPrintBuiltin := callee.Name == "println" || callee.Name == "print"
+					if _, declaredHere := writerArgs[callee.Name]; isPrintBuiltin && !declaredHere {
 						t.Errorf("%s: the builtin %s writes text to standard error, which is the stream this "+
 							"package hands its callees, while naming no stream this control can read: no rule here, "+
 							"no import and no selector records it. Write operator-visible text to this package's own "+
 							"stream with fmt.Fprint*, rendering any operator-supplied part of it through bundle.Quote "+
-							"or quoteArgs", fset.Position(fun.Pos()), fun.Name)
+							"or quoteArgs", fset.Position(callee.Pos()), callee.Name)
 					}
+				}
+				switch fun := n.Fun.(type) {
+				case *ast.SelectorExpr:
+					// fmt's writing functions take the stream first, and a stream
+					// anywhere else in an fmt call is being rendered as a value
+					// rather than written to, which is not a write this control
+					// has a rule for. So only the first argument is admitted.
+					if x, isName := fun.X.(*ast.Ident); isName && imports[x.Name] == "fmt" &&
+						len(n.Args) > 0 && isStream(n.Args[0]) {
+						permitted[n.Args[0]] = "as an fmt call's first argument"
+					}
+				case *ast.Ident:
 					for i, arg := range n.Args {
 						if at := writerArgs[fun.Name]; i < len(at) && at[i] && isStream(arg) {
 							permitted[arg] = "at an io.Writer parameter of this package"
@@ -622,11 +652,22 @@ func streamNames(f *ast.File, imports map[string]string) map[string]bool {
 }
 
 // streamExpr names e the way its file writes it when e is one of this package's
-// output streams, and returns "" when it is not. A stream is an identifier
-// declared io.Writer, or the selector os.Stdout or os.Stderr — that second half
-// is a list of two names, of the values os binds to this process's streams, and
-// it is resolved through the file's imports so an aliased os is read as os and a
-// local package bound to the name os is not.
+// streams, and returns "" when it is not. A stream is an identifier declared
+// io.Writer, or the selector os.Stdin, os.Stdout or os.Stderr — that second half
+// is a list of three names, of the values os binds to this process's standard
+// descriptors, and it is resolved through the file's imports so an aliased os is
+// read as os and a local package bound to the name os is not.
+//
+// os.Stdin is on that list because writing to it reaches the operator's terminal
+// whenever the operator is interactive: a shell gives the process one open file
+// description on the tty for all three descriptors, so a write to descriptor 0
+// lands where a write to descriptor 2 does. Measured on a pty at the head before
+// this name was added: io.Copy(os.Stdin, ...) left the package green and put
+// "prifly: " then the bytes d0 b0 — U+0430 — on the terminal. The cost is a false
+// red on a legitimate read of standard input made outside an fmt call, such as
+// io.ReadAll(os.Stdin); nothing in this package names os.Stdin today, and an
+// fmt.Fscan-shaped read would be admitted by the first-argument rule and move
+// that count.
 func streamExpr(e ast.Expr, imports map[string]string, streams map[string]bool) string {
 	switch e := e.(type) {
 	case *ast.Ident:
@@ -635,7 +676,8 @@ func streamExpr(e ast.Expr, imports map[string]string, streams map[string]bool) 
 		}
 	case *ast.SelectorExpr:
 		x, isName := e.X.(*ast.Ident)
-		if isName && imports[x.Name] == "os" && (e.Sel.Name == "Stdout" || e.Sel.Name == "Stderr") {
+		isStd := e.Sel.Name == "Stdin" || e.Sel.Name == "Stdout" || e.Sel.Name == "Stderr"
+		if isName && imports[x.Name] == "os" && isStd {
 			return x.Name + "." + e.Sel.Name
 		}
 	}
