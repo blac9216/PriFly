@@ -13,6 +13,18 @@
 # boundary between two tables paired against one job is order-bearing too: see the table
 # boundary list below.
 #
+# A job's step list is the whole of its steps: block. A blank line inside that block is
+# insignificant YAML, so this reader skips it and carries on to the dedent that ends the
+# block, which is the rule mapping_at already applies at the two scopes above. Until #361
+# it broke there instead, so a step written after a blank line was never read. Appended to
+# job design-docs in docs-checks.yml that was exit 0 at all nine scripts under
+# scripts/docs/ with this checker's summary line byte-identical; appended to job go it was
+# exit 0 here too, and was caught only because the self-test's own fixture append lands
+# after the same blank line, so what went red named a fixture step rather than the
+# workflow. Measured after the change: the step list this reader takes for job go and for
+# job design-docs is the list yaml.safe_load takes for the same job, name for name, on the
+# unmutated tree and under each of those two appends.
+#
 # A step is more than its run: line. Which of its other keys decide whether it runs at
 # all, and whether its failure blocks, is written down in the load-bearing attribute list
 # below (#348); a paired step carrying one of them disagrees with documents that assert
@@ -37,8 +49,8 @@
 # open -- a quoted "GOFLAGS" name in the live block set -mod=mod with the checker green --
 # so the shape is the one the reader errors on rather than a precaution.
 #
-# An exempt step is unpaired, not unread (#353, #358). The documents assert nothing about
-# what an exempt step's command is -- that is what exempting it means -- but the paired
+# An exempt step is unpaired, not unread (#353, #358, #361). The documents assert nothing
+# about what an exempt step's command is -- that is what exempting it means -- but the paired
 # steps run only because it ran, and they run on what it left behind: the toolchain install
 # is what puts the pinned go on PATH for the documented go commands, and the checkout is
 # what decides which tree those commands read. So an exempt step's keys are read three
@@ -77,13 +89,37 @@
 #   name: and timeout-minutes: are permitted. timeout-minutes: can only make the step fail
 #   sooner, never stop it running or stop it blocking, so it cannot weaken what the documents
 #   assert; a second name: would need a duplicate eight-space key, which is not valid YAML.
+# Where the step sits is read as well (#361), and that is not a key. Both clauses of the
+# ground above are claims about order -- on PATH for the documented commands below it, and
+# which tree those commands read -- and until #361 neither was checked: the pairing loop
+# skips an exempt step and discards its index, so the list it pairs positionally holds
+# paired steps only, and order was enforced across the steps this checker pairs and not at
+# all across the four it exempts. Moving the install, or the checkout, to the end of
+# job go was a pure reorder -- sort over the mutated file is byte-identical to sort over
+# the original, so no step's content changed at all -- and it left all nine scripts under
+# scripts/docs/ at exit 0 with this checker's summary line byte-identical. So each exempt
+# step's position in its job's step list is declared below, by number, in the declared
+# exempt position list. The pairing already pins the order of the paired steps among
+# themselves, so declaring where each exempt step sits among them pins a job's whole step
+# order rather than the paired subsequence of it: a permutation of a job's steps that is
+# not the identity either moves an exempt step, which this list reads, or reorders two
+# paired steps, which the pairing reads -- and no two paired steps of either job run the
+# same command on this tree, so no such reorder is invisible to it. Both measured on
+# go-checks.yml: swapping go vet and go test is exit 1 at the pairing, naming both rows,
+# and swapping the file-mode probe with the toolchain install beside it is exit 1 here,
+# naming the install's declared and observed positions.
+# What that proves is where the step is written.
+# What a runner does with the order it is written in -- that a job's steps run in file
+# order, and that a $GITHUB_PATH write applies to the steps after it -- is the platform's
+# documented behaviour, and no run here has exercised it.
 #
 # The exemption list below is load-bearing in both directions: a step or row that is
 # neither paired nor listed is an error, and an entry that names no step or row is an
 # error too, so the list cannot decay into a wildcard. A checker that instead skipped
 # what it could not pair would be worse than no checker. The documented placeholder list,
-# the table boundary list, the declared job environment list and the declared exempt
-# content list are load-bearing in both directions for the same reason and in the same way:
+# the table boundary list, the declared job environment list, the declared exempt content
+# list and the declared exempt position list are load-bearing in both directions for the
+# same reason and in the same way:
 # every entry of each names something this tree carries, so deleting an entry turns this
 # checker red with no other edit -- measured for each, entry by entry, not asserted. The
 # conditional step list is empty, having nothing to cover today, so its two directions are
@@ -428,6 +464,26 @@ DECLARED_EXEMPT_CONTENT: dict[str, dict[str, dict[str, object]]] = {
 }
 # --- end of the exempt step key list --------------------------------------------------
 
+# --- the declared exempt position list (#361) ---------------------------------------
+# Where each exempt step sits in its job's step list, counting every step of the job from
+# one, exempt steps included. The exempt-step paragraph in the header gives the ground:
+# both clauses of it are claims about order, and the pairing reads order across paired
+# steps only. Load-bearing in both directions, like the lists above: an entry naming a
+# step that is not on the exemption list is an error, an entry naming no step of that file
+# is an error, and an exempt step no entry covers is an error, so the list cannot decay
+# into a wildcard and an exempt step cannot be moved without this list moving.
+DECLARED_EXEMPT_POSITION: dict[str, dict[str, int]] = {
+    DOCS: {
+        "Check out the PR head commit (not the synthetic merge ref)": 1,
+    },
+    GO: {
+        "Check out the PR head commit (not the synthetic merge ref)": 1,
+        "Install pinned Go toolchain (verify SHA-256, then extract)": 3,
+        "Restore Go module cache (keyed by go.sum)": 4,
+    },
+}
+# --- end of the declared exempt position list ----------------------------------------
+
 # --- the documented placeholder list (#347) -----------------------------------------
 # Rows whose Command cell may hold a <placeholder> token under normalisation 2 above.
 # Each entry is a table, a row's Suite label, and the exact placeholder-bearing tokens of
@@ -565,7 +621,7 @@ def steps_of(relative: str, job: str) -> list[Step]:
         if body is not None:
             # A block scalar's lines are more indented than the run: key that opens it, and
             # a blank line inside one belongs to it. Blanks are held rather than appended
-            # so that the blank line ending the steps block does not join the last one.
+            # so that a blank line after the block's last line does not join the block.
             if line.strip() == "":
                 pending.append(line)
                 continue
@@ -577,7 +633,10 @@ def steps_of(relative: str, job: str) -> list[Step]:
             body = None
             pending = []
         if line.strip() == "":
-            break
+            # Insignificant YAML, not the end of the list (#361). The block ends where the
+            # file dedents out of it, below. Breaking here left a step written after a
+            # blank line unread while a YAML loader still ran it.
+            continue
         if not line.startswith("      "):
             break
         named = STEP_RE.match(line)
@@ -835,6 +894,29 @@ def check_exempt_content(relative: str, step: Step) -> None:
                          % (step.name, relative, position + 1, key, want_lines[position], got_lines[position]))
 
 
+exempt_positions_seen: set[tuple[str, str]] = set()
+
+
+def check_exempt_position(relative: str, name: str, position: int) -> None:
+    """An exempt step is read for where it sits as well as for what it carries (#361).
+
+    `position` counts the job's steps from one, exempt steps included. Moving an exempt
+    step changes none of its bytes, so nothing the declared exempt content list compares
+    moves with it; what moves is which documented steps it runs before.
+    """
+    declared = DECLARED_EXEMPT_POSITION.get(relative, {})
+    if name not in declared:
+        disagree("%s exempt step %r runs at position %d of its job, and no entry in the checker's declared exempt "
+                 "position list covers it; the documented steps below an exempt step run on what it left behind, so "
+                 "where it sits is read as well as what it carries" % (relative, name, position))
+        return
+    exempt_positions_seen.add((relative, name))
+    if declared[name] != position:
+        disagree("declared exempt position entry %r of %s declares position %d, but the step runs at position %d; "
+                 "moving an exempt step changes none of its bytes and changes which documented steps it runs before"
+                 % (name, relative, declared[name], position))
+
+
 def command_of(relative: str, name: str, run: str | None) -> str:
     where = "%s step %r" % (relative, name)
     if run is None:
@@ -955,10 +1037,11 @@ for relative, job, table_names in PAIRINGS:
         if names.count(entry) != 1:
             disagree("exemption entry %r names %d steps of %s, not exactly one" % (entry, names.count(entry), relative))
     live: list[tuple[str, str]] = []
-    for step in steps:
+    for position, step in enumerate(steps, start=1):
         if step.name in exempt:
             check_exempt_attributes(relative, step.name, step.attributes)
             check_exempt_content(relative, step)
+            check_exempt_position(relative, step.name, position)
             continue
         command = command_of(relative, step.name, step.run)
         check_attributes(relative, step.name, step.attributes)
@@ -1025,11 +1108,11 @@ for relative, job, table_names in PAIRINGS:
     for position in range(max(len(live), len(rows))):
         if position >= len(rows):
             name, run = live[position]
-            disagree("%s step %r (position %d) has no row in %s and no exemption entry" % (relative, name, position + 1, TESTING))
+            disagree("%s job %s step %r (position %d) has no row in %s and no exemption entry" % (relative, job, name, position + 1, TESTING))
             continue
         if position >= len(live):
             table_name, suite, documented = rows[position]
-            disagree("%s row %r in the %s table (position %d) has no step in %s and no exemption entry" % (TESTING, suite, table_name, position + 1, relative))
+            disagree("%s row %r in the %s table (position %d) has no step in %s job %s and no exemption entry" % (TESTING, suite, table_name, position + 1, relative, job))
             continue
         name, run = live[position]
         table_name, suite, documented = rows[position]
@@ -1054,6 +1137,16 @@ for relative, declared_steps in DECLARED_EXEMPT_CONTENT.items():
         if entry not in EXEMPT_STEPS[relative]:
             unparsable("the declared exempt content list names %s step %r, which is not on the exemption list"
                        % (relative, entry))
+
+for relative, declared_steps in DECLARED_EXEMPT_POSITION.items():
+    if relative not in [path for path, _, _ in PAIRINGS]:
+        unparsable("the declared exempt position list names %s, which this checker does not pair" % relative)
+    for entry in declared_steps:
+        if entry not in EXEMPT_STEPS[relative]:
+            unparsable("the declared exempt position list names %s step %r, which is not on the exemption list"
+                       % (relative, entry))
+        if (relative, entry) not in exempt_positions_seen:
+            disagree("declared exempt position entry %r names no exempt step of %s" % (entry, relative))
 
 for relative, declared_jobs in DECLARED_JOB_ENV.items():
     paired_jobs = [job for path, job, _ in PAIRINGS if path == relative]
@@ -1139,6 +1232,7 @@ if findings:
 
 print("check-ci-agreement: %d workflow steps agree with their documented commands (%s %d, %s %d), "
       "%d exemptions are all in use, %s on %s agree with what those steps carry, "
+      "%s are declared and hold, "
       "%s and %s are declared and in use, "
       "%s hold, %s and %s carry no unaccounted-for key and %s are declared and in use, "
       "and %s's CI list of %s matches"
@@ -1147,6 +1241,8 @@ print("check-ci-agreement: %d workflow steps agree with their documented command
          plural(sum(len(keys) for entries in DECLARED_EXEMPT_CONTENT.values() for keys in entries.values()),
                 "declared key", "declared keys"),
          plural(sum(len(entries) for entries in DECLARED_EXEMPT_CONTENT.values()), "exempt step", "exempt steps"),
+         plural(sum(len(entries) for entries in DECLARED_EXEMPT_POSITION.values()),
+                "exempt step position", "exempt step positions"),
          plural(sum(len(v) for v in PLACEHOLDER_ROWS.values()), "placeholder row", "placeholder rows"),
          plural(sum(len(v) for v in CONDITIONAL_STEPS.values()), "conditional step", "conditional steps"),
          plural(sum(len(v) for v in TABLE_FIRST_STEP.values()), "table boundary", "table boundaries"),

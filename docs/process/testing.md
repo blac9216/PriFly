@@ -30,7 +30,7 @@ the repository root, plus the Go suite that follows it:
 | Go digest checker regression tests | `bash scripts/docs/test-check-go-digest.sh` | Repository checkout; Bash, standard Unix tools; mutates only scratch copies of the two files. |
 | Readiness-checker regression tests | `bash scripts/process/test-check-readiness.sh` | Repository checkout; Bash, Python 3. |
 | Early-probe preflight self-test | `bash scripts/qualification/early/test-preflight.sh` | Repository checkout; Bash, Python 3; no network. Cases plus a mutant pass over scratch copies of `preflight.sh` and its schema under `${TMPDIR:-/tmp}`. |
-| Workflow/documentation agreement | `bash scripts/docs/check-ci-agreement.sh --root .` | Repository checkout; Bash, Python 3. Fails unless every step of `docs-checks.yml` and `go-checks.yml` pairs, in order, with its Commands-table row here or appears on the checker's own written exemption list, unless no paired step carries an `if:`, `continue-on-error:` or `env:` key of its own, unless the job and workflow mappings above those steps carry only keys the checker accounts for and the `go` job's `env:` block is the one it declares, unless no exempt step carries an `if:` or `continue-on-error:`, unless every exempt step's `uses:`, `with:` and `run:` are the ones the checker declares for that step and its `env:` block sets only the variable names that step is declared to set, and unless `doc-manifest.md`'s `## CI` list and its spelled-out count match this job's steps. |
+| Workflow/documentation agreement | `bash scripts/docs/check-ci-agreement.sh --root .` | Repository checkout; Bash, Python 3. Fails unless every step of `docs-checks.yml` and `go-checks.yml` pairs, in order, with its Commands-table row here or appears on the checker's own written exemption list, unless no paired step carries an `if:`, `continue-on-error:` or `env:` key of its own, unless the job and workflow mappings above those steps carry only keys the checker accounts for and the `go` job's `env:` block is the one it declares, unless no exempt step carries an `if:` or `continue-on-error:`, unless every exempt step's `uses:`, `with:` and `run:` are the ones the checker declares for that step and its `env:` block sets only the variable names that step is declared to set, unless every exempt step sits at the position in its job's step list the checker declares for it, and unless `doc-manifest.md`'s `## CI` list and its spelled-out count match this job's steps. |
 | Agreement checker regression tests | `bash scripts/docs/test-check-ci-agreement.sh` | Repository checkout; Bash, Python 3; mutates only scratch copies of the four files it reads and of the checker itself. |
 | Sanitize scan | `gitleaks detect --source . --no-banner` | Repository checkout; `gitleaks` binary on `PATH`. Run before every push — this repository is **public**. |
 | Integration | No command exists until a runnable integration surface lands. | Not configured. |
@@ -162,8 +162,10 @@ keep these tables, `docs-checks.yml`, `go-checks.yml` and the `## CI` step list 
 [doc-manifest.md](../doc-manifest.md) in agreement. That agreement is mechanical:
 `scripts/docs/check-ci-agreement.sh`, a step of the required `design-docs` job, pairs
 each workflow step with its row in the Commands tables above, in order, and fails on any
-step or row that is neither paired nor on its written exemption list. The boundary
-between the two tables the `go` job pairs against is order-bearing too, so a row moved
+step or row that is neither paired nor on its written exemption list. A job's step list is
+read to the dedent that ends its `steps:` block, so a step written after a blank line
+inside that block is read like any other. The boundary between the two tables the `go` job
+pairs against is order-bearing too, so a row moved
 from the Go suite table into the qualification table fails even though the two tables
 read in sequence are unchanged. A paired step is more than its `run:` line: a step that
 carries an `if:`, a `continue-on-error:` or an `env:` key of its own fails, because these
@@ -178,13 +180,17 @@ they run on what it left behind, so its `if:` and `continue-on-error:` are read 
 and its `uses:`, `with:`, `run:` and `env:` are compared against the content the checker
 declares for that step: an appended line that replaces the extracted toolchain, a changed
 checkout `ref:`, and a `PATH` added to the toolchain step's `env:` each fail. That
-declaration is what an exempt step carries in place of a row. An `env:` block is declared
-by the names it may set and not by their values, which are pinned by `check-go-digest.sh`
+declaration is what an exempt step carries in place of a row. Where an exempt step sits is
+declared as well, because both of those reasons are claims about order: the install is what
+puts the pinned `go` on `PATH` for the documented `go` commands below it, and the checkout
+is what decides which tree those commands read. Moving either one inside its job fails even
+though not one of its bytes changed. An `env:` block is declared by the names it may set
+and not by their values, which are pinned by `check-go-digest.sh`
 and by the declared `run:` text; the checker's header records what that leaves open.
 The checker's header records the exemption list, the rows allowed to document a
 `<placeholder>`, the steps whose condition the documents cover, the first step of each
 table, the keys each scope may carry, the environment the `go` job may set, the content
-each exempt step may carry, and the three
+each exempt step may carry, the position each exempt step sits at, and the three
 classes of normalisation it applies between a table cell and a `run:` line; each of those
 lists is load-bearing in both directions to the extent that its entries name something
 this tree carries, which the header states list by list, so none can decay into a way of

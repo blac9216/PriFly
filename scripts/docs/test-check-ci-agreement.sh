@@ -8,8 +8,10 @@
 # one #347 M3 records as a limit rather than a defect, and the three written lists those
 # two issues add are each proved to rot in both directions. Each mutation #353 names has a
 # case as well -- one per scope above the step, one per exempt-step key that decides
-# whether it runs, and the two limits that issue records rather than closes. All cases
-# run; the script exits 1 if any failed.
+# whether it runs, and the two limits that issue records rather than closes. Each mutation
+# #361 names has a case too: one per tail of each job's step list, and one per exempt step
+# whose position moved, with the list that issue adds proved to rot in both directions.
+# All cases run; the script exits 1 if any failed.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -140,11 +142,81 @@ set_declared_env() {
   checker="$fixture_dir/checker.sh"
 }
 
+# move_step_to_end FILE NAME: rewrite FILE with the step named NAME, and every line under
+# it, moved to the end of the file. Each fixture holds one job whose steps: block runs to
+# the end of the file, so the end of the file is the end of that job's step list. The move
+# copies the step's lines without touching them, which sorted_case below asserts.
+move_step_to_end() {
+  awk -v target="      - name: $2" '
+    $0 == target { held = $0; holding = 1; next }
+    holding && !/^        / { holding = 0 }
+    holding { held = held "\n" $0; next }
+    { print }
+    END { print held }
+  ' "$1" >"$1.moved" && mv "$1.moved" "$1"
+}
+
+# swap_steps FILE FIRST SECOND: rewrite FILE with the two adjacent steps named FIRST and
+# SECOND in the other order, FIRST immediately preceding SECOND on entry.
+swap_steps() {
+  awk -v first="      - name: $2" -v second="      - name: $3" '
+    $0 == first { held = $0; holding = 1; next }
+    holding && $0 == second { holding = 2; print; next }
+    holding == 1 { held = held "\n" $0; next }
+    holding == 2 && /^        / { print; next }
+    holding == 2 { print held; holding = 0 }
+    { print }
+    END { if (holding == 2) print held }
+  ' "$1" >"$1.swapped" && mv "$1.swapped" "$1"
+}
+
+# sorted_case NAME BEFORE AFTER: the two files hold exactly the same lines in a different
+# order. That is what makes a move a pure reorder: no step's content changed at all, only
+# where the step sits, so nothing the declared exempt content list compares moved with it.
+sorted_case() {
+  local name="$1"
+  if sort <"$2" | cmp -s - <(sort <"$3"); then
+    echo "PASS: $name"
+    passed=$((passed + 1))
+    return 0
+  fi
+  echo "FAIL: $name (the two files do not hold the same lines: $2 and $3)" >&2
+  failed=$((failed + 1))
+}
+
+# drop_position N: copy the checker with its Nth declared exempt position entry deleted,
+# and point the next case at that copy. Each entry is one line, so this is drop_exemption
+# applied to the list #361 adds.
+drop_position() {
+  awk -v n="$1" '
+    /^# --- the declared exempt position list/ { inblock = 1 }
+    /^# --- end of the declared exempt position list/ { inblock = 0 }
+    inblock && /^        "/ { count++; if (count == n) next }
+    { print }
+  ' "$SCRIPT_DIR/check-ci-agreement.sh" >"$fixture_dir/checker.sh"
+  checker="$fixture_dir/checker.sh"
+}
+
+# set_declared_position LITERAL: copy the checker with its declared exempt position dict
+# replaced by the Python dict literal LITERAL, and point the next case at that copy. The
+# entry side of that list needs this, because a workflow file cannot express an entry
+# naming a step it does not carry.
+set_declared_position() {
+  awk -v literal="$1" '
+    index($0, "DECLARED_EXEMPT_POSITION: ") == 1 { print "DECLARED_EXEMPT_POSITION = " literal; skipping = 1; next }
+    skipping && $0 == "}" { skipping = 0; next }
+    skipping { next }
+    { print }
+  ' "$SCRIPT_DIR/check-ci-agreement.sh" >"$fixture_dir/checker.sh"
+  checker="$fixture_dir/checker.sh"
+}
+
 reset_fixture
 check_case 'unmodified copies agree' 0 'workflow steps agree with their documented commands'
 also_expect 'unmodified copies account for every key of both scopes' '2 job scopes and 2 workflow scopes carry no unaccounted-for key'
 also_expect 'unmodified copies use the live job environment declaration' '2 job environment variables are declared and in use'
 also_expect 'unmodified copies use every exemption' 'exemptions are all in use'
+also_expect 'unmodified copies hold every declared exempt position' '4 exempt step positions are declared and hold'
 also_expect 'unmodified copies match the manifest CI list' "CI list of twelve matches"
 
 check_case 'empty root is a usage error' 2 '--root must name a directory' --root ''
@@ -189,6 +261,17 @@ reset_fixture
 printf '%s\n' '      - name: Undocumented new step' '        run: true' >>"$wf_go"
 check_case 'a new step with no row and no exemption fails' 1 "step 'Undocumented new step'"
 also_expect 'the unpaired step says the list is not a wildcard' 'no exemption entry'
+also_expect 'the unpaired step names the job it was appended to' '.github/workflows/go-checks.yml job go step'
+
+# The same append, with a blank line before it (#361). The case above is the only append
+# to a workflow fixture in this suite, so before #361 a bare trailing blank line in
+# go-checks.yml turned it red on its own: the append landed after the blank line, the
+# checker's step list stopped there, and the two FAIL lines named a fixture step that is
+# in no repository file. It now reports on the step it names either way.
+reset_fixture
+printf '%s\n' '' '      - name: Undocumented new step' '        run: true' >>"$wf_go"
+check_case 'a step appended after a blank line in the go job is read' 1 "step 'Undocumented new step'"
+also_expect 'that step too says the list is not a wildcard' 'no exemption entry'
 
 reset_fixture
 sed -i '/^| Publication runner proof |/a | Undocumented proof | `bash tests/qualification/nowhere.sh` | Scratch. |' "$testing"
@@ -623,6 +706,101 @@ check_case 'dropping timeout-minutes on a tree that carries it fails' 3 "step 'g
 reset_fixture
 sed -i 's@^6. `test-check-links.sh`@6. `bash`@' "$manifest"
 check_case 'a manifest entry narrowed to a bare interpreter name passes, as the header records' 0 'workflow steps agree with their documented commands'
+
+# --- #361: a job's step list runs to the dedent that ends it -------------------------
+# A blank line inside steps: used to end this checker's step list, so a step written after
+# one was never read. In docs-checks.yml that was silent at all nine scripts under
+# scripts/docs/; in go-checks.yml it was silent here and turned the append case above red
+# instead. The three appends below are the mutations that become red, and the three
+# green cases after them are the tails that are genuinely unchanged, which is what stops
+# the fix being a blanket refusal of a blank line.
+reset_fixture
+printf '%s\n' '' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a step appended after a blank line in the docs job is read' 1 "step 'Undocumented new step'"
+also_expect 'the appended docs step names its file and job' '.github/workflows/docs-checks.yml job design-docs step'
+also_expect 'the appended docs step moves the manifest count' "runs 13 after checkout"
+
+reset_fixture
+printf '%s\n' '      ' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a step appended after a whitespace-only line in the docs job is read' 1 "step 'Undocumented new step'"
+
+reset_fixture
+printf '%s\n' '' >>"$wf_go"
+check_case 'a bare trailing blank line in the go job changes nothing' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' '' >>"$wf_docs"
+check_case 'a bare trailing blank line in the docs job changes nothing' 0 'workflow steps agree with their documented commands'
+reset_fixture
+awk '/^      - name: go build$/ { print "" } { print }' "$wf_go" >"$wf_go.blank" && mv "$wf_go.blank" "$wf_go"
+check_case 'a blank line inside the go step list does not truncate it' 0 'workflow steps agree with their documented commands'
+
+# --- #361: an exempt step's position is declared -------------------------------------
+# Moving an exempt step changes none of its bytes, so the declared exempt content list
+# above sees nothing; what moves is which documented steps the step runs before, which is
+# the ground the header gives for reading an exempt step at all. sorted_case asserts that
+# each move really is a pure reorder before the checker is asked about it. The observed
+# positions below are the two jobs' step counts, so a step added to either job moves the
+# number in its case along with the testing.md row and the doc-manifest.md count.
+reset_fixture
+cp "$wf_go" "$fixture_dir/go-before.yml"
+move_step_to_end "$wf_go" 'Install pinned Go toolchain (verify SHA-256, then extract)'
+sorted_case 'moving the toolchain install changes no line of the file' "$fixture_dir/go-before.yml" "$wf_go"
+check_case 'moving the toolchain install to the end of job go fails' 1 "declared exempt position entry 'Install pinned Go toolchain (verify SHA-256, then extract)' of .github/workflows/go-checks.yml declares position 3, but the step runs at position 18"
+also_expect 'the move says what an exempt step loses by moving' 'changes which documented steps it runs before'
+
+reset_fixture
+cp "$wf_go" "$fixture_dir/go-before.yml"
+move_step_to_end "$wf_go" 'Check out the PR head commit (not the synthetic merge ref)'
+sorted_case 'moving the go checkout changes no line of the file' "$fixture_dir/go-before.yml" "$wf_go"
+check_case 'moving the go checkout to the end of its job fails' 1 "declared exempt position entry 'Check out the PR head commit (not the synthetic merge ref)' of .github/workflows/go-checks.yml declares position 1, but the step runs at position 18"
+
+reset_fixture
+cp "$wf_docs" "$fixture_dir/docs-before.yml"
+move_step_to_end "$wf_docs" 'Check out the PR head commit (not the synthetic merge ref)'
+sorted_case 'moving the docs checkout changes no line of the file' "$fixture_dir/docs-before.yml" "$wf_docs"
+check_case 'moving the docs checkout to the end of its job fails' 1 "declared exempt position entry 'Check out the PR head commit (not the synthetic merge ref)' of .github/workflows/docs-checks.yml declares position 1, but the step runs at position 13"
+
+# Two exempt steps swapped with each other: the paired steps do not move at all, so this
+# is red only because the list pins the order of the exempt steps among themselves too.
+reset_fixture
+swap_steps "$wf_go" 'Install pinned Go toolchain (verify SHA-256, then extract)' 'Restore Go module cache (keyed by go.sum)'
+check_case 'swapping the toolchain install and the module cache fails' 1 "declared exempt position entry 'Install pinned Go toolchain (verify SHA-256, then extract)' of .github/workflows/go-checks.yml declares position 3, but the step runs at position 4"
+also_expect 'the swap names the step that moved the other way' "declared exempt position entry 'Restore Go module cache (keyed by go.sum)' of .github/workflows/go-checks.yml declares position 4, but the step runs at position 3"
+
+# A paired step swapped with the exempt step beside it. The paired steps' own order is
+# unchanged, so the pairing sees nothing; what moved is the install, which now runs after
+# the probe rather than before it.
+reset_fixture
+swap_steps "$wf_go" 'File-mode enforcement probe (a run that bypasses modes fails here)' 'Install pinned Go toolchain (verify SHA-256, then extract)'
+check_case 'swapping a paired step with the exempt step beside it fails' 1 "declared exempt position entry 'Install pinned Go toolchain (verify SHA-256, then extract)' of .github/workflows/go-checks.yml declares position 3, but the step runs at position 2"
+also_reject 'that swap leaves the paired steps in the order the tables document' 'but the row it pairs with'
+
+# The list rots in both directions. Each of its four entries names a live exempt step, so
+# deleting any one of them is red with nothing else changed.
+reset_fixture
+drop_position 1
+check_case 'dropping the docs checkout position entry fails' 1 ".github/workflows/docs-checks.yml exempt step 'Check out the PR head commit (not the synthetic merge ref)' runs at position 1 of its job, and no entry in the checker's declared exempt position list covers it"
+reset_fixture
+drop_position 2
+check_case 'dropping the go checkout position entry fails' 1 ".github/workflows/go-checks.yml exempt step 'Check out the PR head commit (not the synthetic merge ref)' runs at position 1 of its job, and no entry in the checker's declared exempt position list covers it"
+reset_fixture
+drop_position 3
+check_case 'dropping the toolchain install position entry fails' 1 ".github/workflows/go-checks.yml exempt step 'Install pinned Go toolchain (verify SHA-256, then extract)' runs at position 3 of its job, and no entry in the checker's declared exempt position list covers it"
+reset_fixture
+drop_position 4
+check_case 'dropping the module cache position entry fails' 1 ".github/workflows/go-checks.yml exempt step 'Restore Go module cache (keyed by go.sum)' runs at position 4 of its job, and no entry in the checker's declared exempt position list covers it"
+
+# The entry side: an entry that names no exempt step of its file, one that names a step
+# which is not exempt, and one that names a file this checker does not pair.
+reset_fixture
+sed -i '/^      - name: Restore Go module cache (keyed by go.sum)$/,+4d' "$wf_go"
+check_case 'a position entry naming a deleted step fails' 1 "declared exempt position entry 'Restore Go module cache (keyed by go.sum)' names no exempt step of .github/workflows/go-checks.yml"
+reset_fixture
+set_declared_position '{".github/workflows/docs-checks.yml": {"Check out the PR head commit (not the synthetic merge ref)": 1}, ".github/workflows/go-checks.yml": {"Check out the PR head commit (not the synthetic merge ref)": 1, "Install pinned Go toolchain (verify SHA-256, then extract)": 3, "Restore Go module cache (keyed by go.sum)": 4, "go build": 10}}'
+check_case 'a position entry naming a step that is not exempt fails' 3 "the declared exempt position list names .github/workflows/go-checks.yml step 'go build', which is not on the exemption list"
+reset_fixture
+set_declared_position '{".github/workflows/absent.yml": {}}'
+check_case 'a position entry naming a file this checker does not pair fails' 3 'the declared exempt position list names .github/workflows/absent.yml, which this checker does not pair'
 
 reset_fixture
 echo "test-check-ci-agreement: $passed cases passed, $failed failed"
