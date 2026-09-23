@@ -42,9 +42,10 @@ var renderCensus = map[string]censusRow{
 // TestBootstrapRendersASCII is the static control behind TestDecryptRendersIDsASCII, over what prifly-bootstrap
 // prints: the non-test source of internal/bootstrap and of cmd/prifly-bootstrap. It is the counterpart of
 // cmd/prifly's TestCommandRendersASCII and is written separately, for this pair of packages; the rules are
-// stated at readRender. cmd/priflyd is not read: it prints build information set when it is built, the error its
-// own shutdown hook returns, which is nil, or controller.ErrShutdownTimedOut, and a fixed line, so nothing it reads
-// at run time reaches its terminal. The day something does, that change is where its escaping belongs.
+// stated at readRender. cmd/priflyd is not read: it prints build information set when it is built, then either a
+// fixed line or, when controller.Run returns an error, that error. Run returns its shutdown hook's error or
+// controller.ErrShutdownTimedOut, and priflyd's hook returns nil, so the error is only ever that sentinel. Nothing it
+// reads at run time reaches its terminal. The day something does, that change is where its escaping belongs.
 func TestBootstrapRendersASCII(t *testing.T) {
 	sources := map[string]string{}
 	for dir, rel := range map[string]string{".": "internal/bootstrap", "../../cmd/prifly-bootstrap": "cmd/prifly-bootstrap"} {
@@ -96,7 +97,8 @@ func checkCensus(counted map[string]int, census map[string]censusRow) (findings 
 	}
 	for _, key := range slices.Sorted(maps.Keys(census)) {
 		if _, ok := counted[key]; !ok {
-			findings = append(findings, fmt.Sprintf("%s: in renderCensus but rendered nowhere; remove the row", key))
+			findings = append(findings, fmt.Sprintf("%s: in renderCensus but counted nowhere: remove the row, unless "+
+				"a call refused above renders it, since none of a refused call's operands is counted", key))
 		}
 	}
 	return findings
@@ -164,10 +166,14 @@ var (
 //   - %q, or any q directive carrying a sharp flag or no plus flag: strconv.Quote, or backquotes, leave printable
 //     non-ASCII raw. %+q is the escaping spelling, and an operand under it is never counted;
 //   - an fmt call whose format is not a string literal, whose directives formatVerbs cannot map, whose operands
-//     are spread with ..., or whose directive and operand counts differ, since fmt renders an extra operand;
+//     are spread with ..., or whose directive and operand counts differ. fmt renders an extra operand after the
+//     text and a directive with no operand as %!verb(MISSING), and either way the directives cannot be paired with
+//     the operands. None of a refused call's operands is counted, so its census rows can read as counted nowhere;
 //   - a member of fmt that is named without being the function of the call it stands in, such as one bound to a
 //     variable or called through parentheses, and one that is neither in fmtFormats nor in fmtPrints;
 //   - errors.New of anything but a string literal, and a member of errors other than New, Is and As;
+//   - an assignment to an exempt name, as the target of =, of a range clause or of &: a sentinel is fixed text
+//     only while nothing writes to it, and a write would give it any text at all;
 //   - a dot import, which leaves no selector to resolve;
 //   - a method named Error, String, GoString or Format, which fmt calls to render a value, so a type declaring one
 //     decides its own text past every directive.
@@ -242,16 +248,31 @@ func readRender(sources map[string]string) (findings []string, counted map[strin
 			}
 			return ""
 		}
-		isFree := func(arg ast.Expr) bool {
-			switch a := arg.(type) {
-			case *ast.BasicLit:
-				return true
+		// exempt reports whether e, parentheses aside, names a string constant or a fixed-text sentinel: a
+		// package-level name of this package, or one of another package read here through its import.
+		exempt := func(e ast.Expr) bool {
+			for paren, ok := e.(*ast.ParenExpr); ok; paren, ok = e.(*ast.ParenExpr) {
+				e = paren.X
+			}
+			switch a := e.(type) {
 			case *ast.Ident:
 				return (a.Obj == nil || topLevel[a.Obj.Decl]) && free[p.pkg][a.Name]
 			case *ast.SelectorExpr:
 				return free[pkgOf(a.X)] != nil && free[pkgOf(a.X)][a.Sel.Name]
 			}
 			return false
+		}
+		isFree := func(arg ast.Expr) bool {
+			_, lit := arg.(*ast.BasicLit)
+			return lit || exempt(arg)
+		}
+		// assigned refuses a write to an exempt name, which would make its text whatever was written.
+		assigned := func(target ast.Expr) {
+			if exempt(target) {
+				findings = append(findings, fmt.Sprintf("%s: %s is exempt from the census as text written in this "+
+					"source, and a write to it would render whatever was written; leave it as declared",
+					at(target), types.ExprString(target)))
+			}
 		}
 		render := func(v formatVerb, arg ast.Expr) {
 			switch {
@@ -266,6 +287,21 @@ func readRender(sources map[string]string) (findings []string, counted map[strin
 		called := map[ast.Expr]bool{}
 		ast.Inspect(f, func(n ast.Node) bool {
 			switch n := n.(type) {
+			case *ast.AssignStmt:
+				for _, lhs := range n.Lhs {
+					assigned(lhs)
+				}
+			case *ast.RangeStmt:
+				// Under :=, as in an assignment, the names are new locals, which exempt does not read as package-level.
+				for _, target := range []ast.Expr{n.Key, n.Value} {
+					if target != nil {
+						assigned(target)
+					}
+				}
+			case *ast.UnaryExpr:
+				if n.Op == token.AND {
+					assigned(n.X) // its address is a write waiting to happen
+				}
 			case *ast.FuncDecl:
 				if n.Recv != nil && slices.Contains([]string{"Error", "String", "GoString", "Format"}, n.Name.Name) {
 					findings = append(findings, fmt.Sprintf("%s: method %s decides how fmt renders its type, past "+
@@ -315,9 +351,15 @@ func readRender(sources map[string]string) (findings []string, counted map[strin
 						findings = append(findings, fmt.Sprintf("%s: format %q uses an explicit argument index, a "+
 							"star width or precision, or a trailing %%, which this control cannot map to operands",
 							at(n), format))
-					case len(verbs) != len(n.Args)-i-1:
-						findings = append(findings, fmt.Sprintf("%s: format %q has %d directives for %d operands, so "+
-							"they cannot be paired; fmt renders an extra operand after the text", at(n), format, len(verbs), len(n.Args)-i-1))
+					case len(verbs) < len(n.Args)-i-1:
+						findings = append(findings, fmt.Sprintf("%s: format %q has %d directives for %d operands; "+
+							"fmt renders each extra operand after the text, where no directive reads it, so none of "+
+							"this call's operands is counted", at(n), format, len(verbs), len(n.Args)-i-1))
+					case len(verbs) > len(n.Args)-i-1:
+						findings = append(findings, fmt.Sprintf("%s: format %q has %d directives for %d operands; "+
+							"fmt renders a directive with no operand as %%!verb(MISSING), and this control cannot tell "+
+							"which operand each directive reads, so none of this call's operands is counted",
+							at(n), format, len(verbs), len(n.Args)-i-1))
 					default:
 						for j, v := range verbs {
 							render(v, n.Args[i+1+j])
@@ -394,7 +436,7 @@ func TestCheckCensus(t *testing.T) {
 		"one more":         {map[string]int{"a %s x": 3, "a %d y": 1}, []string{"a %s x: rendered 3 times, census holds 2"}},
 		"one fewer":        {map[string]int{"a %s x": 1, "a %d y": 1}, []string{"a %s x: rendered 1 times, census holds 2"}},
 		"not recorded":     {map[string]int{"a %s x": 2, "a %d y": 1, "a %v z": 1}, []string{"a %v z: rendered 1 times, census holds 0"}},
-		"rendered nowhere": {map[string]int{"a %s x": 2}, []string{"a %d y: in renderCensus but rendered nowhere"}},
+		"rendered nowhere": {map[string]int{"a %s x": 2}, []string{"a %d y: in renderCensus but counted nowhere"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got := checkCensus(c.counted, census)
@@ -415,14 +457,15 @@ func TestCheckCensus(t *testing.T) {
 func TestReadRenderRules(t *testing.T) {
 	const x, cmd = "internal/bootstrap/x.go", "cmd/prifly-bootstrap/main.go"
 	lib := func(body string) map[string]string {
-		return map[string]string{x: "package bootstrap\n\nimport (\n\t\"errors\"\n\t\"fmt\"\n)\n\n" +
-			"var ErrX = errors.New(\"x\")\n\nconst C = \"c\"\n\n" + body}
+		return map[string]string{x: "package bootstrap\n\nimport (\n\t\"errors\"\n\t\"fmt\"\n\t\"io\"\n)\n\n" +
+			"var ErrX = errors.New(\"x\")\n\nconst C = \"c\"\n\nvar _ io.Writer\n\n" + body}
 	}
-	for name, c := range map[string]struct {
+	type ruleCase struct {
 		sources map[string]string
 		refuse  []string       // one finding holding each, and no other
 		counted map[string]int // exactly
-	}{
+	}
+	cases := map[string]ruleCase{
 		"escaped id":          {lib(`func f(id string) error { return fmt.Errorf("%w: %+q", ErrX, id) }`), nil, nil},
 		"escaped with width":  {lib(`func f(id string) error { return fmt.Errorf("%w: %-+8q", ErrX, id) }`), nil, nil},
 		"flag after width":    {lib(`func f(id string) error { return fmt.Errorf("%w: %-8+q", ErrX, id) }`), nil, map[string]int{x + " %-+ id": 1}},
@@ -440,7 +483,8 @@ func TestReadRenderRules(t *testing.T) {
 		"star width":          {lib(`func f(id string) error { return fmt.Errorf("%*s", 4, id) }`), []string{"cannot map"}, nil},
 		"star precision":      {lib(`func f(id string) error { return fmt.Errorf("%.*s", 4, id) }`), []string{"cannot map"}, nil},
 		"trailing percent":    {lib(`func f(id string) error { return fmt.Errorf("%s %", id) }`), []string{"cannot map"}, nil},
-		"extra operand":       {lib(`func f(id string) error { return fmt.Errorf("%w", ErrX, id) }`), []string{"1 directives for 2 operands"}, nil},
+		"extra operand":       {lib(`func f(id string) error { return fmt.Errorf("%w", ErrX, id) }`), []string{"1 directives for 2 operands; fmt renders each extra operand"}, nil},
+		"missing operand":     {lib(`func f(id string) error { return fmt.Errorf("%s %s", id) }`), []string{"2 directives for 1 operands; fmt renders a directive with no operand"}, nil},
 		"spread operands":     {lib(`func f(a []any) error { return fmt.Errorf("%s", a...) }`), []string{"spreads its operands"}, nil},
 		"bound fmt member":    {lib(`var p = fmt.Sprintf`), []string{"fmt.Sprintf is named here without being called"}, nil},
 		"parenthesised call":  {lib(`func f(id string) string { return (fmt.Sprintf)("%s", id) }`), []string{"fmt.Sprintf is named here without being called"}, nil},
@@ -453,6 +497,16 @@ func TestReadRenderRules(t *testing.T) {
 		"format method":       {lib(`type e string` + "\n\n" + `func (v e) Format() {}`), []string{"method Format decides"}, nil},
 		"errors.Is and As":    {lib(`func f(err error) bool { var p *error; return errors.Is(err, ErrX) || errors.As(err, p) }`), nil, nil},
 		"sentinel from a var": {lib(`var ErrY = errors.New(C)` + "\n\n" + `func f() error { return fmt.Errorf("%v", ErrY) }`), []string{"errors.New of C"}, map[string]int{x + " %v ErrY": 1}},
+		"plus s and plus v":   {lib(`func f(id string) error { return fmt.Errorf("%w: %+s %+v", ErrX, id, id) }`), nil, map[string]int{x + " %+s id": 1, x + " %+v id": 1}},
+		"string method":       {lib(`type e string` + "\n\n" + `func (v e) String() string { return string(v) }`), []string{"method String decides"}, nil},
+		"gostring method":     {lib(`type e string` + "\n\n" + `func (v e) GoString() string { return string(v) }`), []string{"method GoString decides"}, nil},
+		"assign sentinel":     {lib(`func f(err error) { ErrX = err }`), []string{"ErrX is exempt from the census"}, nil},
+		"assign in parens":    {lib(`func f(err error) { (ErrX), _ = err, 1 }`), []string{"(ErrX) is exempt from the census"}, nil},
+		"range assigns":       {lib(`func f(errs []error) { for _, ErrX = range errs {} }`), []string{"ErrX is exempt from the census"}, nil},
+		"range key assigns":   {lib(`func f(m map[error]int) { for ErrX = range m {} }`), []string{"ErrX is exempt from the census"}, nil},
+		"address of sentinel": {lib(`func f() *error { return &ErrX }`), []string{"ErrX is exempt from the census"}, nil},
+		"define shadows":      {lib(`func f(err error) error { ErrX := err; for ErrX := range []error{err} { _ = ErrX }; return ErrX }`), nil, nil},
+		"assign a local":      {lib(`func f(id string) error { var e error; e = ErrX; _ = &e; return fmt.Errorf("%s", id) }`), nil, map[string]int{x + " %s id": 1}},
 		"computed constant":   {lib(`const N = 1 << 3` + "\n\n" + `func f() error { return fmt.Errorf("%d", N) }`), nil, map[string]int{x + " %d N": 1}},
 		"new of another package": {lib(`var ErrZ = other.New("z")` + "\n\n" + `func f() error { return fmt.Errorf("%v", ErrZ) }`), nil,
 			map[string]int{x + " %v ErrZ": 1}},
@@ -472,11 +526,30 @@ func TestReadRenderRules(t *testing.T) {
 			x:   "package bootstrap\n\nimport \"errors\"\n\nvar ErrX = errors.New(\"x\")\n\nconst P = \"p\"",
 			cmd: "package main\n\nimport (\n\t\"fmt\"\n\n\tb \"github.com/blac9216/PriFly/internal/bootstrap\"\n)\n\nfunc g(id string) error { return fmt.Errorf(\"%w: %s %s\", b.ErrX, b.P, b.Q) }",
 		}, nil, map[string]int{cmd + " %s b.Q": 1}},
+		"assign across packages": {map[string]string{
+			x:   "package bootstrap\n\nimport \"errors\"\n\nvar ErrX = errors.New(\"x\")",
+			cmd: "package main\n\nimport b \"github.com/blac9216/PriFly/internal/bootstrap\"\n\nfunc g(err error) { b.ErrX = err }",
+		}, []string{"b.ErrX is exempt from the census"}, nil},
+		"assign in another file": {map[string]string{
+			x:                         "package bootstrap\n\nimport \"errors\"\n\nvar ErrX = errors.New(\"x\")",
+			"internal/bootstrap/y.go": "package bootstrap\n\nfunc g(err error) { ErrX = err }",
+		}, []string{"ErrX is exempt from the census"}, nil},
 		"sentinel of another package": {map[string]string{
 			x:   "package bootstrap\n\nimport \"errors\"\n\nvar ErrX = errors.New(\"x\")",
 			cmd: "package main\n\nimport (\n\t\"fmt\"\n\t\"io\"\n)\n\nfunc g() error { return fmt.Errorf(\"%w %v\", io.EOF, ErrX) }",
 		}, nil, map[string]int{cmd + " %w io.EOF": 1, cmd + " %v ErrX": 1}},
-	} {
+	}
+	// One case per print-family member, the id its first rendered operand, so each operand position is pinned.
+	for fn, i := range fmtPrints {
+		args := []string{"w", "id"}[1-i:] // an Fprint writes to w first; an Append appends to w, here a []byte
+		cases["print family "+fn] = ruleCase{lib(`func f(w io.Writer, id string) { fmt.` + fn + `(` +
+			strings.Join(args, ", ") + `) }`), nil, map[string]int{x + " %v id": 1}}
+		if strings.HasPrefix(fn, "Append") {
+			cases["print family "+fn] = ruleCase{lib(`func f(w []byte, id string) []byte { return fmt.` + fn + `(` +
+				strings.Join(args, ", ") + `) }`), nil, map[string]int{x + " %v id": 1}}
+		}
+	}
+	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			findings, counted := readRender(c.sources)
 			for _, want := range c.refuse {
