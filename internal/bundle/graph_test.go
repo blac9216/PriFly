@@ -126,6 +126,15 @@ func TestGraphNamesEveryCyclicComponent(t *testing.T) {
 		// the component is named once.
 		"two-cycles-one-component": {deps: [][]int{{1}, {0, 2}, {1}},
 			want: []Diagnostic{cycle(1, 0, 0, 1)}},
+		// Entry 0 enters the cycle 1 <-> 2 at entry 2, and the walk still starts
+		// from entry 1, the component's least entry.
+		"entered-past-least": {deps: [][]int{{2}, {2}, {1}},
+			want: []Diagnostic{cycle(2, 0, 1, 2)}},
+		// Entry 0 enters the component of entries 1 to 4 at entry 3. It holds more
+		// than one cycle, 1 <-> 2 and 3 <-> 4 among them, and the cycle named is the
+		// one walked from entry 1, its least entry.
+		"cycles-entered-past-least": {deps: [][]int{{3}, {2}, {1, 3}, {4}, {3, 1}},
+			want: []Diagnostic{cycle(2, 0, 1, 2)}},
 		// A repeated dependency is walked once, at the position first naming it.
 		"repeated-dependency": {deps: [][]int{{1, 1}, {0, 0}},
 			want: []Diagnostic{cycle(1, 0, 0, 1)}},
