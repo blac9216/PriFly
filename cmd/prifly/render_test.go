@@ -589,8 +589,8 @@ func TestCommandStreamsAreWrittenThroughFmt(t *testing.T) {
 			case *ast.SelectorExpr:
 				// Two selectors reach the terminal without a stream expression,
 				// and each is refused wherever it is named, called or not, so a
-				// method value (nf := os.NewFile) or a parenthesised callee is
-				// refused where it is written.
+				// function or method value (nf := os.NewFile) or a parenthesised
+				// callee is refused where it is written.
 				//
 				// os.NewFile makes a *os.File out of a bare descriptor number, so
 				// os.NewFile(2, "stderr") is a writable handle to standard error
@@ -608,11 +608,17 @@ func TestCommandStreamsAreWrittenThroughFmt(t *testing.T) {
 				// included, are on TestBundleImportsNoNetworkOrProcess's
 				// forbidden list; Open, OpenInRoot and Root's Open open
 				// read-only, so a copy to what they return puts nothing on the
-				// terminal — measured for os.Open("/dev/stderr") and
-				// os.OpenInRoot("/dev", "stderr"), green and stderr empty; Pipe
-				// makes a new pipe rather than reaching a descriptor this
-				// process already has. NewFile was the one left, and no other
-				// package on that test's import allowlist returns a *os.File.
+				// terminal. Measured with descriptors 0, 1 and 2 on one pty:
+				// os.Open("/dev/stderr"), and os.OpenInRoot and Root's Open of
+				// the pty's name under /dev/pts, each open, the copy fails with
+				// a bad file descriptor and the terminal receives nothing, where
+				// a copy to os.NewFile(2, ...) on the same pty arrives. That
+				// os.OpenInRoot("/dev", "stderr") prints nothing is not this
+				// measurement: /dev/stderr is a symlink out of that root, so the
+				// open fails. Pipe makes a new pipe rather than reaching a
+				// descriptor this process already has. NewFile was the one left,
+				// and no other package on that test's import allowlist returns a
+				// *os.File.
 				if x, isName := n.X.(*ast.Ident); isName && imports[x.Name] == "os" && n.Sel.Name == "NewFile" {
 					t.Errorf("%s: %s.NewFile makes a writable handle out of a bare descriptor number, so a write "+
 						"to it reaches this process's standard streams while naming none of them, and no rule here "+
