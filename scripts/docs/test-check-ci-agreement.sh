@@ -17,7 +17,13 @@
 # indents and in both jobs, one per node property that may sit in front of the value and
 # per way of writing two of them, seven holding that the rule refuses an unreadable value
 # rather than a quote, a bracket or a property, and one holding the cost of refusing rather
-# than reading the value through.
+# than reading the value through. A line in a job's step band that the reader does not read
+# (#376) has a case per family that issue names -- a key the reader cannot spell, a plain
+# run: continued, a value opened on the next line, a sub-key's value, a comment inside a
+# flow value and a quote inside a plain word -- one on a constructed tail exempt step, a
+# pair at two and three spaces, a case per cost that issue asks to be stated, a case per
+# closed value the new flow rules must still read, and a case per character a loader
+# breaks a line at that the reader does not.
 # All cases run; the script exits 1 if any failed.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -215,6 +221,34 @@ set_declared_position() {
     skipping { next }
     { print }
   ' "$SCRIPT_DIR/check-ci-agreement.sh" >"$fixture_dir/checker.sh"
+  checker="$fixture_dir/checker.sh"
+}
+
+# add_tail_exempt_step: copy the checker with a fifth exempt step of job go declared in the
+# exemption, content and position lists, and point the next case at that copy. #376 names
+# this construction for the one shape a paired step cannot carry: an exempt step's env: is
+# compared by name and not by value, so a value there is read by nothing else.
+add_tail_exempt_step() {
+  reset_fixture
+  python3 - "$SCRIPT_DIR/check-ci-agreement.sh" "$fixture_dir/checker.sh" <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+name = "Save the module cache (probe tail step)"
+uses = "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0"
+edits = [
+    ('        "Restore Go module cache (keyed by go.sum)",  # setup, CI-only, no local command\n',
+     '        "Restore Go module cache (keyed by go.sum)",  # setup, CI-only, no local command\n        "%s",\n' % name),
+    ('        "Restore Go module cache (keyed by go.sum)": 4,\n',
+     '        "Restore Go module cache (keyed by go.sum)": 4,\n        "%s": 19,\n' % name),
+    ('    GO: {\n        "Check out the PR head commit (not the synthetic merge ref)": {\n',
+     '    GO: {\n        "%s": {"uses": "%s", "with": {"path": "~/go/pkg/mod"}, "env": ["PROBE"]},\n'
+     '        "Check out the PR head commit (not the synthetic merge ref)": {\n' % (name, uses)),
+]
+for old, new in edits:
+    assert text.count(old) == 1, old
+    text = text.replace(old, new)
+open(sys.argv[2], "w").write(text)
+PY
   checker="$fixture_dir/checker.sh"
 }
 
@@ -803,37 +837,48 @@ check_case 'comment lines inside the go step list do not truncate it' 0 'workflo
 # together. The mutant that separates them has to add a lookahead rather than remove
 # anything -- refuse only when the very next line begins with exactly two spaces -- and
 # measured, that mutant leaves the clean tree exit 0 and 203 of the 205 cases green, the
-# two red ones being the three-space pair here. So the second indent is not redundant, and
-# the pair is what #369 M4 asks for.
+# two red ones being the three-space pair here. Re-measured for #376 over 243 cases it is
+# 238 green: the same pair, and three cost cases of #376's section that have no line
+# after the value at all. So the second indent is not redundant, and the pair is what
+# #369 M4 asks for.
 #
 # Every rule of value_closes and of the refusal that calls it is listed here with the
 # number of cases the mutant of that rule alone turns red, each number read off a run of
 # that mutant rather than off this list. The first version of this list under-counted four
 # of its eight rows, which reads as a rule with one pin when it has several; the second
-# was missing the two rules review round 2 found unpinned. No mutant below survives, and
-# the clean tree stays exit 0 under every one of them.
-#   drop '"' from the first-character gate                -> 17
+# was missing the two rules review round 2 found unpinned. #376 added cases that several of
+# these rules also decide, so every number was re-run over the 243 cases at #376 and is the
+# whole suite's count, not this section's. No mutant below survives, and the clean tree
+# stays exit 0 under every one of them.
+#   drop '"' from the first-character gate                -> 18
 #   drop "'" from it                                      ->  3
-#   drop '[' from it                                      ->  8
-#   drop '{' from it                                      ->  2
+#   drop '[' from it                                      -> 17
+#   drop '{' from it                                      ->  4
 #   delete the backslash-escape branch                    ->  1
 #   delete the doubled-quote branch                       ->  1
-#   delete the quote tracking inside a flow collection    ->  7, four of them closed values
+#   delete the branch that opens a quoted scalar          -> 12, four of them closed values
+#                                                            below
 #   stop tracking single quotes, keeping double ones      ->  2, one of them a closed value
-#   drop the flow depth from a closer                     ->  1
+#   a closer closes whatever the flow depth               ->  1
 #   drop the flow depth from the single-quote close       ->  1
-#   delete the flow closer branch outright                ->  1, a closed value below
-#   drop the bounds guard from the property strip         ->  1, a closed value below
+#   delete the flow closer branch outright                ->  7, a closed value below and
+#                                                            six of #376's
+#   drop the bounds guard from the property strip         ->  2, a closed value below and
+#                                                            #376's tag with its content
+#                                                            on the next line
 #   delete the node-property strip                        -> 13
 #   drop '!' from the strip                               -> 11
 #   drop '&' from it                                      ->  5
 #   run the strip once instead of repeatedly              ->  3
 #   split the strip on a literal space, not on whitespace ->  2
-#   delete the refusal in steps_of                        -> 30, every red case of this
-#                                                            section
-#   count brackets over the whole value instead of
-#   scanning it from the first character                  -> 24, the closed 1[0 case
+#   delete the refusal in steps_of                        -> 39, every red case of this
+#                                                            section and nine of #376's
+#   return, before scanning, whether the brackets and
+#   braces over the whole value close and each quote
+#   character occurs an even number of times              -> 15, the closed 1[0 case
 #                                                            below among them
+#   That last row is #376's spelling of a bracket count; the one #369 ran is not recorded
+#   exactly, and it turned 24 cases red of 205.
 reset_fixture
 printf '%s\n' '        timeout-minutes: "1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
 check_case 'a double-quoted value continued at two spaces is refused' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
@@ -981,20 +1026,24 @@ check_case 'a bracket inside a single-quoted flow scalar does not close the sequ
 
 # And the seven values that do close, so this is a refusal of an unreadable value rather
 # than of a quote, a bracket or a property. Six of the seven are reached by a mutant of the
-# twenty, and which mutant reaches which was read off a run rather than reasoned about:
-#   "10"        -> quotes not tracked inside a flow collection
+# twenty, and which mutant reaches which was read off a run rather than reasoned about,
+# last at #376:
+#   "10"        -> the branch that opens a quoted scalar deleted
 #   [1, 0]      -> the flow closer branch deleted, which refuses a sequence that does close
-#   "1[0"       -> that mutant, and a bracket count over the whole value, which this case
-#                  exists to reject: a closed double-quoted scalar that happens to hold a [
-#   '10'        -> that mutant, and single quotes not tracked at all, which is the half of
-#                  a lost single-quote rule the refusals above cannot see
-#   !!str "10"  -> quotes not tracked inside a flow collection; stripping the tag has to
-#                  leave the closed quoted scalar behind
+#   "1[0"       -> the quote-opening branch deleted, and a bracket count over the whole
+#                  value, which this case exists to reject: a closed double-quoted scalar
+#                  that happens to hold a [
+#   '10'        -> the quote-opening branch deleted, and single quotes not tracked at all,
+#                  which is the half of a lost single-quote rule the refusals above cannot
+#                  see
+#   !!str "10"  -> the quote-opening branch deleted; stripping the tag has to leave the
+#                  closed quoted scalar behind
 #   !!str       -> the bounds guard dropped from the property strip, which is an IndexError
 #                  on a value that is only a property, because the split leaves one part
-# The seventh, &t 10, is reached by none of the twenty and cannot be by any mutant of this
-# function: under every mutant of the strip the value still begins with an ampersand, and
-# under the strip as written it is the plain 10, so both paths reach the same return. It is
+# The seventh, &t 10, is reached by none of the twenty, nor by any of #376's, and cannot be
+# by any mutant of this function: under every mutant of the strip the value still begins
+# with an ampersand, and under the strip as written it is the plain 10, so both paths reach
+# the same return. It is
 # here for symmetry with the tagged one, and this comment says so rather than implying a
 # mutant that does not exist.
 reset_fixture
@@ -1018,6 +1067,249 @@ check_case 'a closed anchored timeout-minutes: changes nothing' 0 'workflow step
 reset_fixture
 printf '%s\n' '        timeout-minutes: !!str' >>"$wf_docs"
 check_case 'a value that is only a tag closes, with nothing behind it' 0 'workflow steps agree with their documented commands'
+
+# --- #376: a line in a job's step band that this reader does not read ----------------
+# #369 closed a value that does not close on its own line, but only where the value is
+# written on the key line, and only where the checker's scanner and a loader agree on
+# where a flow value ends. Everything else in the step band that none of the reader's
+# patterns matched was passed over while a loader read it. Measured at b05932b, each of
+# the shapes below was exit 0 with this checker's summary line byte-identical: a key the
+# reader cannot spell ("if": false, if : false, ? if), a plain run: continued on a deeper
+# line, a value opened on the line after its key, a sub-key whose value is continued, a
+# comment inside a flow value that holds the closing bracket, and a quote inside a plain
+# word in a flow value. Each case below is refused now. Cases that hide a step append one
+# after the continuation; the others show the step disabled or its command rewritten.
+#
+# Every rule this issue adds is listed with the cases its mutant alone turns red, read off a
+# run of each mutant rather than off this list; the clean tree stays exit 0 under all of
+# them, and none survives. Where a mutant turns a closed value red, the case is one of the
+# closed values at the end of this section.
+#   delete the refusal of a line the reader does not read -> 12, every "does not read" case
+#   name steps[-1] in that refusal even with no step yet   ->  1, the line before the first step
+#   read a sub-key line with no step yet                   ->  1, the same case
+#   read a sub-key line under run:                         ->  2, the two run: shapes that
+#                                                               were a KeyError traceback
+#   read a sub-key line under a key that carries a value   ->  1, timeout-minutes: 5 then a:b
+#   delete the refusal of a sub-key's open value           ->  3, both indents and the tail
+#   refuse a sub-key's open value only when the next line
+#   begins with exactly two spaces                         ->  1, the three-space case
+#   delete the # rule                                      ->  5
+#   let a # close nothing only after whitespace            ->  4, every case with no space
+#                                                               before the #, the tail's
+#                                                               among them
+#   delete the refusal of a quote met inside a plain word  ->  5
+#   the issue's quote-position rule in its place, a quote
+#   refused unless it follows [ { , : a space or a tab     ->  3, the quote after a space and
+#                                                               after a colon inside a plain
+#                                                               scalar, and {"a":"b"}
+#   a plain character no longer sets plain                 ->  5
+#   [ and { no longer clear plain                          ->  1, {a:["b"]}
+#   a comma no longer clears plain                         ->  1, [a, "b"]
+#   delete the colon branch                                ->  2, {a: "b"} and its tab twin
+#   the colon clears plain before a tab only               ->  1, {a: "b"}
+#   the colon clears plain before a space only             ->  1, the tab twin
+#   the colon clears plain whatever follows it             ->  2, [a:"b, "c] and {"a":"b"}
+#   whitespace sets plain too                              ->  5, every closed value but
+#                                                               {a:["b"]}
+#   a tab sets plain                                       ->  2, the two tab cases
+#   a space sets plain                                     ->  3
+# The issue's quote-position rule is a mutant here and not the rule because it reads the
+# one character before the quote, and a plain scalar in a flow collection runs on through
+# a space and through a colon that no space follows: [a "b, "c] and [a:"b, "c], each
+# continued as x"] with a step behind it, are exit 0 with the summary byte-identical under
+# that rule and read by yaml.safe_load and psych alike as a plain scalar and a quoted one
+# that runs onto the next line. The shortest of each shape, [a ","] and [a:","], measured
+# the same way, are seven characters from the issue's alphabet, one past the six its
+# differential covered.
+# The precondition case for the constructed tail step is reached by no mutant; it is there
+# to show that the construction is agreed with before a value is continued on it.
+reset_fixture
+sed -i 's@^        run: go vet ./...$@&\n        "if": false@' "$wf_go"
+check_case 'a quoted if: on a paired step is refused, not skipped' 3 "job go step 'go vet' holds a line this reader does not read"
+also_expect 'the refusal quotes the line it could not read' "'        \"if\": false'"
+
+reset_fixture
+sed -i 's@^        run: go vet ./...$@&\n        ? if\n        : false@' "$wf_go"
+check_case 'a complex key on a paired step is refused, not skipped' 3 "job go step 'go vet' holds a line this reader does not read"
+
+# A plain run: continued on a deeper line folds into the command, so a loader runs
+# go test ./... -run XNONE, a test run that matches nothing, beside a documented row that
+# still reads go test ./....
+reset_fixture
+sed -i 's@^        run: go test -count=1 -race -v ./...$@&\n          -run XNONE@' "$wf_go"
+check_case 'a plain run: continued on a deeper line is refused' 3 "job go step 'go test (race, uncached)' holds a line this reader does not read, so it cannot say what a YAML loader makes of it: '          -run XNONE'"
+
+# Two shapes the reader used to meet with a KeyError traceback, exit 1, because the run:
+# branch never makes a sub-map for a sub-key line to land in. Each names the step now.
+reset_fixture
+sed -i 's@^        run: go test -count=1 -race -v ./...$@&\n          -run: XNONE@' "$wf_go"
+check_case 'a run: continuation spelled like a key is refused by name' 3 "job go step 'go test (race, uncached)' holds a line this reader does not read, so it cannot say what a YAML loader makes of it: '          -run: XNONE'"
+reset_fixture
+printf '%s\n' '      - name: Undocumented new step' '        run:' '          a: b' >>"$wf_docs"
+check_case 'an empty run: with a sub-map under it is refused by name' 3 "job design-docs step 'Undocumented new step' holds a line this reader does not read, so it cannot say what a YAML loader makes of it: '          a: b'"
+
+# A line in the band before the first step is refused too, naming the steps: block, since
+# there is no step to name.
+reset_fixture
+sed -i 's@^    steps:$@&\n          a: b@' "$wf_docs"
+check_case 'a line before the first step is refused by name' 3 "job design-docs steps: block holds a line this reader does not read"
+
+# A value opened on the line after its key. The reader decides at the content line, ten
+# spaces in, so the continuation's indent is not a dimension of the rule, and the pair is
+# here because #376 M6 asks for it: a rule narrowed to one indent survives a suite that
+# tests the other.
+reset_fixture
+printf '%s\n' '        timeout-minutes:' '          "1\' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a value opened on the next line and continued at two spaces is refused' 3 "job design-docs step 'CI agreement checker regression tests' holds a line this reader does not read, so it cannot say what a YAML loader makes of it: '          \"1\\\\'"
+reset_fixture
+printf '%s\n' '        timeout-minutes:' '          "1\' '   0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a value opened on the next line and continued at three spaces is refused' 3 'holds a line this reader does not read'
+reset_fixture
+printf '%s\n' '        timeout-minutes: !!str' '          "1\' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a tag on the key line with the content on the next is refused' 3 'holds a line this reader does not read'
+
+# A sub-key line is read only under a key that opened a block, which is a key with nothing
+# written after its colon. Under a key that carries a value on its own line, a deeper line
+# is that value continued: a loader reads this timeout-minutes: as the string 5 a:b.
+reset_fixture
+printf '%s\n' '        timeout-minutes: 5' '          a:b' >>"$wf_docs"
+check_case 'a key-shaped line under a scalar value is refused, not read as a sub-key' 3 "holds a line this reader does not read, so it cannot say what a YAML loader makes of it: '          a:b'"
+
+# A sub-key's own value is held to the rule the key line is held to (#376 M2).
+reset_fixture
+printf '%s\n' '        timeout-minutes:' '          a: "1' '  0"' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a sub-key value continued at two spaces is refused' 3 "step 'CI agreement checker regression tests' has a sub-key a: under timeout-minutes: whose value does not close on the line that opens it"
+reset_fixture
+printf '%s\n' '        timeout-minutes:' '          a: [1,' '   0]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a sub-key value continued at three spaces is refused' 3 'has a sub-key a: under timeout-minutes: whose value does not close'
+
+# The raised shape of PR #371's F1, on a constructed tree: a fifth exempt step appended to
+# job go and declared in the exemption, content and position lists, whose env: is compared
+# by name and not by value, so nothing else reads that value. The first case is the
+# precondition, that the construction is itself agreed with; the second continues the
+# value with a comment holding the closing bracket and hides a step behind it.
+add_tail_exempt_step
+printf '%s\n' '      - name: Save the module cache (probe tail step)' '        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0' '        with:' '          path: ~/go/pkg/mod' '        env:' '          PROBE: x' >>"$wf_go"
+check_case 'the constructed tail exempt step is agreed with' 0 'workflow steps agree with their documented commands'
+add_tail_exempt_step
+printf '%s\n' '      - name: Save the module cache (probe tail step)' '        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0' '        with:' '          path: ~/go/pkg/mod' '        env:' '          PROBE: [1,# ]' '  0]' '      - name: Undocumented new step' '        run: true' >>"$wf_go"
+check_case 'a tail exempt step env: value hiding a step is refused' 3 "step 'Save the module cache (probe tail step)' has a sub-key PROBE: under env: whose value does not close"
+
+# A comment inside a flow value. A loader starts one wherever it would start its next
+# token, after whitespace and directly after [, {, , or a quoted key's :, so the bracket
+# the comment holds closes nothing. Every comment below holds the closing bracket, since a
+# bracket-free comment agrees with the scanner that had no comment rule.
+reset_fixture
+printf '%s\n' '        timeout-minutes: [1, # ]' '  0]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a comment after whitespace in a flow value does not close it' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+reset_fixture
+printf '%s\n' '        timeout-minutes: [1,# ]' '  0]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a comment directly after a comma in a flow value does not close it' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+reset_fixture
+printf '%s\n' '        timeout-minutes: {"a":# }' '  1}' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a comment directly after a quoted key in a flow mapping does not close it' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# A quote opens a quoted scalar only where a loader starts a token. Inside a plain scalar
+# it is text: a"b is one plain word to a loader, so in [a"b, "c] the second quote opens a
+# scalar that runs onto the next line. A space does not end a plain scalar in a flow
+# collection, and neither does a colon with no space after it.
+reset_fixture
+printf '%s\n' '        timeout-minutes: [a"b, "c]' '  x"]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a quote inside a plain word does not open a scalar' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+reset_fixture
+printf '%s\n' '        timeout-minutes: [a "b, "c]' '  x"]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a quote after a space inside a plain scalar does not open a scalar' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+reset_fixture
+printf '%s\n' '        timeout-minutes: [a:"b, "c]' '  x"]' '      - name: Undocumented new step' '        run: true' >>"$wf_docs"
+check_case 'a quote after a colon inside a plain scalar does not open a scalar' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# The costs of refusing rather than reading, pinned rather than left to prose (#376 M3):
+# each of these hides nothing, a loader reads each, and each is refused.
+reset_fixture
+printf '%s\n' '        timeout-minutes:' '          "1\' '  0"' >>"$wf_docs"
+check_case 'a next-line value with no step after it is refused too' 3 'holds a line this reader does not read'
+reset_fixture
+printf '%s\n' '        timeout-minutes: [a#b]' >>"$wf_docs"
+check_case 'a # inside a plain scalar in a flow value is refused too' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+reset_fixture
+printf '%s\n' '        timeout-minutes: [a"b"]' >>"$wf_docs"
+check_case 'a quote inside a plain word in a flow value is refused too' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+reset_fixture
+printf '%s\n' '        timeout-minutes: {"a":"b"}' >>"$wf_docs"
+check_case 'a quote directly after a colon is refused too' 3 'has a timeout-minutes: whose value does not close on the line that opens it'
+
+# And the closed values the plain-scalar rules must still read, so this is a refusal of a
+# quote a loader keeps as text and not of a quote after a separator. Each is reached by a
+# mutant of the table above.
+reset_fixture
+printf '%s\n' '        timeout-minutes: {a: "b"}' >>"$wf_docs"
+check_case 'a quote after a colon and a space opens a scalar' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' "        timeout-minutes: {a:	\"b\"}" >>"$wf_docs"
+check_case 'a quote after a colon and a tab opens a scalar' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' '        timeout-minutes: [ "a"]' >>"$wf_docs"
+check_case 'a quote after a space at a token start opens a scalar' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' "        timeout-minutes: [	\"a\"]" >>"$wf_docs"
+check_case 'a quote after a tab at a token start opens a scalar' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' '        timeout-minutes: [a, "b"]' >>"$wf_docs"
+check_case 'a quote after a comma that ends a plain scalar opens a scalar' 0 'workflow steps agree with their documented commands'
+reset_fixture
+printf '%s\n' '        timeout-minutes: {a:["b"]}' >>"$wf_docs"
+check_case 'a quote after a bracket that ends a plain scalar opens a scalar' 0 'workflow steps agree with their documented commands'
+
+# A line here is text ended by a line feed, the only character the reader splits on. A
+# loader also ends a line at a carriage return, and yaml.safe_load and psych at NEL, LS and
+# PS too, so one line to the reader could be two to a loader and the second never seen.
+# Measured at b05932b, each shape below but the last was exit 0 with the summary line
+# byte-identical; the reader now refuses a workflow holding any of the four, anywhere in
+# it, before either scope or the steps are read (#376 review round 1). There is one case
+# per character, since a rule narrowed to one survives a suite that tests only that one;
+# one above the steps, since the refusal is not the step band's alone; one for the cost, a
+# carriage return at the end of a comment line, which hides nothing and which a loader
+# reads; and a file saved with CRLF endings, which was exit 3 at b05932b already, because
+# the job lookup misses a job line that ends in a carriage return, and is refused by name
+# now. Each mutant alone turns red exactly these, read off a run of each:
+#   delete the refusal                                     ->  7, every case here
+#   drop the carriage return from the refused characters   ->  4, every carriage return case
+#   drop NEL, LS or PS from them                           ->  1 each, that character's case
+#   count the line from zero, not one                      ->  4, every case naming a line
+#                                                               number
+#   refuse only after the steps: line                      ->  2, the job scope and the
+#                                                               comment on line 1
+#   the scopes above the steps read without the refusal    ->  1, the CRLF file, which the
+#                                                               job lookup then misses
+# One mutant survives and is equivalent: the steps read without the refusal, since the
+# scopes are read from the same file first and refuse it there.
+cr=$'\r'
+nel=$'\xc2\x85'
+ls=$'\xe2\x80\xa8'
+ps=$'\xe2\x80\xa9'
+reset_fixture
+line=$(($(grep -n '^        run: go build ./...$' "$wf_go" | cut -d: -f1) + 1))
+sed -i "s@^        run: go build ./...\$@&\n        timeout-minutes: 5${cr}        if: false@" "$wf_go"
+check_case 'a carriage return that switches a step off is refused' 3 ".github/workflows/go-checks.yml holds a carriage return on line $line, which a YAML loader may read as a line break"
+reset_fixture
+line=$(($(wc -l <"$wf_docs") + 1))
+printf '%s\n' "        timeout-minutes: 5${nel}      - name: Undocumented new step${nel}        run: true" >>"$wf_docs"
+check_case 'NEL that hides a step is refused' 3 ".github/workflows/docs-checks.yml holds NEL (U+0085) on line $line"
+reset_fixture
+printf '%s\n' "        timeout-minutes: 5${ls}      - name: Undocumented new step${ls}        run: true" >>"$wf_docs"
+check_case 'LS that hides a step is refused' 3 '.github/workflows/docs-checks.yml holds LS (U+2028) on line'
+reset_fixture
+printf '%s\n' "        timeout-minutes: 5${ps}      - name: Undocumented new step${ps}        run: true" >>"$wf_docs"
+check_case 'PS that hides a step is refused' 3 '.github/workflows/docs-checks.yml holds PS (U+2029) on line'
+reset_fixture
+sed -i "s@^    timeout-minutes: 25\$@&${cr}    if: false@" "$wf_go"
+check_case 'a carriage return that switches a job off is refused' 3 '.github/workflows/go-checks.yml holds a carriage return on line'
+reset_fixture
+sed -i "1s@\$@${cr}@" "$wf_docs"
+check_case 'a carriage return in a comment is refused too' 3 '.github/workflows/docs-checks.yml holds a carriage return on line 1,'
+reset_fixture
+sed -i "s@\$@${cr}@" "$wf_go"
+check_case 'a workflow saved with CRLF line endings is refused too' 3 '.github/workflows/go-checks.yml holds a carriage return on line 1,'
 
 # --- #361: an exempt step's position is declared -------------------------------------
 # Moving an exempt step changes none of its bytes, so the declared exempt content list
