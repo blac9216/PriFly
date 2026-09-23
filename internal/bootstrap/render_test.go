@@ -173,7 +173,9 @@ var (
 //     variable or called through parentheses, and one that is neither in fmtFormats nor in fmtPrints;
 //   - errors.New of anything but a string literal, and a member of errors other than New, Is and As;
 //   - an assignment to an exempt name, as the target of =, of a range clause or of &: a sentinel is fixed text
-//     only while nothing writes to it, and a write would give it any text at all;
+//     only while nothing writes to it, and a write would give it any text at all. These two packages are the only
+//     ones of this module prifly-bootstrap links (measured with go list -deps, not checked here), and no package
+//     outside the module can import internal/bootstrap, so they are the only sources that can write one by name;
 //   - a dot import, which leaves no selector to resolve;
 //   - a method named Error, String, GoString or Format, which fmt calls to render a value, so a type declaring one
 //     decides its own text past every directive.
