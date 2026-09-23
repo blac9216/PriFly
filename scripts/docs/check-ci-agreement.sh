@@ -147,9 +147,11 @@
 # the summary line byte-identical, and both loaders read the file with its 18 steps: any of
 # the four inside a quoted value, where both loaders fold a carriage return or NEL into a
 # space and keep LS and PS as text, as YAML 1.2 does; and any of the four at the end of a
-# comment. Both loaders end a comment at each of the four, so with comment text after one
-# neither loads the file at all. The self-test pins the CRLF file and a carriage return at
-# the end of a comment. Whether GitHub
+# comment. Both loaders end a comment at each of the four and read what follows as YAML:
+# with comment text after one that is not YAML, such as more words, neither loads the file,
+# and with text that is, such as if: false, both read it as a key of the step, which is the
+# hiding route above. The self-test pins the CRLF file and a carriage return at the end of
+# a comment. Whether GitHub
 # Actions' own parser breaks a line at any of the four is not known here. The
 # band is every line of a job's steps: block that begins with six spaces, and this reader
 # reads a line there as one of five things: a step's - name:, a step key at eight spaces, a
