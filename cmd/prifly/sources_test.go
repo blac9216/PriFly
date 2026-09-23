@@ -34,18 +34,15 @@ import (
 // here until someone records it, having decided whether the Go-source controls
 // above reach it too. The pin is per binary rather than over both together
 // because the controls are: a package prifly-bootstrap newly links is outside
-// TestBootstrapRendersASCII even when prifly already links it.
+// TestBootstrapRendersASCII even when prifly already links it. The rule's
+// findings and the pin come from one walk per binary (see checkLinkSets), so
+// a binary whose packages the rule reads is a binary whose set is pinned.
 func TestLinkedPackagesHoldOnlyGoSource(t *testing.T) {
-	repo := os.DirFS("../..")
-	_, findings, err := linkedNonGoSources(repo, slices.Sorted(maps.Keys(linkSets))...)
+	findings, err := checkLinkSets(os.DirFS("../.."), linkSets)
 	if err != nil {
 		t.Fatal(err)
 	}
-	drift, err := linkSetDrift(repo, linkSets)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range append(findings, drift...) {
+	for _, f := range findings {
 		t.Error(f)
 	}
 }
@@ -57,18 +54,22 @@ var linkSets = map[string][]string{
 	"cmd/prifly-bootstrap": {"cmd/prifly-bootstrap", "internal/bootstrap"},
 }
 
-// linkSetDrift returns a finding for each root of want whose link set, derived
-// by linkedNonGoSources from that root alone, is not want[root].
-func linkSetDrift(fsys fs.FS, want map[string][]string) ([]string, error) {
+// checkLinkSets runs linkedNonGoSources once for each root of want, from that
+// root alone, and returns what each run refuses and a finding for each root
+// whose link set is not want[root]. Both come from the same run, so no root is
+// read by the rule without its set being pinned, or pinned without its
+// packages being read. A package two roots link is reported once for each.
+func checkLinkSets(fsys fs.FS, want map[string][]string) ([]string, error) {
 	var findings []string
 	for _, root := range slices.Sorted(maps.Keys(want)) {
-		dirs, _, err := linkedNonGoSources(fsys, root)
+		dirs, refused, err := linkedNonGoSources(fsys, root)
 		if err != nil {
 			return nil, err
 		}
+		findings = append(findings, refused...)
 		if !slices.Equal(dirs, want[root]) {
-			findings = append(findings, fmt.Sprintf("%s links module packages %q, want %q; record a package it "+
-				"newly links once the render and import controls that read it are decided", root, dirs, want[root]))
+			findings = append(findings, fmt.Sprintf("%s links module packages %q, want %q; update linkSets once "+
+				"the render and import controls that read a newly linked package are decided", root, dirs, want[root]))
 		}
 	}
 	return findings, nil
@@ -242,49 +243,58 @@ func TestLinkedNonGoSourcesRule(t *testing.T) {
 	if want := []string{".", "a", "b", "c", "f", "g", "h", "r"}; !slices.Equal(dirs, want) || len(findings) != 0 {
 		t.Errorf("linked = %q with findings %q, want %q and none", dirs, findings, want)
 	}
+	walk := func(fsys fs.FS) ([]string, error) {
+		_, findings, err := linkedNonGoSources(fsys, "a", "r")
+		return findings, err
+	}
 	for _, dir := range dirs {
-		t.Run("graph dir "+dir, func(t *testing.T) { refusedIn(t, graph, dir, "a", "r") })
+		t.Run("graph dir "+dir, func(t *testing.T) { refusedIn(t, graph, dir, walk) })
 	}
 
-	// The per-root pin: each root's set as derived, then each root newly linking
-	// a package only the other root linked, which leaves the union of the two
-	// unchanged.
+	// checkLinkSets: each root's set as derived, each root newly linking a
+	// package only the other root linked, which leaves the union of the two
+	// unchanged, and a non-Go file in a package only one root links.
 	sets := map[string][]string{"a": {".", "a", "b", "c", "f", "g"}, "r": {".", "c", "h", "r"}}
 	for name, c := range map[string]struct {
-		file, imports string // a file added to the graph, and the one package it imports
-		drift         string // how the one finding begins, or "" for none
+		file, imports string // a file added to the graph, and for a .go file the one package it imports
+		want          string // how the one finding begins, or "" for none
 	}{
 		"link sets as pinned": {},
 		"a newly links h":     {"a/zz.go", module + "/h", "a links"},
 		"r newly links b":     {"r/zz.go", module + "/b", "r links"},
+		"a non-Go file in g":  {"g/zz.s", "", "g/zz.s: not a .go file"},
+		"a non-Go file in h":  {"h/zz.s", "", "h/zz.s: not a .go file"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			fsys := maps.Clone(graph)
-			if c.file != "" {
+			if strings.HasSuffix(c.file, ".go") {
 				fsys[c.file] = goFile("main", c.imports)
+			} else if c.file != "" {
+				fsys[c.file] = &fstest.MapFile{}
 			}
-			drift, err := linkSetDrift(fsys, sets)
+			findings, err := checkLinkSets(fsys, sets)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if c.drift == "" && len(drift) != 0 || c.drift != "" && (len(drift) != 1 || !strings.HasPrefix(drift[0], c.drift)) {
-				t.Errorf("drift = %q, want one finding beginning %q, or none if that is empty", drift, c.drift)
+			if c.want == "" && len(findings) != 0 || c.want != "" && (len(findings) != 1 || !strings.HasPrefix(findings[0], c.want)) {
+				t.Errorf("findings = %q, want one beginning %q, or none if that is empty", findings, c.want)
 			}
 		})
 	}
 
-	// One case per directory of the real link set: the tree's own Go files,
+	// One case per directory of the real link set, run through checkLinkSets
+	// as TestLinkedPackagesHoldOnlyGoSource runs it: the tree's own Go files,
 	// copied into memory, with an empty .s file added to one directory at a time.
 	// Only Go files are copied, so a non-Go file on the tree is reported by
 	// TestLinkedPackagesHoldOnlyGoSource and not by every case here.
 	repo := os.DirFS("../..")
-	roots := slices.Sorted(maps.Keys(linkSets))
-	dirs, _, err = linkedNonGoSources(repo, roots...)
-	if err != nil {
-		t.Fatal(err)
+	var linked []string
+	for _, set := range linkSets {
+		linked = append(linked, set...)
 	}
+	slices.Sort(linked)
 	tree := fstest.MapFS{}
-	for _, dir := range dirs {
+	for _, dir := range slices.Compact(linked) {
 		entries, err := fs.ReadDir(repo, dir)
 		if err != nil {
 			t.Fatal(err)
@@ -300,19 +310,20 @@ func TestLinkedNonGoSourcesRule(t *testing.T) {
 			tree[path.Join(dir, e.Name())] = &fstest.MapFile{Data: data}
 		}
 	}
-	for _, dir := range dirs {
-		t.Run("linked dir "+dir, func(t *testing.T) { refusedIn(t, tree, dir, roots...) })
+	check := func(fsys fs.FS) ([]string, error) { return checkLinkSets(fsys, linkSets) }
+	for _, dir := range slices.Compact(linked) {
+		t.Run("linked dir "+dir, func(t *testing.T) { refusedIn(t, tree, dir, check) })
 	}
 }
 
-// refusedIn checks that linkedNonGoSources, run over fsys with an empty .s file
-// added to dir, reports exactly that file.
-func refusedIn(t *testing.T, fsys fstest.MapFS, dir string, roots ...string) {
+// refusedIn checks that check, run over fsys with an empty .s file added to
+// dir, reports exactly that file.
+func refusedIn(t *testing.T, fsys fstest.MapFS, dir string, check func(fs.FS) ([]string, error)) {
 	t.Helper()
 	probe := path.Join(dir, "zz_probe.s")
 	fsys = maps.Clone(fsys)
 	fsys[probe] = &fstest.MapFile{}
-	_, findings, err := linkedNonGoSources(fsys, roots...)
+	findings, err := check(fsys)
 	if err != nil {
 		t.Fatal(err)
 	}
