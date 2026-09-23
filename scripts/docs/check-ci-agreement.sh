@@ -69,7 +69,15 @@
 #   fourteen further values silent at 4b6076c, twelve of them behind a tag or an anchor.
 #   So a step key whose value does not close on the line that opens it is now refused by
 #   name, in value_closes below, before the break can be reached, whether the value is
-#   written bare or behind a tag or an anchor. Refusing is a choice with a cost, stated
+#   written bare or behind a tag or an anchor. As #369 shipped, that sentence was false in
+#   two places, both found after its merge and both closed by #376. value_closes had no
+#   comment rule, so timeout-minutes: [1, # ] continued two spaces in as 0] read as closed
+#   at the bracket inside the comment; and it opened a quoted scalar at every quote, so
+#   [a"b, "c] continued as x"] read as closed while a loader read the plain word a"b and
+#   then a quoted scalar running onto the next line. Each hid a step behind it with this
+#   checker's summary line byte-identical. The scanner now follows the loader's flow tokens
+#   in both places; the paragraph on the step band below says what it reads and what was
+#   measured. Refusing is a choice with a cost, stated
 #   here where the choice is made: this repository now rejects a step layout GitHub
 #   accepts, and rejects it whether or not a step is hidden behind it -- a continued
 #   value with nothing written after it hides nothing and is refused all the same, which is
@@ -99,25 +107,79 @@
 #   yaml.safe_load nor psych will parse the file. A block indicator, | or >, is the other
 #   value that runs on past its own line, and it is deliberately not in that set: a block
 #   scalar's content has to be more indented than its key, so it stays inside the
-#   six-space band this reader reads through -- measured with a block scalar on a step's
-#   timeout-minutes: at ten spaces and a step behind it, exit 1 at the manifest count both
-#   before this change and after it, with the whole step list read. That argument is how
+#   six-space band this reader reads. On run: its lines are read as the command. On any
+#   other step key they are lines this reader does not read, which it passed over until
+#   #376 and refuses by name since -- measured with a block scalar on a step's
+#   timeout-minutes: at ten spaces and a step behind it, exit 1 at #369's merge with the
+#   whole step list read and the step behind it reported unpaired, and exit 3 naming the
+#   block's first line since #376. That argument is how
 #   the set was chosen and how round 1's gap was found; it is not a proof that the set is
 #   exhaustive, and this header does not claim one.
 #   It does not read a step's own - name: line, which STEP_RE takes first: an open name:
 #   leaves the step without a run:, which is exit 3, measured at a middle step of job
-#   design-docs and at the last one. It does not read a sub-key under with: or env:; the
-#   three such shapes this tree can carry -- a paired step's env:, an exempt step's with:,
-#   an exempt step's env: -- are each exit 1 at the comparisons that read those sub-maps.
+#   design-docs and at the last one. Until #376 it did not read a sub-key under a step key,
+#   and the three such shapes this tree can carry -- a paired step's env:, an exempt step's
+#   with:, an exempt step's env: -- were each exit 1 at the comparisons that read those
+#   sub-maps, while on a constructed tail exempt step, whose env: is compared by name and
+#   not by value, a continued env: value hid a step with the summary byte-identical. Since
+#   #376 the rule reads a sub-key's value as it reads a key's, so all four are exit 3 here.
 #   It does not read the two scopes above the steps, whose own outcomes are in #369's
 #   key-surface table. That is the shapes measured, not a proof that no silent one exists;
 #   a YAML parser is out of scope here as it was in #361.
+#   What the step band holds besides those keys is the next paragraph's.
+#
+# A line in the step band that this reader does not read is refused by name (#376). The
+# band is every line of a job's steps: block that begins with six spaces, and this reader
+# reads a line there as one of five things: a step's - name:, a step key at eight spaces, a
+# sub-key at ten under a step key that opened a block -- one with nothing after its colon
+# -- a line of a run: block scalar, or a blank or comment line. Until #376 any other line
+# was passed over while a loader read it, and at b05932b each of these was exit 0 at this
+# checker with its summary line byte-identical: "if": false, if : false, a quoted
+# continue-on-error: and ? if with : false on a paired step, each of which a loader reads
+# as the key it disables or unblocks the step with; a plain run: continued on a deeper line,
+# which a loader folds into the command, so go test ./... ran as go test ./... -run XNONE
+# beside a row that still documents go test ./...; and a value opened on the line after its
+# key, a sub-key's value, a block sequence item or a quoted key, each continued two or three
+# spaces in with a step written behind it. Every one of those is exit 3 now, as is an empty
+# run: with a sub-map under it, which met a KeyError traceback before, exit 1. This
+# reader's own header said the opposite of that until #376 -- the sentence on the
+# load-bearing attribute list below, that a key the list does not recognise is an error
+# rather than something skipped, was true only of a key this reader could spell.
+#   Refuse rather than read through, for the reason given for #369 above: reading a line
+#   this reader does not otherwise understand means knowing exactly what a loader makes of
+#   it, and refusing only means knowing that it might be something. The cost is stated
+#   here where the choice is made. Each of these is refused although a loader reads it and
+#   although none of them hides a step, and each is a case in the self-test rather than a
+#   sentence only: a continued value with nothing after it; a plain value continued on a
+#   deeper line, such as timeout-minutes: 5 then a:b ten spaces in, which a loader reads as
+#   the string 5 a:b; a # inside a plain scalar in a flow value, [a#b], which a loader reads
+#   as text; a quote inside a plain word in a flow value, [a"b"]; and a quote directly after
+#   a colon, {"a":"b"}, which yaml.safe_load and psych both read as a mapping. Also refused,
+#   measured and not pinned by a case: a block scalar or a nested mapping on a step key
+#   other than run:, and a tag, an anchor or a ? in a flow collection in front of a quoted
+#   scalar, such as [!!str "a"]. A block scalar or a nested mapping as a sub-key's value
+#   under with: or env: is not a new cost, since the rule under those two keys already
+#   refused it, and with: written as a block scalar itself was already exit 1 at the
+#   comparison and is exit 3 now.
+#   What was measured, and what was not. value_closes was run over every value of up to six
+#   characters from [ ] { } , " ' # a : and space that begins with [ or { -- 354,312 values
+#   -- and over every such value of up to seven characters, 3,897,434 in all, each written on
+#   a step key with a step behind it and a candidate continuation line two spaces in between.
+#   None of them is read as closed here while yaml.safe_load reads the continuation into the
+#   value and the step behind it as a step. That is agreement with one loader on one
+#   alphabet up to one length, measured, and not a proof that the step band is read as a
+#   loader reads it; #376's PR body gives the method and the numbers. The two loaders
+#   themselves differ on a tab after a colon or at a token start in a flow collection, which
+#   psych reads and yaml.safe_load rejects, and value_closes reads it the way psych does.
 #
 # A step is more than its run: line. Which of its other keys decide whether it runs at
 # all, and whether its failure blocks, is written down in the load-bearing attribute list
 # below (#348); a paired step carrying one of them disagrees with documents that assert
 # it runs, and a key the list does not recognise is an error rather than something
-# skipped.
+# skipped. Until #376 that was true only of a key this reader could spell: "if": false or
+# if : false on a paired step was skipped, with this checker exit 0 and its summary line
+# byte-identical while a loader switched the step off. A line in the step band this reader
+# cannot read as a key is an error now too, as the paragraph above says.
 #
 # A step is also less than everything that decides whether it runs (#353). A never-firing
 # if: on the job skips every step inside it, continue-on-error: on the job stops the job
@@ -693,7 +755,10 @@ def value_closes(value: str) -> bool:
     from each other and from the content by whitespace -- and those are written in front
     of the content without being it. They are dropped first. Neither indicator can begin
     a plain scalar in YAML, so dropping a leading ! or & token cannot swallow content.
-    A value that is only properties leaves nothing behind, which closes.
+    A value that is only properties leaves nothing on this line, so nothing here is open.
+    Its content, if it has any, begins on a later line, and that line is steps_of's to read
+    as a sub-key or to refuse. Until #376 steps_of passed it over, so timeout-minutes: !!str
+    with its content on the next line and a step behind it was exit 0 here.
     Reading an indicator as the content answers "closed" for every tagged and anchored
     value there is; the header above records what that cost and how it was measured.
 
@@ -706,6 +771,20 @@ def value_closes(value: str) -> bool:
     Quotes are tracked inside a flow collection too, so a bracket written inside one of
     its scalars is text rather than nesting, and a backslash escape inside a double-quoted
     scalar and a doubled quote inside a single-quoted one do not close it.
+
+    Inside a flow collection two more things decide, both where a loader's own tokens
+    begin (#376). A # outside a quoted scalar is not closed: a loader starts a comment at a
+    # wherever it would start its next token, after whitespace and directly after [, {, ,
+    or a quoted key's :, and a bracket in that comment closes nothing. A # inside a plain
+    word, [a#b], is text to a loader and is refused here all the same, which is the cost of
+    not tracking the difference. And a quote opens a quoted scalar only where a loader
+    starts a token. Inside a plain scalar it is text -- a"b is one word, and so is a "b,
+    because a space does not end a plain scalar in a flow collection, and a:"b, because a
+    colon ends one only before a space or a tab -- so a quote met while `plain` is set is
+    not closed. `plain` is cleared by [, {, a comma, and a colon followed by a space or a
+    tab; whitespace leaves it as it is; any other character outside a quoted scalar sets
+    it. That keeps `plain` set in places a loader starts a token -- after a ] or a }, after
+    a ? or a tag -- which only refuses more.
     """
     while value[:1] in ("!", "&"):
         parts = value.split(None, 1)
@@ -714,6 +793,7 @@ def value_closes(value: str) -> bool:
         return True
     depth = 0
     quote = ""
+    plain = False
     index = 0
     while index < len(value):
         char = value[index]
@@ -733,14 +813,25 @@ def value_closes(value: str) -> bool:
                 quote = ""
                 if not depth:
                     return True
+        elif char == "#":
+            return False
         elif char in ('"', "'"):
+            if plain:
+                return False
             quote = char
         elif char in "[{":
             depth += 1
+            plain = False
         elif char in "]}":
             depth -= 1
             if not depth:
                 return True
+        elif char == ",":
+            plain = False
+        elif char == ":" and value[index + 1:index + 2] in (" ", "\t"):
+            plain = False
+        elif char not in " \t":
+            plain = True
         index += 1
     return False
 
@@ -824,13 +915,21 @@ def steps_of(relative: str, job: str) -> list[Step]:
             steps[-1].blocks[current] = {}
             continue
         sub = SUB_RE.match(line)
-        if sub and current and steps:
-            steps[-1].blocks[current][sub.group(1)] = sub.group(2).strip()
+        if sub and steps and current in steps[-1].blocks and steps[-1].attributes[current] == "":
+            value = sub.group(2).strip()
+            if not value_closes(value):
+                unparsable("%s job %s step %r has a sub-key %s: under %s: whose value does not close on the line that opens it, so "
+                           "this reader would stop at the continuation line and miss every step written below it while a "
+                           "YAML loader ran them: %r"
+                           % (relative, job, steps[-1].name, sub.group(1), current, value))
+            steps[-1].blocks[current][sub.group(1)] = value
             continue
         if current in STEP_READ_THROUGH and steps and line.startswith(" " * 9):
             unparsable("%s job %s step %r holds a line under %s: that this checker cannot read as a key, so it cannot "
                        "compare it with the list that declares what the step may carry there: %r"
                        % (relative, job, steps[-1].name, current, line))
+        unparsable("%s job %s %s holds a line this reader does not read, so it cannot say what a YAML loader makes of "
+                   "it: %r" % (relative, job, "step %r" % steps[-1].name if steps else "steps: block", line))
     if not steps:
         unparsable("%s job %s has no steps" % (relative, job))
     names = [step.name for step in steps]
