@@ -139,10 +139,17 @@
 # return then a - name: and a run: added a step, each exit 0 at b05932b with the summary
 # line byte-identical, and the same held at job scope and for each of the other three
 # characters. So workflow_lines refuses a workflow whose text holds any of the four,
-# anywhere, before either scope or the steps are read. The cost is that a workflow saved
-# with CRLF line endings is refused, and so is one of the three Unicode characters inside a
-# comment or a quoted scalar, which YAML 1.2, unlike those two loaders, reads as text. The
-# self-test pins the first cost and a carriage return in a comment. Whether GitHub
+# anywhere, before either scope or the steps are read. A workflow saved with CRLF line
+# endings was refused at b05932b already, since the job lookup misses a job line that ends
+# in a carriage return; the refusal now names the carriage return and its line instead.
+# What is newly refused, and is the cost, is any of the four where a loader reads the file
+# with nothing hidden. Measured on go build's step at b05932b, each of these was exit 0 with
+# the summary line byte-identical, and both loaders read the file with its 18 steps: any of
+# the four inside a quoted value, where both loaders fold a carriage return or NEL into a
+# space and keep LS and PS as text, as YAML 1.2 does; and any of the four at the end of a
+# comment. Both loaders end a comment at each of the four, so with comment text after one
+# neither loads the file at all. The self-test pins the CRLF file and a carriage return at
+# the end of a comment. Whether GitHub
 # Actions' own parser breaks a line at any of the four is not known here. The
 # band is every line of a job's steps: block that begins with six spaces, and this reader
 # reads a line there as one of five things: a step's - name:, a step key at eight spaces, a

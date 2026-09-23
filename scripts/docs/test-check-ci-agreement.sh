@@ -1263,13 +1263,15 @@ check_case 'a quote after a bracket that ends a plain scalar opens a scalar' 0 '
 # A line here is text ended by a line feed, the only character the reader splits on. A
 # loader also ends a line at a carriage return, and yaml.safe_load and psych at NEL, LS and
 # PS too, so one line to the reader could be two to a loader and the second never seen.
-# Measured at b05932b, each shape below was exit 0 with the summary line byte-identical;
-# the reader now refuses a workflow holding any of the four,
-# anywhere in it, before either scope or the steps are read (#376 review round 1). There is
-# one case per character, since a rule narrowed to one survives a suite that tests only
-# that one; one above the steps, since the refusal is not the step band's alone; and two
-# for the cost, a comment and a file saved with CRLF endings, neither of which hides
-# anything. Each mutant alone turns red exactly these, read off a run of each:
+# Measured at b05932b, each shape below but the last was exit 0 with the summary line
+# byte-identical; the reader now refuses a workflow holding any of the four, anywhere in
+# it, before either scope or the steps are read (#376 review round 1). There is one case
+# per character, since a rule narrowed to one survives a suite that tests only that one;
+# one above the steps, since the refusal is not the step band's alone; one for the cost, a
+# carriage return at the end of a comment line, which hides nothing and which a loader
+# reads; and a file saved with CRLF endings, which was exit 3 at b05932b already, because
+# the job lookup misses a job line that ends in a carriage return, and is refused by name
+# now. Each mutant alone turns red exactly these, read off a run of each:
 #   delete the refusal                                     ->  7, every case here
 #   drop the carriage return from the refused characters   ->  4, every carriage return case
 #   drop NEL, LS or PS from them                           ->  1 each, that character's case
