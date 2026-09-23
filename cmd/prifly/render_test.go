@@ -295,11 +295,12 @@ func TestCommandRendersASCII(t *testing.T) {
 	// It reads where this package's streams go rather than what its writes are
 	// called, and refuses a stream expression anywhere but the first argument of
 	// a call into fmt or an argument at an io.Writer parameter of a function of
-	// this package, so the io.Copy path above is refused there. It leaves this
+	// this package, so the io.Copy path above is refused there. It also refuses,
+	// by name, the three builtins that put text on standard error, os.NewFile,
+	// which makes a fresh handle to the same file descriptor, and a selector
+	// beginning with Must, whose panic the runtime writes there. It leaves this
 	// table's own reach where it was: nothing here sees a write that makes no fmt
-	// call, and no rule of either control reads a stream reached some other way,
-	// such as a fresh handle to the same file descriptor. What each refuses, and
-	// what neither reaches, is stated at that test.
+	// call. What each refuses, and what neither reaches, is stated at that test.
 	//
 	// TestBundleImportsNoNetworkOrProcess stands behind neither. What it
 	// refuses is a selector on its forbidden list, .Write and .WriteString among
@@ -334,14 +335,16 @@ func TestCommandRendersASCII(t *testing.T) {
 }
 
 // TestCommandStreamsAreWrittenThroughFmt reads where this package's streams go,
-// and refuses the two builtins that write to one of them while naming none,
-// however the call to them is parenthesised. It is the control standing behind the fmt tables in
-// TestCommandRendersASCII, which need an fmt call to have anything to read: a
-// write that makes none carries no format string for the directive rule, no
-// strconv selector for the leak rule and no fmt selector for the tables, so it
-// reaches no row, no report and no refusal there. Measured before this test
-// existed, a reachable branch writing with io.Copy over a strings.NewReader put
-// U+0430 raw on stderr with the package green (issue #368).
+// and refuses by name the shapes that reach one of them while naming none: the
+// three builtins that write to standard error, however the call to them is
+// parenthesised, os.NewFile, and a Must selector. It is the control standing
+// behind the fmt tables in TestCommandRendersASCII, which need an fmt call to
+// have anything to read: a write that makes none carries no format string for
+// the directive rule, no strconv selector for the leak rule and no fmt selector
+// for the tables, so it reaches no row, no report and no refusal there.
+// Measured before this test existed, a reachable branch writing with io.Copy
+// over a strings.NewReader put U+0430 raw on stderr with the package green
+// (issue #368).
 //
 // The rule is one sentence. A stream expression may stand as the first argument
 // of a call into fmt, or as an argument at an io.Writer parameter of a function
@@ -353,10 +356,14 @@ func TestCommandRendersASCII(t *testing.T) {
 // stream another name (sink := stderr), and a handoff to a parameter that is not
 // an io.Writer, which would carry the value out of this rule's sight.
 //
-// One shape writes to the same terminal while naming no stream at all, so the
-// sentence above cannot reach it, and it is refused separately: a call to the
-// builtin println or print. The reasons it is a name here and io.Copy is a
-// position are at that check.
+// Three shapes reach the same terminal while naming no stream at all, so the
+// sentence above cannot reach them, and each is refused separately by name: a
+// call to the builtin println, print or panic, whose text the runtime writes to
+// standard error, a panic's when nothing recovers it; os.NewFile, which makes a
+// writable handle to a descriptor this process already has; and a selector
+// beginning with Must, Go's name for a function that panics where its sibling
+// returns an error. The reasons each is a name here and io.Copy is a position
+// are at its check.
 //
 // The rule holds the value where it stands rather than following it, and a name
 // this file declares io.Writer is a stream expression wherever it stands, so a
@@ -385,21 +392,24 @@ func TestCommandRendersASCII(t *testing.T) {
 //
 // What the rule does not reach, stated rather than left to be found:
 //
-//   - A stream this package never names, reached by opening the same file
-//     descriptor again. os.NewFile(2, "stderr") is neither an io.Writer
-//     declaration nor os.Stderr, so a write to it reaches no rule here —
-//     measured, green, with the raw rune on the terminal. os.Create,
-//     os.OpenFile and os.WriteFile are refused by
-//     TestBundleImportsNoNetworkOrProcess; os.NewFile and os.Open are not on
-//     that list, though os.Open opens read-only, so a copy to what it returns
-//     puts nothing on the terminal — measured, green here and stderr empty.
-//     It stays open because a handle can be got in unboundedly many ways, where
-//     println and print are two names the language fixes and os binds its three
-//     descriptors to three.
+//   - A handle to this process's standard streams got some way that has not
+//     been measured. What has been is at the os.NewFile check: of the ten
+//     functions and methods of os at go1.27.1 that return a *os.File, NewFile
+//     is refused here, five are on TestBundleImportsNoNetworkOrProcess's
+//     forbidden list under three names, three open read-only and Pipe makes a
+//     new pipe, and no other package on that test's import allowlist returns
+//     one. An os function a later toolchain adds is not in that count.
+//   - A panic this package's source does not raise by name. A runtime panic's
+//     text is the runtime's own, an index out of range for one, and is not
+//     read here. A callee's panic can carry an argument this package passed
+//     it, and the Must rule reaches that only by the prefix: its check says
+//     what was read to measure it, and a callee in a package it did not read,
+//     or one that panics with its argument under another name, is not reached.
 //   - Anything outside this package's own non-test source. This reads one hop
 //     and has no type information, the limit quotesRaw records. internal/bundle
 //     needs no rule of this kind: it declares no io.Writer and names no os.Std*
-//     in its non-test source, so it returns its text rather than writing it.
+//     in its non-test source, so it returns its text rather than writing it,
+//     and its only Must calls compile constant patterns of printable ASCII.
 //     cmd/priflyd and cmd/prifly-bootstrap do take an io.Writer and carry no
 //     ASCII control at all, which is a different question and not this one.
 //   - What a permitted write puts on the stream. That a site reaches fmt is all
@@ -407,10 +417,13 @@ func TestCommandRendersASCII(t *testing.T) {
 //     TestCommandRendersASCII, and their own limits stand unchanged.
 //
 // That list is what has been measured, not a proof that nothing else reaches an
-// operator's terminal. Two of its entries were found by someone attacking a
-// sentence claiming more than the tree carried: the builtins, which are refused
-// here now, and a write to os.Stdin, which is a stream expression here now. A
-// route not on the list is not a route this control has ruled out.
+// operator's terminal. Five routes were found green and are closed here now,
+// and only one of them was ever an entry on it: the print builtins, and a write
+// to os.Stdin, each found by someone attacking a sentence that claimed more
+// than the tree carried; panic, found by a review varying who does the writing
+// rather than where it goes, and a callee's panic, found when that finding was
+// triaged; and os.NewFile, which this list disclosed. A route not on the list
+// is not a route this control has ruled out.
 //
 // Where the rule cannot decide, it reports. A parameter list it cannot flatten
 // to positions — a variadic io.Writer, which nothing here has — makes those
@@ -508,25 +521,52 @@ func TestCommandStreamsAreWrittenThroughFmt(t *testing.T) {
 					// green, with U+0430 raw on the terminal, byte for byte the
 					// io.Copy measurement.
 					//
+					// panic is the third, and it is refused on the same ground.
+					// A panic nothing recovers ends the process with the runtime
+					// writing the panic value to standard error, raw, and an
+					// error value's Error text the same way. Measured at
+					// b05932b: panic("prifly: " + args[1]), run with U+0430 as
+					// the argument, left the package green and put "panic:
+					// prifly: " then the bytes d0 b0 on stderr, exit 2, and so
+					// did (panic)(...) and a panic of an error type of this
+					// package's. The cost is that an invariant panic this
+					// package might want, panic("unreachable") say, is a red
+					// too; nothing here calls panic today, and the way to fail
+					// is the way run already does, a message through fmt and a
+					// non-zero exit code. What this does not reach is a panic
+					// raised in another package carrying an argument this one
+					// passed it, which is the Must rule's subject below, and a
+					// runtime panic whose text the runtime generates, an index
+					// out of range for one.
+					//
 					// They are refused by name where io.Copy is not, and the
 					// difference is not a preference. The argument against a
 					// list of writer names is that it is open-ended by
-					// construction; these two are closed by the language
-					// specification, so naming them ends a class rather than
-					// starting a list. A package-level function of that name
-					// this package declares is not the builtin and is left
-					// alone; the carve-out reads this package's function
+					// construction; these three are closed by the language
+					// specification — its predeclared functions are a fixed
+					// list, and these are the three of it that put text on
+					// standard error here — so naming them ends a class rather
+					// than starting a list. A package-level function of one of
+					// those names this package declares is not the builtin and
+					// is left alone; the carve-out reads this package's function
 					// declarations, so a package-level var or a local holding a
 					// func value and named println is reported instead —
 					// measured, both of them, and a false red in the safe
 					// direction rather than a hole.
-					isPrintBuiltin := callee.Name == "println" || callee.Name == "print"
-					if _, declaredHere := writerArgs[callee.Name]; isPrintBuiltin && !declaredHere {
+					_, declaredHere := writerArgs[callee.Name]
+					switch {
+					case declaredHere:
+					case callee.Name == "println" || callee.Name == "print":
 						t.Errorf("%s: the builtin %s writes text to standard error, which is the stream this "+
 							"package hands its callees, while naming no stream this control can read: no rule here, "+
 							"no import and no selector records it. Write operator-visible text to this package's own "+
 							"stream with fmt.Fprint*, rendering any operator-supplied part of it through bundle.Quote "+
 							"or quoteArgs", fset.Position(callee.Pos()), callee.Name)
+					case callee.Name == "panic":
+						t.Errorf("%s: the builtin panic, unrecovered, has the runtime write its value to standard "+
+							"error raw, and names no stream this control can read. Report the failure to this "+
+							"package's own stream with fmt.Fprint*, rendering any operator-supplied part of it through "+
+							"bundle.Quote or quoteArgs, and return a non-zero exit code", fset.Position(callee.Pos()))
 					}
 				}
 				switch fun := n.Fun.(type) {
@@ -545,6 +585,81 @@ func TestCommandStreamsAreWrittenThroughFmt(t *testing.T) {
 							permitted[arg] = "at an io.Writer parameter of this package"
 						}
 					}
+				}
+			case *ast.SelectorExpr:
+				// Two selectors reach the terminal without a stream expression,
+				// and each is refused wherever it is named, called or not, so a
+				// method value (nf := os.NewFile) or a parenthesised callee is
+				// refused where it is written.
+				//
+				// os.NewFile makes a *os.File out of a bare descriptor number, so
+				// os.NewFile(2, "stderr") is a writable handle to standard error
+				// that is neither an io.Writer declaration nor one of the three
+				// os streams. Measured at b05932b: io.Copy to it, and a
+				// strings.Reader's WriteTo into it, each left the package green
+				// with "prifly: " then d0 b0 on stderr. os is resolved through
+				// the imports, as streamExpr resolves it.
+				//
+				// It is named rather than followed, and the list it completes is
+				// measured, not open: the functions and methods of os that return
+				// a *os.File at go1.27.1 are Create, CreateTemp, NewFile, Open,
+				// OpenFile, OpenInRoot, Pipe, and Root's Create, Open and
+				// OpenFile. Create, CreateTemp and OpenFile, Root's two
+				// included, are on TestBundleImportsNoNetworkOrProcess's
+				// forbidden list; Open, OpenInRoot and Root's Open open
+				// read-only, so a copy to what they return puts nothing on the
+				// terminal — measured for os.Open("/dev/stderr") and
+				// os.OpenInRoot("/dev", "stderr"), green and stderr empty; Pipe
+				// makes a new pipe rather than reaching a descriptor this
+				// process already has. NewFile was the one left, and no other
+				// package on that test's import allowlist returns a *os.File.
+				if x, isName := n.X.(*ast.Ident); isName && imports[x.Name] == "os" && n.Sel.Name == "NewFile" {
+					t.Errorf("%s: %s.NewFile makes a writable handle out of a bare descriptor number, so a write "+
+						"to it reaches this process's standard streams while naming none of them, and no rule here "+
+						"reads it. Write operator-visible text to this package's own stream with fmt.Fprint*, "+
+						"rendering any operator-supplied part of it through bundle.Quote or quoteArgs",
+						fset.Position(n.Pos()), x.Name)
+				}
+				// A selector whose name begins with Must is the second. Go names
+				// a function that panics where its sibling returns an error that
+				// way, and the runtime writes a panic's text to standard error
+				// raw, so a Must call given operator text is the panic refused
+				// above, raised one package away where that refusal cannot see
+				// it. Measured at b05932b: regexp.MustCompile("(" + args[1]), run
+				// with U+0430 as the argument, left the package green and put
+				// "panic: regexp: Compile(`(" then d0 b0 on stderr, exit 2.
+				//
+				// The prefix is a naming convention and not a proof that nothing
+				// else panics carrying its argument. It is read by name on any
+				// selector, so an alias, a value or a package of this module
+				// changes nothing. What it is measured against: the non-test
+				// source of every package on TestBundleImportsNoNetworkOrProcess's
+				// import allowlist, and regexp/syntax under regexp, at go1.27.1,
+				// read at each panic whose value is not a string literal. Two
+				// carry text a caller passed in and escape their package:
+				// regexp.MustCompile and regexp.MustCompilePOSIX, both of which
+				// the prefix reaches. The rest are recovered inside their own
+				// package, carry their own or the system's text, or re-raise a
+				// panic they did not start, such as one from a method of a value
+				// they were given, which in this package would be the builtin
+				// refusal's. The packages those import in turn were not read.
+				//
+				// The cost is that a constant pattern compiled with
+				// regexp.MustCompile, the usual shape of a package-level regexp,
+				// is a red here too. A constant is not exempt because a constant
+				// can carry the rune as well: measured at b05932b,
+				// regexp.MustCompile with a constant pattern holding the Go
+				// escape for U+0430 put d0 b0 on stderr the same way. Admitting a
+				// literal of printable ASCII would be sound and is not written,
+				// because nothing in this package compiles a regexp today.
+				// regexp.Compile, with its error reported, is the spelling that
+				// passes.
+				if strings.HasPrefix(n.Sel.Name, "Must") {
+					t.Errorf("%s: .%s panics where its sibling returns an error, and the runtime writes a panic's "+
+						"text to standard error raw; regexp's two Must functions put the pattern they were given in "+
+						"that text. Call the function that returns the error, and report it to this package's own "+
+						"stream with fmt.Fprint*, rendering any operator-supplied part of it through bundle.Quote or "+
+						"quoteArgs", fset.Position(n.Sel.Pos()), n.Sel.Name)
 				}
 			}
 			e, isExpr := n.(ast.Expr)
