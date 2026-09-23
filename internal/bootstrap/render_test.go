@@ -293,10 +293,8 @@ func readRender(sources map[string]string) (findings []string, counted map[strin
 				}
 			case *ast.RangeStmt:
 				// Under :=, as in an assignment, the names are new locals, which exempt does not read as package-level.
-				for _, target := range []ast.Expr{n.Key, n.Value} {
-					if target != nil {
-						assigned(target)
-					}
+				for _, target := range []ast.Expr{n.Key, n.Value} { // either may be nil, which exempt reads as no name
+					assigned(target)
 				}
 			case *ast.UnaryExpr:
 				if n.Op == token.AND {
@@ -540,13 +538,18 @@ func TestReadRenderRules(t *testing.T) {
 		}, nil, map[string]int{cmd + " %w io.EOF": 1, cmd + " %v ErrX": 1}},
 	}
 	// One case per print-family member, the id its first rendered operand, so each operand position is pinned.
-	for fn, i := range fmtPrints {
-		args := []string{"w", "id"}[1-i:] // an Fprint writes to w first; an Append appends to w, here a []byte
-		cases["print family "+fn] = ruleCase{lib(`func f(w io.Writer, id string) { fmt.` + fn + `(` +
-			strings.Join(args, ", ") + `) }`), nil, map[string]int{x + " %v id": 1}}
-		if strings.HasPrefix(fn, "Append") {
-			cases["print family "+fn] = ruleCase{lib(`func f(w []byte, id string) []byte { return fmt.` + fn + `(` +
-				strings.Join(args, ", ") + `) }`), nil, map[string]int{x + " %v id": 1}}
+	// The calls are written out rather than built from fmtPrints, which would move with a mutant of it.
+	for fn, call := range map[string]string{
+		"Print": "fmt.Print(id)", "Println": "fmt.Println(id)", "Sprint": "_ = fmt.Sprint(id)",
+		"Sprintln": "_ = fmt.Sprintln(id)", "Fprint": "fmt.Fprint(w, id)", "Fprintln": "fmt.Fprintln(w, id)",
+		"Append": "_ = fmt.Append(b, id)", "Appendln": "_ = fmt.Appendln(b, id)",
+	} {
+		cases["print family "+fn] = ruleCase{lib(`func f(w io.Writer, b []byte, id string) { ` + call + ` }`), nil,
+			map[string]int{x + " %v id": 1}}
+	}
+	for fn := range fmtPrints {
+		if _, ok := cases["print family "+fn]; !ok {
+			t.Errorf("fmt.%s is read as a print-family member and has no case of its own here", fn)
 		}
 	}
 	for name, c := range cases {
