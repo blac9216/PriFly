@@ -788,8 +788,13 @@ func TestBundleUsageErrors(t *testing.T) {
 // TestBundleImportsNoNetworkOrProcess parses every non-test Go file of this
 // package and, transitively, of each module package it imports. It fails on a dot
 // import (its names would not be selectors), an import outside a standard-library
-// allowlist (so no net, os/exec, syscall, unsafe or reflect) and on any selector
-// that writes files or starts processes.
+// allowlist (so no net, os/exec, syscall, unsafe or reflect in Go source) and on
+// any selector that writes files or starts processes. A file that is not Go
+// source makes no import this can read, and assembly can make a system call
+// with none: measured, a .s file opening a socket, with a body-less Go
+// declaration calling it, was green here. TestLinkedPackagesHoldOnlyGoSource
+// refuses such a file in each of these packages, and the allowlist's
+// consequence holds only together with it.
 func TestBundleImportsNoNetworkOrProcess(t *testing.T) {
 	const module = "github.com/blac9216/PriFly/"
 	allowed := []string{"bytes", "crypto/sha256", "encoding/json", "errors", "fmt", "io", "io/fs", "os", "regexp", "slices", "strconv", "strings", "unicode/utf8"}
@@ -1061,7 +1066,9 @@ func declaredNames(fset *token.FileSet, f *ast.File) map[string][]token.Position
 }
 
 // TestBundleDiagnosticsRenderASCII pins internal/bundle's diagnostic details to a
-// renderer that escapes non-ASCII, by reading the package's own non-test source:
+// renderer that escapes non-ASCII, by reading the package's own non-test Go
+// source (a file of it that is not Go source is refused by
+// TestLinkedPackagesHoldOnlyGoSource):
 // it fails on a strconv quoting call that is not a ToASCII one, on a %q verb
 // — %q is strconv.Quote — anywhere but the one checker.add whose %q argument is
 // this package's Schema constant, which is not bundle text, and on a change to
@@ -1264,7 +1271,7 @@ func TestBundleDiagnosticsRenderASCII(t *testing.T) {
 		})
 	}
 	if parsed < 4 {
-		t.Errorf("parsed %d non-test files of %s, want at least 4", parsed, pkg)
+		t.Errorf("parsed %d non-test Go files of %s, want at least 4", parsed, pkg)
 	}
 	for _, c := range []struct {
 		name string
