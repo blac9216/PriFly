@@ -71,13 +71,15 @@ func TestCommandArgvRendersASCII(t *testing.T) {
 }
 
 // TestCommandRendersASCII is to cmd/prifly what TestBundleDiagnosticsRenderASCII
-// is to internal/bundle: a static control over the package's own non-test source,
-// so that a stderr site added later is red rather than silently uncovered by the
-// three cases above. It fails on a strconv quoting call that is not a ToASCII
-// one, on any string literal holding a directive that renders its argument the
-// way strconv.Quote does, and on a format whose verbs it cannot map to their
-// runtime arguments — fmt's explicit argument index, which is how the same check
-// in internal/bundle used to be evadable (see formatVerbs).
+// is to internal/bundle: a static control over the package's own non-test Go
+// source, so that a stderr site added later is red rather than silently
+// uncovered by the three cases above. A file of the package that is not Go
+// source is not read here; TestLinkedPackagesHoldOnlyGoSource refuses one. It
+// fails on a strconv quoting call that is not a ToASCII one, on any string
+// literal holding a directive that renders its argument the way strconv.Quote
+// does, and on a format whose verbs it cannot map to their runtime arguments —
+// fmt's explicit argument index, which is how the same check in internal/bundle
+// used to be evadable (see formatVerbs).
 //
 // Both rules ask what a thing renders rather than how it is spelled, because
 // each used to be evadable by writing the same call another way: the quoting
@@ -217,7 +219,7 @@ func TestCommandRendersASCII(t *testing.T) {
 		})
 	}
 	if parsed < 2 {
-		t.Errorf("parsed %d non-test files of cmd/prifly, want at least 2", parsed)
+		t.Errorf("parsed %d non-test Go files of cmd/prifly, want at least 2", parsed)
 	}
 	// What either table pins is that a site cannot be added silently, not that a
 	// site prints safely: a new print site rendering operator-supplied text with
@@ -405,13 +407,25 @@ func TestCommandRendersASCII(t *testing.T) {
 //     it, and the Must rule reaches that only by the prefix: its check says
 //     what was read to measure it, and a callee in a package it did not read,
 //     or one that panics with its argument under another name, is not reached.
-//   - Anything outside this package's own non-test source. This reads one hop
-//     and has no type information, the limit quotesRaw records. internal/bundle
-//     needs no rule of this kind: it declares no io.Writer and names no os.Std*
-//     in its non-test source, so it returns its text rather than writing it,
-//     and its only Must calls compile constant patterns of printable ASCII.
+//   - Anything outside this package's own non-test Go source. This reads one
+//     hop and has no type information, the limit quotesRaw records. A file of
+//     this package that is not Go source can write to this process's
+//     descriptors with no stream expression for this rule to read: measured, a
+//     .s function called through a body-less Go declaration, and a .syso
+//     constructor under external linking, which needs no Go change, each put
+//     raw non-ASCII on stderr with this package green.
+//     TestLinkedPackagesHoldOnlyGoSource refuses such a file, so in this
+//     package that route is closed. internal/bundle needs no rule of this
+//     kind: it declares no io.Writer and names no os.Std* in its non-test Go
+//     source, so it returns its text rather than writing it, and its only Must
+//     calls compile constant patterns of printable ASCII. That is a reading of
+//     its source today, not a rule over it: a write it makes in Go is not
+//     refused here.
 //     cmd/priflyd and cmd/prifly-bootstrap do take an io.Writer and carry no
-//     ASCII control at all, which is a different question and not this one.
+//     control of this kind: prifly-bootstrap's ASCII control,
+//     TestBootstrapRendersASCII, reads its fmt calls and states that it has no
+//     counterpart to this one, and cmd/priflyd has no ASCII control at all.
+//     That is a different question and not this one.
 //   - What a permitted write puts on the stream. That a site reaches fmt is all
 //     this says; whether its text is escaped is the subject of the rules in
 //     TestCommandRendersASCII, and their own limits stand unchanged.
@@ -690,7 +704,7 @@ func TestCommandStreamsAreWrittenThroughFmt(t *testing.T) {
 		})
 	}
 	if len(parsedFiles) < 2 {
-		t.Errorf("parsed %d non-test files of cmd/prifly, want at least 2", len(parsedFiles))
+		t.Errorf("parsed %d non-test Go files of cmd/prifly, want at least 2", len(parsedFiles))
 	}
 	// By occurrence, like the tables above, and for the same reason those tables
 	// give: a number that only ever rises with real sites is what makes a rule
