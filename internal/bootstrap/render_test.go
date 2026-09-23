@@ -22,7 +22,7 @@ import (
 
 const modulePath = "github.com/blac9216/PriFly"
 
-// renderCensus is every operand in the non-test source of internal/bootstrap and cmd/prifly-bootstrap that fmt
+// renderCensus is every operand in the non-test Go source of internal/bootstrap and cmd/prifly-bootstrap that fmt
 // renders with a verb other than %+q and that is not a literal, a string constant or an error sentinel of fixed
 // text (see readRender). Each key is the file, the verb and the operand as written, and each count is exact, so a
 // site added later that renders some other value, or the same value once more, is red until it is recorded here.
@@ -40,12 +40,15 @@ var renderCensus = map[string]censusRow{
 }
 
 // TestBootstrapRendersASCII is the static control behind TestDecryptRendersIDsASCII, over what prifly-bootstrap
-// prints: the non-test source of internal/bootstrap and of cmd/prifly-bootstrap. It is the counterpart of
+// prints: the non-test Go source of internal/bootstrap and of cmd/prifly-bootstrap. It is the counterpart of
 // cmd/prifly's TestCommandRendersASCII and is written separately, for this pair of packages; the rules are
-// stated at readRender. cmd/priflyd is not read: it prints build information set when it is built, then either a
-// fixed line or, when controller.Run returns an error, that error. Run returns its shutdown hook's error or
-// controller.ErrShutdownTimedOut, and priflyd's hook returns nil, so the error is only ever that sentinel. Nothing it
-// reads at run time reaches its terminal. The day something does, that change is where its escaping belongs.
+// stated at readRender. A file of either package that is not Go source is not read here, and cmd/prifly's
+// TestLinkedPackagesHoldOnlyGoSource refuses one, so text such a file would print cannot bypass the census.
+// A write in Go source that makes no fmt call still can, as readRender says. cmd/priflyd is not read: it prints
+// build information set when it is built, then either a fixed line or, when controller.Run returns an error, that
+// error. Run returns its shutdown hook's error or controller.ErrShutdownTimedOut, and priflyd's hook returns nil, so
+// the error is only ever that sentinel. Nothing it reads at run time reaches its terminal. The day something does,
+// that change is where its escaping belongs.
 func TestBootstrapRendersASCII(t *testing.T) {
 	sources := map[string]string{}
 	for dir, rel := range map[string]string{".": "internal/bootstrap", "../../cmd/prifly-bootstrap": "cmd/prifly-bootstrap"} {
@@ -174,8 +177,11 @@ var (
 //   - errors.New of anything but a string literal, and a member of errors other than New, Is and As;
 //   - an assignment to an exempt name, as the target of =, of a range clause or of &: a sentinel is fixed text
 //     only while nothing writes to it, and a write would give it any text at all. These two packages are the only
-//     ones of this module prifly-bootstrap links (measured with go list -deps, not checked here), and no package
-//     outside the module can import internal/bootstrap, so they are the only sources that can write one by name;
+//     ones of this module prifly-bootstrap links (not checked here: cmd/prifly's TestLinkedPackagesHoldOnlyGoSource
+//     derives prifly-bootstrap's own set from the link graph and pins it), and no package outside the module can
+//     import internal/bootstrap, so they are the only sources that can write one by name. What this reads of them
+//     is their Go source; a file of either that is not Go source, which makes no assignment for this to read, is
+//     refused by that same test;
 //   - a dot import, which leaves no selector to resolve;
 //   - a method named Error, String, GoString or Format, which fmt calls to render a value, so a type declaring one
 //     decides its own text past every directive.
@@ -503,6 +509,8 @@ func TestReadRenderRules(t *testing.T) {
 		"assign sentinel":      {lib(`func f(err error) { ErrX = err }`), []string{"ErrX is exempt from the census"}, nil},
 		"assign second target": {lib(`func f(err error) { _, ErrX = 1, err }`), []string{"ErrX is exempt from the census"}, nil},
 		"assign third target":  {lib(`func f(err error) { _, _, ErrX = 1, 2, err }`), []string{"ErrX is exempt from the census"}, nil},
+		"fewer values, last":   {lib(`func f() { _, ErrX = g() }`), []string{"ErrX is exempt from the census"}, nil},
+		"fewer values, first":  {lib(`func f() { ErrX, _ = g() }`), []string{"ErrX is exempt from the census"}, nil},
 		"assign in parens":     {lib(`func f(err error) { (ErrX), _ = err, 1 }`), []string{"(ErrX) is exempt from the census"}, nil},
 		"range assigns":        {lib(`func f(errs []error) { for _, ErrX = range errs {} }`), []string{"ErrX is exempt from the census"}, nil},
 		"range key assigns":    {lib(`func f(m map[error]int) { for ErrX = range m {} }`), []string{"ErrX is exempt from the census"}, nil},
