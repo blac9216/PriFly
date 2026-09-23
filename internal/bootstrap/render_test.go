@@ -42,10 +42,13 @@ var renderCensus = map[string]censusRow{
 // TestBootstrapRendersASCII is the static control behind TestDecryptRendersIDsASCII, over what prifly-bootstrap
 // prints: the non-test Go source of internal/bootstrap and of cmd/prifly-bootstrap. It is the counterpart of
 // cmd/prifly's TestCommandRendersASCII and is written separately, for this pair of packages; the rules are
-// stated at readRender. cmd/priflyd is not read: it prints build information set when it is built, then either a
-// fixed line or, when controller.Run returns an error, that error. Run returns its shutdown hook's error or
-// controller.ErrShutdownTimedOut, and priflyd's hook returns nil, so the error is only ever that sentinel. Nothing it
-// reads at run time reaches its terminal. The day something does, that change is where its escaping belongs.
+// stated at readRender. A file of either package that is not Go source is not read here, and cmd/prifly's
+// TestLinkedPackagesHoldOnlyGoSource refuses one, so text such a file would print cannot bypass the census.
+// A write in Go source that makes no fmt call still can, as readRender says. cmd/priflyd is not read: it prints
+// build information set when it is built, then either a fixed line or, when controller.Run returns an error, that
+// error. Run returns its shutdown hook's error or controller.ErrShutdownTimedOut, and priflyd's hook returns nil, so
+// the error is only ever that sentinel. Nothing it reads at run time reaches its terminal. The day something does,
+// that change is where its escaping belongs.
 func TestBootstrapRendersASCII(t *testing.T) {
 	sources := map[string]string{}
 	for dir, rel := range map[string]string{".": "internal/bootstrap", "../../cmd/prifly-bootstrap": "cmd/prifly-bootstrap"} {
