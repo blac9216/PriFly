@@ -316,8 +316,8 @@ func readRender(sources map[string]string) (findings []string, counted map[strin
 							"star width or precision, or a trailing %%, which this control cannot map to operands",
 							at(n), format))
 					case len(verbs) != len(n.Args)-i-1:
-						findings = append(findings, fmt.Sprintf("%s: format %q has %d directives for %d operands; "+
-							"fmt renders an extra operand after the text", at(n), format, len(verbs), len(n.Args)-i-1))
+						findings = append(findings, fmt.Sprintf("%s: format %q has %d directives for %d operands, so "+
+							"they cannot be paired; fmt renders an extra operand after the text", at(n), format, len(verbs), len(n.Args)-i-1))
 					default:
 						for j, v := range verbs {
 							render(v, n.Args[i+1+j])
