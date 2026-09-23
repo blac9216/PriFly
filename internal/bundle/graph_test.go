@@ -126,6 +126,24 @@ func TestGraphNamesEveryCyclicComponent(t *testing.T) {
 		// the component is named once.
 		"two-cycles-one-component": {deps: [][]int{{1}, {0, 2}, {1}},
 			want: []Diagnostic{cycle(1, 0, 0, 1)}},
+		// Entry 0 enters the cycle 1 <-> 2 at entry 2, and the walk still starts
+		// from entry 1, the component's least entry.
+		"entered-past-least": {deps: [][]int{{2}, {2}, {1}},
+			want: []Diagnostic{cycle(2, 0, 1, 2)}},
+		// Entry 0 enters the component of entries 1 to 4 at entry 3. It holds more
+		// than one cycle, 1 <-> 2 and 3 <-> 4 among them, and the cycle named is the
+		// one walked from entry 1, its least entry.
+		"cycles-entered-past-least": {deps: [][]int{{3}, {2}, {1, 3}, {4}, {3, 1}},
+			want: []Diagnostic{cycle(2, 0, 1, 2)}},
+		// Entry 0 declares the greater ID, and the walk still starts from it, the
+		// component's least entry.
+		"least-entry-greater-id": {deps: [][]int{{0}, {1}}, ids: []int{1, 0},
+			want: []Diagnostic{cycle(1, 0, 1, 0)}},
+		// The walk from entry 0 steps to entry 2, then to entry 1, whose first
+		// dependency closes it at entry 2: the cycle is named from entry 2, not
+		// from entry 1, the least entry it holds.
+		"cycle-past-the-start": {deps: [][]int{{2}, {2}, {1, 0}},
+			want: []Diagnostic{cycle(1, 0, 2, 1)}},
 		// A repeated dependency is walked once, at the position first naming it.
 		"repeated-dependency": {deps: [][]int{{1, 1}, {0, 0}},
 			want: []Diagnostic{cycle(1, 0, 0, 1)}},
@@ -174,23 +192,7 @@ func TestGraphNamesEveryCyclicComponentRandom(t *testing.T) {
 			}
 			return -1
 		}
-		// path[i][j] is a dependency path of one step or more from entry i to entry j.
-		path := make([][]bool, n)
-		for i := range path {
-			path[i] = make([]bool, n)
-			for _, d := range deps[i] {
-				if j := to(d); j >= 0 {
-					path[i][j] = true
-				}
-			}
-		}
-		for k := range n {
-			for i := range n {
-				for j := range n {
-					path[i][j] = path[i][j] || path[i][k] && path[k][j]
-				}
-			}
-		}
+		path := paths(deps, to)
 		// An entry is in a cycle when it reaches itself; the entries that reach each
 		// other are one component, named by its least entry.
 		// component is the least entry reaching and reached by entry i, naming the
@@ -250,6 +252,120 @@ func TestGraphNamesEveryCyclicComponentRandom(t *testing.T) {
 		t.Errorf("named %d cycles for %d cyclic components", named, components)
 	}
 	t.Logf("%d cyclic components over 20,000 graphs, each named once", components)
+}
+
+// paths is the reachability of a dependency graph: paths(deps, to)[i][j] is a
+// dependency path of one step or more from entry i to entry j, where to is the
+// entry a dependency names, or -1 when no entry declares its ID.
+func paths(deps [][]int, to func(int) int) [][]bool {
+	n, path := len(deps), make([][]bool, len(deps))
+	for i := range path {
+		path[i] = make([]bool, n)
+		for _, d := range deps[i] {
+			if j := to(d); j >= 0 {
+				path[i][j] = true
+			}
+		}
+	}
+	for k := range n {
+		for i := range n {
+			for j := range n {
+				path[i][j] = path[i][j] || path[i][k] && path[k][j]
+			}
+		}
+	}
+	return path
+}
+
+// TestGraphNamesEveryCyclicComponentExactly draws 20,000 dependency graphs of
+// the shapes TestGraphNamesEveryCyclicComponentRandom draws, but with Work Item
+// IDs in a random order rather than in entry order, and compares each graph's
+// dependency-cycle diagnostics exactly, path and detail, with a walk computed
+// here from mutual reachability: from the least entry of each cyclic
+// component, along each entry's first dependency inside the component, naming
+// the cycle from the entry the walk closes on and reported at the dependency
+// closing it. The test beside it checks what any correct choice of cycle
+// keeps; this one pins which cycle is chosen.
+func TestGraphNamesEveryCyclicComponentExactly(t *testing.T) {
+	rng, named, past, long := rand.New(rand.NewPCG(255, 2)), 0, 0, 0
+	for range 20000 {
+		n := 1 + rng.IntN(9)
+		deps, ids, perm := make([][]int, n), make([]int, n), rng.Perm(n)
+		for i := range n {
+			for range rng.IntN(4) {
+				deps[i] = append(deps[i], rng.IntN(n+2)-2) // -2 and -1 declare no entry
+			}
+			if ids[i] = perm[i]; i > 0 && rng.IntN(8) == 0 {
+				ids[i] = ids[rng.IntN(i)] // an entry repeating an earlier entry's ID
+			}
+		}
+		index := firstByID(ids, n)
+		to := func(d int) int {
+			if j, found := index[wiID(d)]; found {
+				return j
+			}
+			return -1
+		}
+		path := paths(deps, to)
+		// inside is whether entries i and j are in one component.
+		inside := func(i, j int) bool { return i == j || path[i][j] && path[j][i] }
+		want := []Diagnostic{}
+		for s := range n {
+			// s starts a walk when it is in a cycle and is its component's least entry.
+			least := path[s][s]
+			for j := range s {
+				least = least && !inside(s, j)
+			}
+			if !least {
+				continue
+			}
+			pos, walk, cur := map[int]int{}, []int{}, s
+			for {
+				if _, walked := pos[cur]; walked {
+					break
+				}
+				pos[cur], walk = len(walk), append(walk, cur)
+				for _, d := range deps[cur] {
+					if j := to(d); j >= 0 && inside(cur, j) {
+						cur = j
+						break
+					}
+				}
+			}
+			cycle := walk[pos[cur]:]
+			if named++; pos[cur] > 0 {
+				past++
+			}
+			if len(cycle) > 2 {
+				long++
+			}
+			last := cycle[len(cycle)-1]
+			k := slices.IndexFunc(deps[last], func(d int) bool { return to(d) == cycle[0] })
+			names := make([]string, 0, len(cycle)+1)
+			for _, i := range cycle {
+				names = append(names, Quote(wiID(ids[i])))
+			}
+			want = append(want, Diagnostic{fmt.Sprintf("%s.content.dependencies[%d].work_item", entryPath(last), k),
+				"dependency-cycle", "Work Items depend in a cycle: " + strings.Join(append(names, names[0]), " -> ")})
+		}
+		var check checker
+		check.graph(graphOf(deps, ids))
+		got := []Diagnostic{}
+		for _, d := range check.done(true) {
+			if d.Code == "dependency-cycle" {
+				got = append(got, d)
+			}
+		}
+		// The order diagnostics are reported in is done's, not the walk's.
+		order := func(a, b Diagnostic) int { return strings.Compare(a.Path+" "+a.Detail, b.Path+" "+b.Detail) }
+		if slices.SortFunc(got, order); !slices.Equal(got, slices.SortedFunc(slices.Values(want), order)) {
+			t.Fatalf("deps %v ids %v: named %q, want %q", deps, ids, got, want)
+		}
+	}
+	if past == 0 || long == 0 {
+		t.Errorf("of %d cycles, %d are named past their walk's start and %d hold three entries or more", named, past, long)
+	}
+	t.Logf("%d cycles over 20,000 graphs, %d named past their walk's start, %d of three entries or more", named, past, long)
 }
 
 // sameKeys reports whether a and b hold the same keys.
