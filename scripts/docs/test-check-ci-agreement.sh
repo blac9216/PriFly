@@ -21,8 +21,9 @@
 # (#376) has a case per family that issue names -- a key the reader cannot spell, a plain
 # run: continued, a value opened on the next line, a sub-key's value, a comment inside a
 # flow value and a quote inside a plain word -- one on a constructed tail exempt step, a
-# pair at two and three spaces, a case per cost that issue asks to be stated, and a case
-# per closed value the new flow rules must still read.
+# pair at two and three spaces, a case per cost that issue asks to be stated, a case per
+# closed value the new flow rules must still read, and a case per character a loader
+# breaks a line at that the reader does not.
 # All cases run; the script exits 1 if any failed.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -836,8 +837,8 @@ check_case 'comment lines inside the go step list do not truncate it' 0 'workflo
 # together. The mutant that separates them has to add a lookahead rather than remove
 # anything -- refuse only when the very next line begins with exactly two spaces -- and
 # measured, that mutant leaves the clean tree exit 0 and 203 of the 205 cases green, the
-# two red ones being the three-space pair here. Re-measured for #376 over 236 cases it is
-# 231 green: the same pair, and three cost cases of #376's section that have no line
+# two red ones being the three-space pair here. Re-measured for #376 over 243 cases it is
+# 238 green: the same pair, and three cost cases of #376's section that have no line
 # after the value at all. So the second indent is not redundant, and the pair is what
 # #369 M4 asks for.
 #
@@ -846,7 +847,7 @@ check_case 'comment lines inside the go step list do not truncate it' 0 'workflo
 # that mutant rather than off this list. The first version of this list under-counted four
 # of its eight rows, which reads as a rule with one pin when it has several; the second
 # was missing the two rules review round 2 found unpinned. #376 added cases that several of
-# these rules also decide, so every number was re-run over the 236 cases at #376 and is the
+# these rules also decide, so every number was re-run over the 243 cases at #376 and is the
 # whole suite's count, not this section's. No mutant below survives, and the clean tree
 # stays exit 0 under every one of them.
 #   drop '"' from the first-character gate                -> 18
@@ -1258,6 +1259,55 @@ check_case 'a quote after a comma that ends a plain scalar opens a scalar' 0 'wo
 reset_fixture
 printf '%s\n' '        timeout-minutes: {a:["b"]}' >>"$wf_docs"
 check_case 'a quote after a bracket that ends a plain scalar opens a scalar' 0 'workflow steps agree with their documented commands'
+
+# A line here is text ended by a line feed, the only character the reader splits on. A
+# loader also ends a line at a carriage return, and yaml.safe_load and psych at NEL, LS and
+# PS too, so one line to the reader could be two to a loader and the second never seen.
+# Measured at b05932b, each shape below was exit 0 with the summary line byte-identical;
+# the reader now refuses a workflow holding any of the four,
+# anywhere in it, before either scope or the steps are read (#376 review round 1). There is
+# one case per character, since a rule narrowed to one survives a suite that tests only
+# that one; one above the steps, since the refusal is not the step band's alone; and two
+# for the cost, a comment and a file saved with CRLF endings, neither of which hides
+# anything. Each mutant alone turns red exactly these, read off a run of each:
+#   delete the refusal                                     ->  7, every case here
+#   drop the carriage return from the refused characters   ->  4, every carriage return case
+#   drop NEL, LS or PS from them                           ->  1 each, that character's case
+#   count the line from zero, not one                      ->  4, every case naming a line
+#                                                               number
+#   refuse only after the steps: line                      ->  2, the job scope and the
+#                                                               comment on line 1
+#   the scopes above the steps read without the refusal    ->  1, the CRLF file, which the
+#                                                               job lookup then misses
+# One mutant survives and is equivalent: the steps read without the refusal, since the
+# scopes are read from the same file first and refuse it there.
+cr=$'\r'
+nel=$'\xc2\x85'
+ls=$'\xe2\x80\xa8'
+ps=$'\xe2\x80\xa9'
+reset_fixture
+line=$(($(grep -n '^        run: go build ./...$' "$wf_go" | cut -d: -f1) + 1))
+sed -i "s@^        run: go build ./...\$@&\n        timeout-minutes: 5${cr}        if: false@" "$wf_go"
+check_case 'a carriage return that switches a step off is refused' 3 ".github/workflows/go-checks.yml holds a carriage return on line $line, which a YAML loader may read as a line break"
+reset_fixture
+line=$(($(wc -l <"$wf_docs") + 1))
+printf '%s\n' "        timeout-minutes: 5${nel}      - name: Undocumented new step${nel}        run: true" >>"$wf_docs"
+check_case 'NEL that hides a step is refused' 3 ".github/workflows/docs-checks.yml holds NEL (U+0085) on line $line"
+reset_fixture
+printf '%s\n' "        timeout-minutes: 5${ls}      - name: Undocumented new step${ls}        run: true" >>"$wf_docs"
+check_case 'LS that hides a step is refused' 3 '.github/workflows/docs-checks.yml holds LS (U+2028) on line'
+reset_fixture
+printf '%s\n' "        timeout-minutes: 5${ps}      - name: Undocumented new step${ps}        run: true" >>"$wf_docs"
+check_case 'PS that hides a step is refused' 3 '.github/workflows/docs-checks.yml holds PS (U+2029) on line'
+reset_fixture
+sed -i "s@^    timeout-minutes: 25\$@&${cr}    if: false@" "$wf_go"
+check_case 'a carriage return that switches a job off is refused' 3 '.github/workflows/go-checks.yml holds a carriage return on line'
+reset_fixture
+sed -i "1s@\$@${cr}@" "$wf_docs"
+check_case 'a carriage return in a comment is refused too' 3 '.github/workflows/docs-checks.yml holds a carriage return on line 1,'
+reset_fixture
+sed -i "s@\$@${cr}@" "$wf_go"
+check_case 'a workflow saved with CRLF line endings is refused too' 3 '.github/workflows/go-checks.yml holds a carriage return on line 1,'
 
 # --- #361: an exempt step's position is declared -------------------------------------
 # Moving an exempt step changes none of its bytes, so the declared exempt content list

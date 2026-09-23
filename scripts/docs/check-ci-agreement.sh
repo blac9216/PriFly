@@ -75,8 +75,10 @@
 #   at the bracket inside the comment; and it opened a quoted scalar at every quote, so
 #   [a"b, "c] continued as x"] read as closed while a loader read the plain word a"b and
 #   then a quoted scalar running onto the next line. Each hid a step behind it with this
-#   checker's summary line byte-identical. The scanner now follows the loader's flow tokens
-#   in both places; the paragraph on the step band below says what it reads and what was
+#   checker's summary line byte-identical. value_closes now refuses a # anywhere outside a
+#   quoted scalar, and refuses a quote met inside what may be a plain scalar rather than
+#   opening a quoted scalar there; neither follows a loader's tokens, and each refuses shapes
+#   a loader reads. The paragraph on the step band below says what it reads and what was
 #   measured. Refusing is a choice with a cost, stated
 #   here where the choice is made: this repository now rejects a step layout GitHub
 #   accepts, and rejects it whether or not a step is hidden behind it -- a continued
@@ -128,7 +130,20 @@
 #   a YAML parser is out of scope here as it was in #361.
 #   What the step band holds besides those keys is the next paragraph's.
 #
-# A line in the step band that this reader does not read is refused by name (#376). The
+# A line in the step band that this reader does not read is refused by name (#376). A line
+# here is text ended by a line feed, which is the only character this reader splits on.
+# YAML also ends a line at a carriage return, and yaml.safe_load and psych end one at NEL,
+# LS and PS too (U+0085, U+2028, U+2029, line breaks in YAML 1.1), so one line here could be
+# two to a loader, the second read into the first's value and never seen: after a
+# timeout-minutes: 5, a carriage return then if: false switched off go build, or a carriage
+# return then a - name: and a run: added a step, each exit 0 at b05932b with the summary
+# line byte-identical, and the same held at job scope and for each of the other three
+# characters. So workflow_lines refuses a workflow whose text holds any of the four,
+# anywhere, before either scope or the steps are read. The cost is that a workflow saved
+# with CRLF line endings is refused, and so is one of the three Unicode characters inside a
+# comment or a quoted scalar, which YAML 1.2, unlike those two loaders, reads as text. The
+# self-test pins the first cost and a carriage return in a comment. Whether GitHub
+# Actions' own parser breaks a line at any of the four is not known here. The
 # band is every line of a job's steps: block that begins with six spaces, and this reader
 # reads a line there as one of five things: a step's - name:, a step key at eight spaces, a
 # sub-key at ten under a step key that opened a block -- one with nothing after its colon
@@ -836,8 +851,22 @@ def value_closes(value: str) -> bool:
     return False
 
 
+LINE_BREAKS = {"\r": "a carriage return", "\x85": "NEL (U+0085)", "\u2028": "LS (U+2028)", "\u2029": "PS (U+2029)"}
+
+
+def workflow_lines(relative: str) -> list[str]:
+    """A workflow's lines, split at each line feed, and refused if it holds another character a loader may break at."""
+    text = read(relative)
+    for char, name in LINE_BREAKS.items():
+        if char in text:
+            unparsable("%s holds %s on line %d, which a YAML loader may read as a line break while this reader reads "
+                       "on to the next line feed, so a loader could read a line here that this reader never sees"
+                       % (relative, name, text.count("\n", 0, text.index(char)) + 1))
+    return text.split("\n")
+
+
 def steps_of(relative: str, job: str) -> list[Step]:
-    lines = read(relative).split("\n")
+    lines = workflow_lines(relative)
     try:
         start = lines.index("  %s:" % job)
     except ValueError:
@@ -988,7 +1017,7 @@ def mapping_at(lines: list[str], start: int, indent: int, where: str,
 
 def scopes_of(relative: str, job: str) -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
     """The workflow mapping and the job mapping above a job's steps, each with its env."""
-    lines = read(relative).split("\n")
+    lines = workflow_lines(relative)
     workflow_keys, workflow_blocks = mapping_at(lines, 0, 0, "%s workflow scope" % relative, ("env",))
     try:
         start = lines.index("  %s:" % job)
