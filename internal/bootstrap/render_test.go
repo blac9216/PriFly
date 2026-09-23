@@ -178,9 +178,9 @@ var (
 //   - an assignment to an exempt name, as the target of =, of a range clause or of &: a sentinel is fixed text
 //     only while nothing writes to it, and a write would give it any text at all. These two packages are the only
 //     ones of this module prifly-bootstrap links (not checked here: cmd/prifly's TestLinkedPackagesHoldOnlyGoSource
-//     derives that set from the link graph and pins it), and no package outside the module can import
-//     internal/bootstrap, so they are the only sources that can write one by name. What this reads of them is
-//     their Go source; a file of either that is not Go source, which makes no assignment for this to read, is
+//     derives prifly-bootstrap's own set from the link graph and pins it), and no package outside the module can
+//     import internal/bootstrap, so they are the only sources that can write one by name. What this reads of them
+//     is their Go source; a file of either that is not Go source, which makes no assignment for this to read, is
 //     refused by that same test;
 //   - a dot import, which leaves no selector to resolve;
 //   - a method named Error, String, GoString or Format, which fmt calls to render a value, so a type declaring one

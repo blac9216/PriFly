@@ -28,21 +28,50 @@ import (
 // each control whose limits it changes.
 //
 // The packages are derived from the link graph rather than listed, so a package
-// linked later is read by the rule as soon as it is linked. The list below pins
-// what the derivation finds today, which keeps the walk from going quietly
-// inert and makes a newly linked package red here until someone records it,
-// having decided whether the Go-source controls above reach it too.
+// linked later is read by the rule as soon as it is linked. linkSets pins what
+// the derivation finds today for each binary on its own, which keeps the walk
+// from going quietly inert and makes a package either binary newly links red
+// here until someone records it, having decided whether the Go-source controls
+// above reach it too. The pin is per binary rather than over both together
+// because the controls are: a package prifly-bootstrap newly links is outside
+// TestBootstrapRendersASCII even when prifly already links it.
 func TestLinkedPackagesHoldOnlyGoSource(t *testing.T) {
-	dirs, findings, err := linkedNonGoSources(os.DirFS("../.."), "cmd/prifly", "cmd/prifly-bootstrap")
+	repo := os.DirFS("../..")
+	_, findings, err := linkedNonGoSources(repo, slices.Sorted(maps.Keys(linkSets))...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range findings {
+	drift, err := linkSetDrift(repo, linkSets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range append(findings, drift...) {
 		t.Error(f)
 	}
-	if want := []string{"cmd/prifly", "cmd/prifly-bootstrap", "internal/bootstrap", "internal/buildinfo", "internal/bundle"}; !slices.Equal(dirs, want) {
-		t.Errorf("module packages the two binaries link = %q, want %q", dirs, want)
+}
+
+// linkSets is, for the main package of each binary, the module packages
+// linkedNonGoSources derives it links, as directories of the module's root.
+var linkSets = map[string][]string{
+	"cmd/prifly":           {"cmd/prifly", "internal/buildinfo", "internal/bundle"},
+	"cmd/prifly-bootstrap": {"cmd/prifly-bootstrap", "internal/bootstrap"},
+}
+
+// linkSetDrift returns a finding for each root of want whose link set, derived
+// by linkedNonGoSources from that root alone, is not want[root].
+func linkSetDrift(fsys fs.FS, want map[string][]string) ([]string, error) {
+	var findings []string
+	for _, root := range slices.Sorted(maps.Keys(want)) {
+		dirs, _, err := linkedNonGoSources(fsys, root)
+		if err != nil {
+			return nil, err
+		}
+		if !slices.Equal(dirs, want[root]) {
+			findings = append(findings, fmt.Sprintf("%s links module packages %q, want %q; record a package it "+
+				"newly links once the render and import controls that read it are decided", root, dirs, want[root]))
+		}
 	}
+	return findings, nil
 }
 
 // linkedNonGoSources returns the module packages the binaries whose main
@@ -166,6 +195,7 @@ func TestLinkedNonGoSourcesRule(t *testing.T) {
 	}{
 		"go source only":  {fstest.MapFS{"p/p.go": goFile("p"), "p/p_test.go": goFile("p", "testing")}, nil},
 		"a subdirectory":  {fstest.MapFS{"p/p.go": goFile("p"), "p/testdata/x.s": {}, "p/y.s/z.go": goFile("z")}, nil},
+		"a symlink":       {fstest.MapFS{"p/p.go": goFile("p"), "p/l.s": {Mode: fs.ModeSymlink, Data: []byte("x.s")}}, []string{"p/l.s: not a .go file"}},
 		"cgo":             {fstest.MapFS{"p/p.go": goFile("p", "C")}, []string{"p/p.go: imports \"C\""}},
 		"cgo in a test":   {fstest.MapFS{"p/p.go": goFile("p"), "p/p_test.go": goFile("p", "C")}, []string{"p/p_test.go: imports \"C\""}},
 		"cgo among other": {fstest.MapFS{"p/p.go": goFile("p", "fmt", "C", "os")}, []string{"p/p.go: imports \"C\""}},
@@ -187,30 +217,60 @@ func TestLinkedNonGoSourcesRule(t *testing.T) {
 	}
 
 	// The link graph: two roots sharing a package, a package reached only
-	// through another, one imported only by a file whose name limits it to
-	// windows, the module's root package, and two that nothing linked imports: one imported
-	// only by a test file, one by nothing.
+	// through another, two reached only as the second module import of a file,
+	// one imported only by a file whose name limits it to windows, the module's
+	// root package, and two that nothing linked imports: one imported only by a
+	// test file, one by nothing.
 	graph := fstest.MapFS{
 		"a/a.go":         goFile("main", module+"/b"),
 		"a/a_windows.go": goFile("main", module+"/f"),
 		"a/a_test.go":    goFile("main", module+"/e"),
-		"r/r.go":         goFile("main", module+"/c"),
-		"b/b.go":         goFile("b", "fmt", module+"/c"),
+		"r/r.go":         goFile("main", module+"/c", module+"/h"),
+		"b/b.go":         goFile("b", "fmt", module+"/c", module+"/g"),
 		"c/c.go":         goFile("c", module),
 		"root.go":        goFile("prifly"),
 		"d/d.go":         goFile("d"),
 		"e/e.go":         goFile("e"),
 		"f/f.go":         goFile("f"),
+		"g/g.go":         goFile("g"),
+		"h/h.go":         goFile("h"),
 	}
 	dirs, findings, err := linkedNonGoSources(graph, "a", "r")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{".", "a", "b", "c", "f", "r"}; !slices.Equal(dirs, want) || len(findings) != 0 {
+	if want := []string{".", "a", "b", "c", "f", "g", "h", "r"}; !slices.Equal(dirs, want) || len(findings) != 0 {
 		t.Errorf("linked = %q with findings %q, want %q and none", dirs, findings, want)
 	}
 	for _, dir := range dirs {
 		t.Run("graph dir "+dir, func(t *testing.T) { refusedIn(t, graph, dir, "a", "r") })
+	}
+
+	// The per-root pin: each root's set as derived, then each root newly linking
+	// a package only the other root linked, which leaves the union of the two
+	// unchanged.
+	sets := map[string][]string{"a": {".", "a", "b", "c", "f", "g"}, "r": {".", "c", "h", "r"}}
+	for name, c := range map[string]struct {
+		file, imports string // a file added to the graph, and the one package it imports
+		drift         string // how the one finding begins, or "" for none
+	}{
+		"link sets as pinned": {},
+		"a newly links h":     {"a/zz.go", module + "/h", "a links"},
+		"r newly links b":     {"r/zz.go", module + "/b", "r links"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fsys := maps.Clone(graph)
+			if c.file != "" {
+				fsys[c.file] = goFile("main", c.imports)
+			}
+			drift, err := linkSetDrift(fsys, sets)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.drift == "" && len(drift) != 0 || c.drift != "" && (len(drift) != 1 || !strings.HasPrefix(drift[0], c.drift)) {
+				t.Errorf("drift = %q, want one finding beginning %q, or none if that is empty", drift, c.drift)
+			}
+		})
 	}
 
 	// One case per directory of the real link set: the tree's own Go files,
@@ -218,7 +278,8 @@ func TestLinkedNonGoSourcesRule(t *testing.T) {
 	// Only Go files are copied, so a non-Go file on the tree is reported by
 	// TestLinkedPackagesHoldOnlyGoSource and not by every case here.
 	repo := os.DirFS("../..")
-	dirs, _, err = linkedNonGoSources(repo, "cmd/prifly", "cmd/prifly-bootstrap")
+	roots := slices.Sorted(maps.Keys(linkSets))
+	dirs, _, err = linkedNonGoSources(repo, roots...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +301,7 @@ func TestLinkedNonGoSourcesRule(t *testing.T) {
 		}
 	}
 	for _, dir := range dirs {
-		t.Run("linked dir "+dir, func(t *testing.T) { refusedIn(t, tree, dir, "cmd/prifly", "cmd/prifly-bootstrap") })
+		t.Run("linked dir "+dir, func(t *testing.T) { refusedIn(t, tree, dir, roots...) })
 	}
 }
 

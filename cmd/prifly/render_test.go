@@ -410,10 +410,11 @@ func TestCommandRendersASCII(t *testing.T) {
 //   - Anything outside this package's own non-test Go source. This reads one
 //     hop and has no type information, the limit quotesRaw records. A file of
 //     this package that is not Go source can write to this process's
-//     descriptors with no stream expression for this rule to read: measured, a
-//     .s function called through a body-less Go declaration, and a .syso
-//     constructor under external linking, which needs no Go change, each put
-//     raw non-ASCII on stderr with this package green.
+//     descriptors with no stream expression for this rule to read: measured at
+//     81308d1, before TestLinkedPackagesHoldOnlyGoSource existed, a .s function
+//     called through a body-less Go declaration, and a .syso constructor under
+//     external linking, which needs no Go change, each put raw non-ASCII on
+//     stderr with every test of this package green.
 //     TestLinkedPackagesHoldOnlyGoSource refuses such a file, so in this
 //     package that route is closed. internal/bundle needs no rule of this
 //     kind: it declares no io.Writer and names no os.Std* in its non-test Go
