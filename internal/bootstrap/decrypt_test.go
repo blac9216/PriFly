@@ -253,6 +253,51 @@ func TestDecryptRequiredSecrets(t *testing.T) {
 	}
 }
 
+// homoglyphID is "r" then U+0430, the Cyrillic small a, which a terminal draws as the Latin a. %q is
+// strconv.Quote and leaves it raw; homoglyphEscaped, written as a raw literal so this file states the bytes
+// rather than computing them with the renderer under test, is what strconv.QuoteToASCII renders it as.
+const (
+	homoglyphID      = "r\u0430"
+	homoglyphEscaped = `"r\u0430"`
+)
+
+// TestDecryptRendersIDsASCII drives an id carrying a printable non-ASCII character through each of the five
+// diagnostics that name a secret id, and pins the whole message: prifly-bootstrap prints it after "blocked: ".
+// Through the decrypt helper, so the leak checks hold for these cases too.
+func TestDecryptRendersIDsASCII(t *testing.T) {
+	id, identityFile := newIdentity(t)
+	entry := func(generation int, lineage string) string {
+		return fmt.Sprintf(`{"id":%q,"purpose":"p","generation":%d,%s"value":%q}`, homoglyphID, generation, lineage, canary)
+	}
+	r2 := `{"id":"r2","purpose":"replication","generation":1,"value":"prifly-canary-r2"}`
+	for name, c := range map[string]struct {
+		secrets  []string
+		required []RequiredSecret
+		want     string // after "bootstrap: decrypted secrets invalid: "
+	}{
+		"duplicate": {[]string{entry(1, ""), entry(1, "")}, []RequiredSecret{{homoglyphID, 1}}, "secret " + homoglyphEscaped + " appears more than once"},
+		"lineage": {[]string{entry(1, `"supersedes_generation":1,`)}, []RequiredSecret{{homoglyphID, 1}}, "secret " + homoglyphEscaped +
+			" rotation lineage inconsistent: supersedes_generation must be absent for generation 1, otherwise from 1 to generation-1"},
+		"stale":   {[]string{entry(1, "")}, []RequiredSecret{{homoglyphID, 2}}, "secret " + homoglyphEscaped + " generation 1 is stale; the manifest requires 2"},
+		"newer":   {[]string{entry(2, `"supersedes_generation":1,`)}, []RequiredSecret{{homoglyphID, 1}}, "secret " + homoglyphEscaped + " generation 2 is newer than the manifest requires (1)"},
+		"missing": {[]string{r2}, []RequiredSecret{{"r2", 1}, {homoglyphID, 1}}, "required secret " + homoglyphEscaped + " missing"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := seal(t, id, fmt.Sprintf(`{"schema":%q,"factory_id":%q,"secrets":[%s]}`, SecretSchema, factory, strings.Join(c.secrets, ",")))
+			v.Manifest.RequiredSecrets = c.required
+			stdout, stderr, err, _ := decrypt(t, v, identityFile, inWork, func(string) error { return nil }, 0)
+			want, got := ErrSecrets.Error()+": "+c.want, fmt.Sprint(err)
+			ascii := true
+			for _, b := range []byte(got) {
+				ascii = ascii && b < 0x80
+			}
+			if got != want || !ascii || !errors.Is(err, ErrSecrets) || stdout+stderr != "" {
+				t.Fatalf("err = %q, want %q; ASCII %t; output %q", got, want, ascii, stdout+stderr)
+			}
+		})
+	}
+}
+
 // TestClaimWorkDir leaves what a killed run would (a Decrypt directory holding a canary plaintext and a symbolic
 // link out of the work directory, and a Fetch directory) beside look-alike names. Only the leftovers may go,
 // nothing outside may change, and an entry that is not this user's 0700 directory or a second claim blocks.
