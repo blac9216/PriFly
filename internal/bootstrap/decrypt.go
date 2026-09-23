@@ -170,6 +170,8 @@ func checkSecrets(f io.ReaderAt, n int64, m Manifest) error {
 		required[r.ID] = r.Generation
 	}
 	// A diagnostic names only an id the reviewed manifest declares; from the plaintext it carries at most a generation.
+	// The id is rendered with %+q, strconv.QuoteToASCII, not %q: %q leaves printable non-ASCII raw, so a homoglyph in
+	// an id would reach prifly-bootstrap's stderr as itself. TestBootstrapRendersASCII holds the rule.
 	for _, e := range s.Secrets {
 		want, named := required[e.ID]
 		switch {
@@ -178,19 +180,19 @@ func checkSecrets(f io.ReaderAt, n int64, m Manifest) error {
 		case !named:
 			return fmt.Errorf("%w: holds a secret the manifest does not require", ErrSecrets)
 		case seen[e.ID]:
-			return fmt.Errorf("%w: secret %q appears more than once", ErrSecrets, e.ID)
+			return fmt.Errorf("%w: secret %+q appears more than once", ErrSecrets, e.ID)
 		case (e.Supersedes == nil) != (e.Generation == 1) || e.Supersedes != nil && (*e.Supersedes < 1 || *e.Supersedes >= e.Generation):
-			return fmt.Errorf("%w: secret %q rotation lineage inconsistent: supersedes_generation must be absent for generation 1, otherwise from 1 to generation-1", ErrSecrets, e.ID)
+			return fmt.Errorf("%w: secret %+q rotation lineage inconsistent: supersedes_generation must be absent for generation 1, otherwise from 1 to generation-1", ErrSecrets, e.ID)
 		case e.Generation < want:
-			return fmt.Errorf("%w: secret %q generation %d is stale; the manifest requires %d", ErrSecrets, e.ID, e.Generation, want)
+			return fmt.Errorf("%w: secret %+q generation %d is stale; the manifest requires %d", ErrSecrets, e.ID, e.Generation, want)
 		case e.Generation > want:
-			return fmt.Errorf("%w: secret %q generation %d is newer than the manifest requires (%d)", ErrSecrets, e.ID, e.Generation, want)
+			return fmt.Errorf("%w: secret %+q generation %d is newer than the manifest requires (%d)", ErrSecrets, e.ID, e.Generation, want)
 		}
 		seen[e.ID] = true
 	}
 	for _, r := range m.RequiredSecrets {
 		if !seen[r.ID] {
-			return fmt.Errorf("%w: required secret %q missing", ErrSecrets, r.ID)
+			return fmt.Errorf("%w: required secret %+q missing", ErrSecrets, r.ID)
 		}
 	}
 	return nil
